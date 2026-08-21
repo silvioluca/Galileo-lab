@@ -15,7 +15,7 @@
       display: flex;
       gap: 2px;
       padding: 6px 16px;
-      background: var(--bg-panel);
+      background: var(--bg2);
       border-bottom: 1px solid var(--border-idle);
       flex-shrink: 0;
     }
@@ -31,7 +31,7 @@
       cursor: pointer;
       transition: all .14s;
     }
-    .ss-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .ss-tab:hover { background: var(--bg3); color: var(--text-primary); }
     .ss-tab.active {
       background: rgba(0,212,255,0.09);
       border-color: rgba(0,212,255,0.28);
@@ -47,7 +47,7 @@
 
     .obj-card {
       width: 150px;
-      background: var(--bg-panel);
+      background: var(--bg2);
       border: 1px solid var(--border-idle);
       border-radius: 10px;
       padding: 14px 12px 12px;
@@ -100,7 +100,7 @@
     }
     .ss-modal-overlay.hidden { display: none; }
     .ss-modal {
-      background: var(--bg-panel);
+      background: var(--bg2);
       border: 1px solid var(--border-idle);
       border-radius: 14px;
       width: min(580px, 92vw);
@@ -116,7 +116,7 @@
       cursor: pointer; line-height: 1; padding: 4px 8px;
       border-radius: 4px;
     }
-    .ss-modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .ss-modal-close:hover { background: var(--bg3); color: var(--text-primary); }
     .ss-modal-header { display: flex; align-items: center; gap: 18px; margin-bottom: 22px; }
     .ss-modal-name { font-size: 26px; font-weight: 700; color: var(--text-primary); }
     .ss-modal-meta { font-size: 12px; color: var(--text-secondary); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
@@ -141,7 +141,7 @@
     .ss-toolbar {
       display: flex; align-items: center; gap: 6px;
       padding: 6px 14px;
-      background: var(--bg-panel); border-bottom: 1px solid var(--border-idle);
+      background: var(--bg2); border-bottom: 1px solid var(--border-idle);
       flex-shrink: 0; flex-wrap: wrap;
     }
     .ss-toolbar-label { font-family:'Space Mono',monospace; font-size:9px; letter-spacing:0.8px; color:var(--text-hint); margin-right:1px; }
@@ -162,7 +162,7 @@
 
     .ss-tip {
       position:absolute; pointer-events:none;
-      background:var(--bg-panel); border:1px solid var(--border-idle);
+      background:var(--bg2); border:1px solid var(--border-idle);
       border-radius:6px; padding:5px 10px;
       font-family:'Space Mono',monospace; font-size:10px; color:var(--text-primary);
       display:none; z-index:10; white-space:nowrap;
@@ -188,15 +188,15 @@
   </header>
 
   <div class="ss-tabs">
-    <button class="ss-tab active" data-tab="data">DATI</button>
-    <button class="ss-tab" data-tab="sizes">DIMENSIONI</button>
-    <button class="ss-tab" data-tab="distances">DISTANZE 3D</button>
+    <button class="ss-tab" data-tab="data">DATI</button>
+    <button class="ss-tab" data-tab="sizes">MODELLO</button>
+    <button class="ss-tab active" data-tab="distances">MODELLO 3D</button>
   </div>
 
   <div class="ss-content">
 
     <!-- Tab 1: Dati - grid view -->
-    <div class="ss-view" id="view-data">
+    <div class="ss-view hidden" id="view-data">
       <div id="objectGrid"></div>
     </div>
 
@@ -207,9 +207,12 @@
         <button class="sz-scale active" data-s="noSun">Pianeti</button>
         <button class="sz-scale" data-s="sun">Con Sole</button>
         <div class="sep"></div>
-        <span class="ss-toolbar-label">MOSTRA:</span>
-        <button class="sz-filter active" data-f="planets">Pianeti</button>
-        <button class="sz-filter" data-f="moons">Lune principali</button>
+        <span class="ss-toolbar-label">DISTANZA:</span>
+        <button class="sz-dist active" data-d="compact">Compatta</button>
+        <button class="sz-dist" data-d="log">Log</button>
+        <button class="sz-dist" data-d="linear">Lineare</button>
+        <div class="sep"></div>
+        <button class="sz-moons" data-m="1">+ Lune principali</button>
       </div>
       <div class="ss-canvas-wrap" id="sizeWrap">
         <canvas id="sizeCanvas"></canvas>
@@ -218,11 +221,18 @@
     </div>
 
     <!-- Tab 3: Distanze 3D -->
-    <div class="ss-view hidden" id="view-distances">
+    <div class="ss-view" id="view-distances">
       <div class="ss-toolbar">
         <span class="ss-toolbar-label">ANIMAZIONE:</span>
         <button id="btnDistPlay">▶ AVVIA</button>
         <button id="btnDistReset" title="Reimposta camera">↺ CAMERA</button>
+        <div class="sep"></div>
+        <span class="ss-toolbar-label">VELOCITÀ:</span>
+        <button class="dst-speed" data-v="0.25">0.25×</button>
+        <button class="dst-speed" data-v="0.5">0.5×</button>
+        <button class="dst-speed active" data-v="1">1×</button>
+        <button class="dst-speed" data-v="2">2×</button>
+        <button class="dst-speed" data-v="5">5×</button>
         <div class="sep"></div>
         <span class="ss-toolbar-label">SCALA:</span>
         <button class="dst-scale active" data-s="log">Log</button>
@@ -231,6 +241,7 @@
         <span class="ss-toolbar-label">OGGETTI:</span>
         <button class="dst-filter active" data-f="planets">Pianeti</button>
         <button class="dst-filter" data-f="all">+ Nani</button>
+        <button class="dst-moons" data-m="1">+ Lune</button>
       </div>
       <div class="ss-canvas-wrap" id="distWrap">
         <canvas id="distCanvas"></canvas>

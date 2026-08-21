@@ -163,11 +163,16 @@ function drawRealisticBody(ctx, cx, cy, r, obj) {
     ctx.fillStyle=obj.color; ctx.fill(); return;
   }
 
-  /* Glow per stelle */
+  /* Glow per stelle: larghezza della corona limitata (non r*fattore) — a scala reale (tab
+     Dimensioni, "Con Sole") r può arrivare a centinaia di px, e un raggio esterno proporzionale
+     (es. r*1.6) supera facilmente le dimensioni del canvas: la sfumatura non fa in tempo a
+     raggiungere alpha 0 prima del bordo del canvas, che la ritaglia di netto mostrando un
+     "quadrato" (i tre lati non curvi del rettangolo canvas) invece di un alone morbido */
   if (obj.type==='star') {
-    const gg=ctx.createRadialGradient(cx,cy,r,cx,cy,r*1.6);
+    const glowW=Math.min(r*0.6, 60);
+    const gg=ctx.createRadialGradient(cx,cy,r,cx,cy,r+glowW);
     gg.addColorStop(0,'rgba(255,200,50,0.35)'); gg.addColorStop(1,'rgba(255,140,10,0)');
-    ctx.beginPath(); ctx.arc(cx,cy,r*1.6,0,Math.PI*2); ctx.fillStyle=gg; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx,cy,r+glowW,0,Math.PI*2); ctx.fillStyle=gg; ctx.fill();
   }
 
   /* Atmosfera per pianeti con aria */
@@ -401,14 +406,20 @@ function buildGrid() {
       const card=document.createElement('div');
       card.className='obj-card';
 
-      /* Visual circle */
+      /* Visual circle — il Sole ha bisogno di più margine del semplice +4px riservato alle
+         altre card (pensato per il bordo degli anelli di Saturno), altrimenti l'alone della
+         stella viene ritagliato di netto dal bordo del canvas (lo stesso bug "quadrato" visto
+         nella tab Dimensioni, qui riproposto in miniatura) */
       const VIS_R=28;
+      const isStar=obj.type==='star';
+      const PAD=isStar?22:4;
+      const boxSize=VIS_R*2+PAD*2;
       const canvas2=document.createElement('canvas');
       const dpr=window.devicePixelRatio||1;
-      canvas2.width=(VIS_R*2+8)*dpr; canvas2.height=(VIS_R*2+8)*dpr;
-      canvas2.style.width=(VIS_R*2+8)+'px'; canvas2.style.height=(VIS_R*2+8)+'px';
+      canvas2.width=boxSize*dpr; canvas2.height=boxSize*dpr;
+      canvas2.style.width=boxSize+'px'; canvas2.style.height=boxSize+'px';
       const c2=canvas2.getContext('2d'); c2.scale(dpr,dpr);
-      const ccx=VIS_R+4, ccy=VIS_R+4;
+      const ccx=VIS_R+PAD, ccy=VIS_R+PAD;
       if (obj.hasRings && VIS_R>10) drawSaturnRings2D(c2,ccx,ccy,VIS_R*0.75);
       drawRealisticBody(c2,ccx,ccy,VIS_R,obj);
       if (obj.hasRings) {
@@ -427,7 +438,7 @@ function buildGrid() {
       const orbStr=obj.orbPeriod?(obj.orbPeriod<1?`${(obj.orbPeriod*365.25).toFixed(1)} d`:`${obj.orbPeriod.toFixed(1)} a`):'—';
 
       card.innerHTML=`
-        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:${VIS_R*2+8}px;height:${VIS_R*2+8}px"></div>
+        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:${boxSize}px;height:${boxSize}px"></div>
         <div class="obj-card-name">${obj.name}</div>
         <span class="ss-badge obj-card-badge" style="background:${TYPE_COLOR[obj.type]};color:${TYPE_TEXT[obj.type]};border:1px solid ${TYPE_TEXT[obj.type]}44">${TYPE_LABEL[obj.type]}</span>
         <div class="obj-card-stats">
@@ -504,15 +515,126 @@ document.getElementById('modalOverlay').addEventListener('click',e=>{
 const sizeCanvas=document.getElementById('sizeCanvas');
 const sizeWrap  =document.getElementById('sizeWrap');
 const sizeTip   =document.getElementById('sizeTip');
-let szScale='noSun', szFilter='planets', sizeHover=null;
+let szScale='noSun', szDist='compact', szMoons=false, sizeHover=null;
+const SZ_MIN_VIS=7, SZ_MIN_GAP=18, MOON_MIN_VIS=4;
+const MAJOR_MOON_IDS=['moon','io','europa','ganymede','callisto','titan','enceladus','rhea','triton'];
+function moonsOfPlanet(planetId) {
+  return MAJOR_MOON_IDS.map(id=>BY_ID[id]).filter(m=>m.parent===planetId).sort((a,b)=>a.smaKm-b.smaKm);
+}
 
 function getSizeBodies() {
   const pl=['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune'];
-  const mn=['moon','io','europa','ganymede','callisto','titan','enceladus','rhea','triton'];
-  if (szFilter==='moons') return mn.map(id=>BY_ID[id]);
   const list=pl.map(id=>BY_ID[id]);
   if (szScale==='sun') list.unshift(BY_ID['sun']);
   return list;
+}
+
+/* Layout condiviso fra rendering (drawSizes) e hit-testing (getSizePositions). Due assi indipendenti:
+   - szDist='compact': i pianeti (tranne il Sole "parziale", posizione fissa fuori-canvas) vengono
+     distribuiti con un gap UNIFORME calcolato per riempire tutta la larghezza disponibile — prima
+     il gap era un valore fisso di 18px indipendente dallo spazio disponibile, quindi tutto restava
+     ammassato a sinistra ("tutti attaccati");
+   - szDist='log'|'linear': la posizione X riflette la distanza orbitale REALE (sma in UA) dal Sole,
+     mappata logaritmicamente o linearmente sulla larghezza disponibile — stessa idea della scala
+     Log/Lineare già presente nella tab Distanze 3D, qui applicata a una fascia 1D.
+   Se szMoons è attivo, le lune principali vengono aggiunte accanto al proprio pianeta (non al posto
+   dei pianeti), con una scala locale propria (log/lineare sulla loro smaKm) per restare in un raggio
+   ragionevole invece di essere spinte a distanze assurde dalla scala globale in UA. */
+function computeSizeLayout(H, Ww) {
+  const bodies=getSizeBodies();
+  const maxR=Math.max(...bodies.map(o=>o.radius));
+  const maxVisR=szScale==='sun'?H*0.40:Math.min(H*0.40,Ww/(bodies.length*2.4));
+  const scale=maxVisR/maxR;
+  const MARGIN=40;
+
+  const items=bodies.map(obj=>{
+    const trueR=obj.radius*scale;
+    const visR=Math.max(SZ_MIN_VIS, trueR);
+    return {obj,trueR,visR,isSunPartial:(obj.type==='star'&&szScale==='sun')};
+  });
+  const sunItem=items.find(it=>it.isSunPartial);
+  const flowItems=items.filter(it=>!it.isSunPartial);
+  // il Sole a scala reale è enorme (trueR arriva a centinaia di px): prima il centro era fissato
+  // a cx:0 (metà del disco sempre visibile) e solo lo spazio riservato al primo pianeta veniva
+  // ridotto con un fattore arbitrario (0.18·trueR) scollegato dal raggio VERO disegnato, quindi
+  // Mercurio/Venere finivano comunque disegnati sopra il bordo del Sole. Fix: il centro del Sole
+  // va molto più a sinistra, fuori canvas, così ne resta visibile solo una fetta di larghezza
+  // fissa SUN_SLIVER indipendente da quanto è grande trueR — "basta veramente un pezzo".
+  const SUN_SLIVER=60;
+  const reserved=sunItem?SUN_SLIVER+SZ_MIN_GAP:0;
+  const availX0=MARGIN+reserved;
+  const availableW=Ww-MARGIN*2-reserved;
+
+  const positions=[];
+  if (sunItem) positions.push({obj:sunItem.obj,cx:-(sunItem.trueR-SUN_SLIVER),cy:H/2,r:sunItem.trueR,visR:sunItem.visR,partial:true});
+
+  const planetPos=[];
+  if (szDist==='compact') {
+    const sumDiam=flowItems.reduce((s,it)=>s+it.visR*2,0);
+    const n=flowItems.length;
+    const gap=n>1?Math.max(SZ_MIN_GAP,(availableW-sumDiam)/(n-1)):SZ_MIN_GAP;
+    let x=availX0;
+    flowItems.forEach(it=>{
+      planetPos.push({it,cx:x+it.visR});
+      x+=it.visR*2+gap;
+    });
+  } else {
+    const smas=flowItems.map(it=>it.obj.sma);
+    const minSma=Math.min(...smas), maxSma=Math.max(...smas);
+    flowItems.forEach(it=>{
+      const f=szDist==='log'
+        ? (Math.log(it.obj.sma)-Math.log(minSma))/(Math.log(maxSma)-Math.log(minSma))
+        : (it.obj.sma-minSma)/(maxSma-minSma);
+      planetPos.push({it,cx:availX0+f*availableW});
+    });
+  }
+
+  planetPos.forEach(({it,cx},idx)=>{
+    positions.push({obj:it.obj,cx,cy:H/2,r:it.trueR,visR:it.visR,partial:false});
+    if (!szMoons) return;
+    const moons=moonsOfPlanet(it.obj.id);
+    if (!moons.length) return;
+    const nextCx=idx<planetPos.length-1?planetPos[idx+1].cx-planetPos[idx+1].it.visR:Ww-MARGIN;
+    const maxSpan=Math.max(24,Math.min(90,(nextCx-cx-it.visR)*0.7));
+    const minSma2=moons[0].smaKm, maxSma2=moons[moons.length-1].smaKm;
+    moons.forEach(mo=>{
+      const moonVisR=Math.max(MOON_MIN_VIS, mo.radius*scale);
+      let off;
+      if (moons.length===1) off=it.visR+16;
+      else {
+        const f2=szDist==='linear'
+          ? (mo.smaKm-minSma2)/((maxSma2-minSma2)||1)
+          : (Math.log(mo.smaKm)-Math.log(minSma2))/((Math.log(maxSma2)-Math.log(minSma2))||1);
+        off=it.visR+14+f2*maxSpan;
+      }
+      positions.push({obj:mo,cx:cx+off,cy:H/2,r:moonVisR,visR:moonVisR,partial:false,isMoon:true});
+    });
+  });
+
+  const lastX=positions.filter(p=>!p.partial).reduce((m,p)=>Math.max(m,p.cx+p.visR),0);
+  return {positions, W:Math.max(Ww, lastX+MARGIN)};
+}
+
+/* Le etichette dei nomi si accavallano quando più corpi (pianeti piccoli ravvicinati, o lune
+   ammassate attorno a un pianeta) hanno il centro troppo vicino perché il testo, sempre
+   centrato appena sotto il corpo, ci stia senza sovrapporsi al vicino. Risolto con un semplice
+   "shelf packing" orizzontale su livelli via via più lontani dal corpo: ogni corpo viene
+   assegnato al primo livello dove il proprio testo non tocca l'ultimo testo già piazzato a
+   quel livello; dal secondo livello in su l'etichetta riceve anche un piccolo scarto laterale
+   alternato (sinistra/destra) e viene disegnata con un connettore "a gomito" (verticale poi
+   orizzontale) che la ricollega al corpo, così resta chiaro a chi appartiene anche se non è più
+   direttamente sotto di esso. */
+function computeLabelPlacements(positions, ctx) {
+  const items=positions.filter(p=>!p.partial).slice().sort((a,b)=>a.cx-b.cx);
+  const tierRightEdge=[];
+  items.forEach(p=>{
+    ctx.font=p.isMoon?`7px 'Space Mono',monospace`:`bold ${Math.min(12,Math.max(9,p.visR*0.35+8))}px 'DM Sans',sans-serif`;
+    const w=ctx.measureText(p.obj.name).width;
+    let tier=0;
+    while(tierRightEdge[tier]!==undefined && p.cx-w/2<tierRightEdge[tier]+8) tier++;
+    tierRightEdge[tier]=p.cx+w/2;
+    p._labelTier=tier;
+  });
 }
 
 function drawSizes() {
@@ -520,32 +642,9 @@ function drawSizes() {
   const H=Math.max(200,sizeWrap.clientHeight);
   const ctx=sizeCanvas.getContext('2d');
 
-  const bodies=getSizeBodies();
-  const maxR=Math.max(...bodies.map(o=>o.radius));
-  /* Scale: largest body fills 80% of half-height */
   const Ww=sizeWrap.clientWidth||900;
-  const maxVisR=szScale==='sun'?H*0.40:Math.min(H*0.40,Ww/(bodies.length*2.4));
-  const scale=maxVisR/maxR;
+  const {positions, W}=computeSizeLayout(H, Ww);
 
-  /* Layout */
-  const positions=[];
-  let x=20;
-  const MIN_VIS=7, MIN_GAP=18;
-
-  for (const obj of bodies) {
-    const trueR=obj.radius*scale;
-    const visR=Math.max(MIN_VIS, trueR);
-    const isSunPartial=(obj.type==='star'&&szScale==='sun');
-    if (isSunPartial) {
-      positions.push({obj,cx:0,cy:H/2,r:trueR,visR,partial:true});
-      x=Math.min(trueR*0.18,160)+MIN_GAP;
-    } else {
-      positions.push({obj,cx:x+visR,cy:H/2,r:trueR,visR,partial:false});
-      x+=visR*2+MIN_GAP;
-    }
-  }
-
-  const W=x+24;
   sizeCanvas.width=W*dpr; sizeCanvas.height=H*dpr;
   sizeCanvas.style.width=W+'px'; sizeCanvas.style.height=H+'px';
   ctx.setTransform(dpr,0,0,dpr,0,0);
@@ -560,8 +659,10 @@ function drawSizes() {
   ctx.beginPath(); ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); ctx.stroke();
   ctx.setLineDash([]);
 
+  computeLabelPlacements(positions, ctx);
+
   for (const pos of positions) {
-    const {obj,cx,cy,r,visR,partial}=pos;
+    const {obj,cx,cy,r,visR,partial,isMoon}=pos;
 
     ctx.save();
     if (partial) {
@@ -594,15 +695,29 @@ function drawSizes() {
       ctx.strokeStyle='rgba(0,212,255,0.75)'; ctx.lineWidth=2; ctx.stroke();
     }
 
-    /* Name label */
-    const lblY=cy+visR+16;
-    ctx.fillStyle=dk?'rgba(180,210,255,0.85)':'rgba(20,40,80,0.80)';
-    ctx.font=`bold ${Math.min(12,Math.max(9,visR*0.35+8))}px 'DM Sans',sans-serif`;
+    /* Name label — le lune hanno un'etichetta più piccola/discreta per non affollare la vista.
+       Dal secondo livello di sovrapposizione (_labelTier>0) l'etichetta scende di livello e
+       riceve uno scarto laterale alternato, ricollegata al corpo da un connettore a gomito. */
+    const tier=pos._labelTier||0;
+    const baseGap=isMoon?11:16, tierH=isMoon?10:14;
+    const lblY=cy+visR+baseGap+tier*tierH;
+    const nudgeX=tier>0?((tier%2===0?-1:1)*(8+tier*4)):0;
+    const lblCx=cx+nudgeX;
+    if (tier>0) {
+      const stubY=cy+visR+3, midY=lblY-6;
+      ctx.strokeStyle=isMoon?'rgba(150,180,220,0.35)':'rgba(0,212,255,0.32)';
+      ctx.lineWidth=0.8;
+      ctx.beginPath();
+      ctx.moveTo(cx,stubY); ctx.lineTo(cx,midY); ctx.lineTo(lblCx,midY); ctx.lineTo(lblCx,lblY-2);
+      ctx.stroke();
+    }
+    ctx.fillStyle=isMoon?(dk?'rgba(140,170,210,0.65)':'rgba(50,70,100,0.65)'):(dk?'rgba(180,210,255,0.85)':'rgba(20,40,80,0.80)');
+    ctx.font=isMoon?`7px 'Space Mono',monospace`:`bold ${Math.min(12,Math.max(9,visR*0.35+8))}px 'DM Sans',sans-serif`;
     ctx.textAlign='center';
-    ctx.fillText(obj.name, cx, lblY);
+    ctx.fillText(obj.name, lblCx, lblY);
 
-    /* Radius dimension line */
-    if (visR >= MIN_VIS) {
+    /* Radius dimension line (non per le lune: con più corpi per pianeta diventerebbe illeggibile) */
+    if (!isMoon && visR >= SZ_MIN_VIS) {
       const lineY=cy-visR-8;
       ctx.strokeStyle=dk?'rgba(0,212,255,0.28)':'rgba(0,100,180,0.25)';
       ctx.lineWidth=1; ctx.setLineDash([2,3]);
@@ -617,7 +732,7 @@ function drawSizes() {
       ctx.fillText(rkm,cx,lineY-6);
 
       /* If visR >> trueR, add "enlarged" note */
-      if (r<MIN_VIS-0.5 && obj.type!=='star') {
+      if (r<SZ_MIN_VIS-0.5 && obj.type!=='star') {
         ctx.fillStyle=dk?'rgba(255,180,80,0.55)':'rgba(180,90,0,0.50)';
         ctx.font=`8px 'Space Mono',monospace`;
         ctx.fillText('(ingrandito)',cx,lblY+11);
@@ -637,21 +752,9 @@ function drawSizes() {
 
 /* Hover/click */
 function getSizePositions() {
-  const bodies=getSizeBodies();
   const H=sizeWrap.clientHeight||400;
-  const maxR=Math.max(...bodies.map(o=>o.radius));
-  const Ww2=sizeWrap.clientWidth||900;
-  const maxVisR2=szScale==='sun'?H*0.40:Math.min(H*0.40,Ww2/(bodies.length*2.4));
-  const scale=maxVisR2/maxR;
-  const MIN_VIS=7, MIN_GAP=18;
-  let x=20; const pos=[];
-  for (const obj of bodies) {
-    const visR=Math.max(MIN_VIS,obj.radius*scale);
-    const isSunPartial=obj.type==='star'&&szScale==='sun';
-    if (isSunPartial){pos.push({obj,cx:0,cy:H/2,visR});x=Math.min(obj.radius*scale*0.18,160)+MIN_GAP;}
-    else{pos.push({obj,cx:x+visR,cy:H/2,visR});x+=visR*2+MIN_GAP;}
-  }
-  return pos;
+  const Ww=sizeWrap.clientWidth||900;
+  return computeSizeLayout(H, Ww).positions;
 }
 sizeCanvas.addEventListener('mousemove',e=>{
   const rect=sizeCanvas.getBoundingClientRect();
@@ -674,9 +777,9 @@ const distCanvas=document.getElementById('distCanvas');
 const distWrap  =document.getElementById('distWrap');
 const distTip   =document.getElementById('distTip');
 
-let dstScale='log', dstFilter='planets';
+let dstScale='log', dstFilter='planets', dstMoons=false, dist3DSpeedMult=1;
 let dist3DRunning=false, dist3DRaf=null, dist3DTime=0;
-const DIST3D_SPEED=0.3; // anni/s
+const DIST3D_SPEED=0.3; // anni/s (base, moltiplicata dal controllo VELOCITÀ dell'utente)
 const cam={theta:Math.PI*0.55, phi:0.42, zoom:1, panX:0, panY:0};
 let camDrag=null; // {mode:'rotate'|'pan', sx,sy,t0,p0,px0,py0}
 let distHover=null;
@@ -687,7 +790,7 @@ function startDist3D(){
   let last=performance.now();
   function loop(now){
     const dt=Math.min((now-last)/1000,0.05); last=now;
-    dist3DTime+=dt*DIST3D_SPEED;
+    dist3DTime+=dt*DIST3D_SPEED*dist3DSpeedMult;
     drawDist3D();
     if(dist3DRunning) dist3DRaf=requestAnimationFrame(loop);
   }
@@ -755,6 +858,19 @@ function getPlanetPos3D(obj){
   const r=a*(1-e*Math.cos(E));
   const xo=r*Math.cos(nu), yo=r*Math.sin(nu);
   return project3D(xo, yo*Math.cos(i), yo*Math.sin(i));
+}
+
+/* Posizione di una luna in una mini-orbita attorno alla posizione GIÀ proiettata del proprio
+   pianeta (`parentP.sx/sy`): la vera distanza orbitale (poche centinaia di migliaia di km) è
+   invisibile alla scala del sistema solare in UA, quindi il raggio dell'orbitina è puramente
+   visivo (cresce con l'indice per non sovrapporre lune diverse) — ma la FASE (angolo) usa il
+   periodo orbitale reale della luna (`orbPeriod`, in anni, stessa unità di dist3DTime), quindi
+   la velocità di rivoluzione relativa fra le lune di uno stesso pianeta è quella vera */
+function getMoonPos3D(moon, parentP, dotR, idx) {
+  const orbR=dotR*2.6+idx*dotR*1.7;
+  const period=moon.orbPeriod||0.02;
+  const ang=((dist3DTime/period)%1)*Math.PI*2;
+  return {sx:parentP.sx+Math.cos(ang)*orbR, sy:parentP.sy+Math.sin(ang)*orbR*0.5, orbR};
 }
 
 function drawDist3D(){
@@ -858,6 +974,28 @@ function drawDist3D(){
     ctx.font=`${Math.min(11,Math.max(8,dotR+3))}px 'DM Sans',sans-serif`;
     ctx.textAlign='center';
     ctx.fillText(obj.name, p.sx, p.sy-dotR-4);
+
+    /* Lune principali: mini-orbita attorno al pianeta, fase = periodo orbitale reale */
+    if (dstMoons) {
+      const moons=moonsOfPlanet(obj.id);
+      moons.forEach((moon,idx)=>{
+        const mp=getMoonPos3D(moon,p,dotR,idx);
+        ctx.beginPath(); ctx.ellipse(p.sx,p.sy,mp.orbR,mp.orbR*0.5,0,0,Math.PI*2);
+        ctx.strokeStyle=dk?'rgba(150,180,220,0.16)':'rgba(30,60,110,0.16)';
+        ctx.lineWidth=0.7; ctx.stroke();
+        const moonR=1.6;
+        ctx.beginPath(); ctx.arc(mp.sx,mp.sy,moonR,0,Math.PI*2);
+        ctx.fillStyle=moon.color||'#c8c8c0';
+        ctx.fill();
+        if (distHover===moon.id) {
+          ctx.beginPath(); ctx.arc(mp.sx,mp.sy,moonR+2.5,0,Math.PI*2);
+          ctx.strokeStyle='rgba(0,212,255,0.8)'; ctx.lineWidth=1.4; ctx.stroke();
+          ctx.fillStyle=dk?'rgba(180,210,255,0.85)':'rgba(20,40,80,0.8)';
+          ctx.font=`8px 'DM Sans',sans-serif`; ctx.textAlign='center';
+          ctx.fillText(moon.name, mp.sx, mp.sy-moonR-4);
+        }
+      });
+    }
   });
 
   /* Scale + time info */
@@ -899,7 +1037,7 @@ distCanvas.addEventListener('wheel',e=>{
   if(!dist3DRunning) drawDist3D();
 },{passive:false});
 
-/* Hover planets */
+/* Hover planets (e, se attive, le loro lune principali) */
 distCanvas.addEventListener('mousemove',e=>{
   if(camDrag)return;
   const rect=distCanvas.getBoundingClientRect();
@@ -909,6 +1047,14 @@ distCanvas.addEventListener('mousemove',e=>{
   for(const obj of bodies){
     const pp=getPlanetPos3D(obj); if(!pp) continue;
     const dotR=Math.max(3,Math.min(5,Math.log10(obj.radius)-0.5));
+    if(dstMoons){
+      const moons=moonsOfPlanet(obj.id);
+      for(let idx=0;idx<moons.length;idx++){
+        const mp=getMoonPos3D(moons[idx],pp,dotR,idx);
+        if(Math.hypot(mx-mp.sx,my-mp.sy)<1.6+6){found=moons[idx];break;}
+      }
+      if(found)break;
+    }
     if(Math.hypot(mx-pp.sx,my-pp.sy)<dotR+8){found=obj;break;}
   }
   const newId=found?found.id:null;
@@ -916,7 +1062,10 @@ distCanvas.addEventListener('mousemove',e=>{
   if(found){
     distTip.style.display='block';
     distTip.style.left=(mx+12)+'px'; distTip.style.top=(my-6)+'px';
-    distTip.textContent=`${found.name} — ${found.sma} AU · T=${found.orbPeriod?.toFixed(2)} a`;
+    const isMoon=found.type==='moon';
+    distTip.textContent=isMoon
+      ?`${found.name} — ${found.smaKm.toLocaleString('it')} km · T=${(found.orbPeriod*365.25).toFixed(2)} d`
+      :`${found.name} — ${found.sma} AU · T=${found.orbPeriod?.toFixed(2)} a`;
     distCanvas.style.cursor='pointer';
   } else {
     distTip.style.display='none';
@@ -952,13 +1101,23 @@ function setupToolbars(){
     document.querySelectorAll('.sz-scale').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active'); sizeHover=null; drawSizes();
   }));
-  document.querySelectorAll('.sz-filter').forEach(btn=>btn.addEventListener('click',()=>{
-    szFilter=btn.dataset.f;
-    document.querySelectorAll('.sz-filter').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.sz-dist').forEach(btn=>btn.addEventListener('click',()=>{
+    szDist=btn.dataset.d;
+    document.querySelectorAll('.sz-dist').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active'); sizeHover=null; drawSizes();
   }));
+  document.querySelector('.sz-moons').addEventListener('click',btn=>{
+    szMoons=!szMoons;
+    btn.currentTarget.classList.toggle('active',szMoons);
+    sizeHover=null; drawSizes();
+  });
 
   /* Distances */
+  document.querySelectorAll('.dst-speed').forEach(btn=>btn.addEventListener('click',()=>{
+    dist3DSpeedMult=parseFloat(btn.dataset.v);
+    document.querySelectorAll('.dst-speed').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+  }));
   document.querySelectorAll('.dst-scale').forEach(btn=>btn.addEventListener('click',()=>{
     dstScale=btn.dataset.s;
     document.querySelectorAll('.dst-scale').forEach(b=>b.classList.remove('active'));
@@ -969,6 +1128,11 @@ function setupToolbars(){
     document.querySelectorAll('.dst-filter').forEach(b=>b.classList.remove('active'));
     btn.classList.add('active'); if(!dist3DRunning) drawDist3D();
   }));
+  document.querySelector('.dst-moons').addEventListener('click',e=>{
+    dstMoons=!dstMoons;
+    e.currentTarget.classList.toggle('active',dstMoons);
+    if(!dist3DRunning) drawDist3D();
+  });
 
   document.getElementById('btnDistPlay').addEventListener('click',()=>{
     dist3DRunning?stopDist3D():startDist3D();
@@ -998,6 +1162,7 @@ function init(){
   setupToolbars();
   buildGrid();
   drawDist3D();
+  startDist3D();                      // la vista di apertura (Distanze 3D) parte già animata
 }
 
 init();

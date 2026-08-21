@@ -667,10 +667,15 @@ function draw() {
 /* ── Canvas resize ──────────────────────────────────────────────────────── */
 function resizeCanvases() {
   const area = sc.parentElement;
-  SW = area.clientWidth;
-  SH = sc.clientHeight || area.clientHeight * 0.60;
-  sc.width=SW*DPR; sc.height=SH*DPR; sc.style.width=SW+'px'; sc.style.height=SH+'px';
   const ga = document.getElementById('graphArea');
+  const rb = document.getElementById('readout');
+  SW = area.clientWidth;
+  // Calcolata dal contenitore meno gli elementi a dimensione fissa (grafici + misure), MAI da
+  // sc.clientHeight: quel valore diventa auto-referenziale una volta che gli si assegna uno
+  // style.height esplicito, quindi il canvas smette di restringersi quando la finestra si
+  // rimpicciolisce e spinge grafici/misure fuori dall'area visibile (tagliati da overflow:hidden).
+  SH = Math.max(160, area.clientHeight - ga.offsetHeight - rb.offsetHeight);
+  sc.width=SW*DPR; sc.height=SH*DPR; sc.style.width=SW+'px'; sc.style.height=SH+'px';
   GW=ga.clientWidth; GH=ga.clientHeight;
   gc.width=GW*DPR; gc.height=GH*DPR; gc.style.width=GW+'px'; gc.style.height=GH+'px';
   invalidateLens();
