@@ -62,6 +62,21 @@ function precessionPeriodH() {
   const oz = Math.abs(omegaZ());
   return oz > 1e-9 ? (TWO / oz) / 3600 : Infinity;
 }
+// Tempo REALE (ore) corrispondente a quanto animT ha già "raccontato": dato che l'unica cosa che
+// PRECESSION_EXAGGERATION fa è comprimere il tempo (θ_animazione(animT)=θ_reale(animT·ESAGERAZ.)),
+// il tempo reale trascorso è semplicemente animT·ESAGERAZIONE — indipendente da L e da latitudine
+// (l'esagerazione è un fattore di conversione temporale puro, non una velocità angolare). Quanto
+// QUEL tempo reale faccia ruotare il piano dipende invece da Ω_z, cioè solo dalla latitudine
+// (mai da L: il periodo di precessione di un pendolo di Foucault NON dipende dalla lunghezza del
+// filo — fatto fisico reale, non un'omissione — la lunghezza determina solo T₀, il periodo della
+// singola oscillazione, una scala temporale completamente diversa).
+function realHoursElapsed() { return animT * PRECESSION_EXAGGERATION / 3600; }
+function fmtHours(h) {
+  if (!isFinite(h)) return '∞';
+  const totMin = Math.round(h * 60);
+  const hh = Math.floor(totMin / 60), mm = totMin % 60;
+  return `${hh}h ${String(mm).padStart(2, '0')}min`;
+}
 function positionAt(t) {
   const w0 = omega0(), A = ampLinear();
   const xi = A * Math.cos(w0 * t), eta = A * P.ellip * Math.sin(w0 * t);
@@ -326,11 +341,11 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 't', label: 'Tempo (animazione)' },
-    { key: 'T0', label: 'Periodo oscillazione T₀' },
+    { key: 't', label: 'Tempo reale trascorso' },
     { key: 'Tprec', label: 'Periodo precessione reale' },
-    { key: 'angle', label: 'Angolo ruotato' },
+    { key: 'angle', label: 'Angolo piano ruotato' },
     { key: 'verso', label: 'Verso' },
+    { key: 'T0', label: 'Periodo oscillazione T₀' },
   ]);
 }
 
@@ -388,10 +403,10 @@ function init() {
       const lat = P.lat_deg;
       const verso = Math.abs(lat) < 0.05 ? 'nessuna' : (lat > 0 ? 'oraria ↻' : 'antioraria ↺');
       const angleDeg = (Math.abs(omegaZ()) * PRECESSION_EXAGGERATION * animT * 180 / Math.PI) % 360;
-      readout.set('t', animT.toFixed(1) + ' s');
+      readout.set('t', fmtHours(realHoursElapsed()));
       readout.set('T0', fmt(swingPeriodS(), ' s'));
       readout.set('Tprec', precessionPeriodH() === Infinity ? '∞ (equatore)' : fmt(precessionPeriodH(), ' h'));
-      readout.set('angle', fmt(angleDeg, '°') + ' (esagerato)');
+      readout.set('angle', fmt(angleDeg, '°'));
       readout.set('verso', verso);
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

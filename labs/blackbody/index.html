@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Corpo Nero — Galileo Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../shared/lab.css">
+</head>
+<body>
+  <header class="lab-header">
+    <a href="../../" class="lab-back">← GALILEOLAB</a>
+    <div class="lab-header-info">
+      <span class="tag tag-nucleare">Nucleare</span>
+      <span class="lab-header-title">Corpo Nero</span>
+    </div>
+    <div class="lab-header-right">
+      <button class="btn-icon" id="themeToggle" title="Cambia tema">◑</button>
+    </div>
+  </header>
+  <div class="lab-layout">
+    <div class="lab-canvas-area">
+      <canvas id="simCanvas"></canvas>
+      <div class="graph-area" id="graphArea" style="display:none;"></div>
+      <div class="readout-bar" id="readout"></div>
+    </div>
+    <aside class="lab-panel">
+      <div class="panel-scroll">
+        <div id="controls"></div>
+      </div>
+      <div class="panel-actions">
+        <button class="btn-primary"   id="btnPlay">⏸  PAUSA</button>
+        <button class="btn-secondary" id="btnReset">↺  RESET</button>
+      </div>
+    </aside>
+  </div>
+  <script src="../../shared/lab.js"></script>
+  <script src="sim.js"></script>
+</body>
+</html>
