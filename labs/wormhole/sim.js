@@ -14,49 +14,49 @@
 // qui, esattamente come per il risolutore di circuiti di questa sessione.
 const TWO = Math.PI * 2;
 const SCHW_KM_PER_MSUN = 2.953;
-const CAM_R = 22;              // distanza della camera dal buco nero, unità di M — fissa: la tabella di deflessione dipende da questo valore, tenerlo costante evita di doverla ricostruire
+const CAM_R = 80;              // distanza della camera dal buco nero, unità di M — fissa: la tabella di deflessione dipende da questo valore, tenerlo costante evita di doverla ricostruire
 const B_CRIT = 3 * Math.sqrt(3); // parametro d'impatto critico esatto di Schwarzschild (fotoni con b<b_crit vengono catturati)
 
 // ═══ Tabella di deflessione fotonica — costruita UNA volta, riusata per ogni pixel di ogni frame ═══
-const B_MAX = 34, B_SAMPLES = 480;
+const B_MAX = 82, B_SAMPLES = 640; // b arriva fino a ~CAM_R: copre ogni raggio dell'inquadratura, anche con lo zoom al minimo
 const PHI_MAX = 11 * Math.PI, PHI_STEP = 0.018;
 const N_PHI = Math.round(PHI_MAX / PHI_STEP);
 let deflTable = null; // Float32Array[B_SAMPLES*N_PHI]: u(φ) per ciascun b; -1 = già catturato a quel φ
 function bOfIndex(bi) { return 0.05 + (B_MAX - 0.05) * Math.pow(bi / (B_SAMPLES - 1), 1.6); } // più campioni vicino a b_crit
 function indexOfB(b) { return (B_SAMPLES - 1) * Math.pow(Math.max(0, (b - 0.05) / (B_MAX - 0.05)), 1 / 1.6); }
-function odeDeriv(u, up) { return [up, -u + 3 * u * u]; }
-function rk4(u, up, h) {
-  const k1 = odeDeriv(u, up);
-  const k2 = odeDeriv(u + h / 2 * k1[0], up + h / 2 * k1[1]);
-  const k3 = odeDeriv(u + h / 2 * k2[0], up + h / 2 * k2[1]);
-  const k4 = odeDeriv(u + h * k3[0], up + h * k3[1]);
-  return [u + h / 6 * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]), up + h / 6 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])];
-}
+let phiEscape = null; // Float32Array[B_SAMPLES]: angolo totale percorso dai fotoni che sfuggono (-1 = catturato)
+const ESCAPE_U = 0.05 / CAM_R;
 function buildDeflectionTable() {
   deflTable = new Float32Array(B_SAMPLES * N_PHI);
+  phiEscape = new Float32Array(B_SAMPLES);
   const dphiInt = 0.003;
   const u0 = 1 / CAM_R;
   // una volta che un fotone è chiaramente sfuggito (u molto piccolo, r decine di volte la distanza
   // della camera, e ancora in allontanamento) si smette di integrare e si "congela" u a un valore
-  // piccolo ma POSITIVO — senza questo taglio l'equazione continua oltre il punto in cui il fotone
-  // è ormai andato all'infinito e u oscilla fino a diventare negativo (puro artefatto numerico, non
-  // fisica), che lookupU scambiava per "catturato dall'orizzonte": bug reale scoperto controllando
-  // perché l'etichetta "Anello di fotoni" finiva ancorata al bordo superiore del fotogramma — i
-  // raggi con parametro d'impatto grande (chiaramente diretti al cielo) venivano marcati come
-  // orizzonte, gonfiando artificialmente la sagoma nera lungo tutto il bordo superiore dell'immagine.
-  const ESCAPE_U = u0 * 0.05;
+  // piccolo ma POSITIVO: oltre quel punto l'equazione oscillerebbe fino a u negativo (puro artefatto
+  // numerico), che verrebbe scambiato per una cattura da parte dell'orizzonte.
   for (let bi = 0; bi < B_SAMPLES; bi++) {
     const b = bOfIndex(bi);
     let u = u0, up = Math.sqrt(Math.max(0, 1 / (b * b) - u * u + 2 * u * u * u));
     let phi = 0, captured = false, escaped = false, uFrozen = 0;
+    phiEscape[bi] = -1;
     for (let s = 0; s < N_PHI; s++) {
       const targetPhi = s * PHI_STEP;
       if (!captured && !escaped) {
         while (phi < targetPhi - 1e-9) {
           const h = Math.min(dphiInt, targetPhi - phi);
-          const r2 = rk4(u, up, h); u = r2[0]; up = r2[1]; phi += h;
+          // RK4 su u'' = -u + 3u² (scritto per esteso: niente array temporanei nel ciclo più caldo)
+          const k1p = -u + 3 * u * u;
+          const u2 = u + h / 2 * up, p2 = up + h / 2 * k1p, k2p = -u2 + 3 * u2 * u2;
+          const u3 = u + h / 2 * p2, p3 = up + h / 2 * k2p, k3p = -u3 + 3 * u3 * u3;
+          const u4 = u + h * p3, p4 = up + h * k3p, k4p = -u4 + 3 * u4 * u4;
+          u += h / 6 * (up + 2 * p2 + 2 * p3 + p4); up += h / 6 * (k1p + 2 * k2p + 2 * k3p + k4p); phi += h;
           if (u > 0.5) { captured = true; break; }
-          if (u < ESCAPE_U && up < 0) { escaped = true; uFrozen = Math.max(u, 1e-5); break; }
+          if (u < ESCAPE_U && up < 0) {
+            escaped = true; uFrozen = Math.max(u, 1e-5);
+            phiEscape[bi] = phi + Math.asin(Math.min(1, b * u));   // tratto restante fino all'infinito
+            break;
+          }
         }
       }
       deflTable[bi * N_PHI + s] = captured ? -1 : (escaped ? uFrozen : u);
@@ -69,10 +69,17 @@ function lookupU(b, phi) {
   const bi0 = Math.floor(bf), bfrac = bf - bi0, bi1 = Math.min(bi0 + 1, B_SAMPLES - 1);
   const pf = clamp(phi / PHI_STEP, 0, N_PHI - 1.0001);
   const pi0 = Math.floor(pf), pfrac = pf - pi0, pi1 = Math.min(pi0 + 1, N_PHI - 1);
-  const g = (bi, pi) => deflTable[bi * N_PHI + pi];
-  const u00 = g(bi0, pi0), u01 = g(bi0, pi1), u10 = g(bi1, pi0), u11 = g(bi1, pi1);
+  const u00 = deflTable[bi0 * N_PHI + pi0], u01 = deflTable[bi0 * N_PHI + pi1];
+  const u10 = deflTable[bi1 * N_PHI + pi0], u11 = deflTable[bi1 * N_PHI + pi1];
   if (u00 < 0 || u01 < 0 || u10 < 0 || u11 < 0) return -1;
   return u00 * (1 - bfrac) * (1 - pfrac) + u10 * bfrac * (1 - pfrac) + u01 * (1 - bfrac) * pfrac + u11 * bfrac * pfrac;
+}
+// angolo totale percorso da un fotone che sfugge (per sapere da quale punto del cielo arriva), o -1
+function lookupEscape(b) {
+  const bf = clamp(indexOfB(b), 0, B_SAMPLES - 1.0001);
+  const bi0 = Math.floor(bf), fr = bf - bi0, bi1 = Math.min(bi0 + 1, B_SAMPLES - 1);
+  const a = phiEscape[bi0], c = phiEscape[bi1];
+  return a < 0 || c < 0 ? -1 : a * (1 - fr) + c * fr;
 }
 
 // ═══ ISCO di Kerr esatta (Bardeen-Press-Teukolsky) — fissa il raggio interno del disco ═══════════
@@ -94,6 +101,10 @@ const P = {
   diskOut: 16,          // raggio esterno del disco, unità di M
   speed: 1.0,
   paused: false,
+  doppler: true,        // spostamento Doppler e redshift gravitazionale su colore e luminosità
+  tempK: 5500,          // temperatura di colore del punto più caldo del disco
+  stars: true,
+  labels: true,
 };
 let D = {};
 let cam = { az: 0.4 };
@@ -107,6 +118,7 @@ let readout;
 let traceBuf = null;      // {w,h, kind:Uint8Array, r:Float32Array, phi:Float32Array, order:Uint8Array}
 let offCanvas = null, offCtx = null, offImg = null;
 let needsRetrace = true;
+const bloomCanvas = {};
 
 // ═══ Palette ══════════════════════════════════════════════════════════════════
 function dk() { return document.documentElement.dataset.theme !== 'light'; }
@@ -135,50 +147,95 @@ function derive() {
 }
 function newRun() { derive(); animT = 0; needsRetrace = true; }
 
-// ═══ Traccia un singolo raggio: camPos e rayDir in coordinate del mondo (unità di M) ═══════════
-function traceRay(camPos, rayDir) {
-  const rCam = Math.hypot(camPos[0], camPos[1], camPos[2]);
-  const radial = [camPos[0] / rCam, camPos[1] / rCam, camPos[2] / rCam];
-  const cospsi = clamp(dot(radial, rayDir), -1, 1);
-  const sinpsi = Math.sqrt(Math.max(0, 1 - cospsi * cospsi));
-  const b = rCam * sinpsi / Math.sqrt(Math.max(1e-6, 1 - 2 / rCam));
-  if (cospsi <= -0.999999) return { kind: 'sky' }; // raggio praticamente radiale uscente, nessun piano orbitale definito — trascurabile
+// ═══ Fisica dell'emissione ════════════════════════════════════════════════════════════════════
+function omegaOf(r) { const r15 = Math.pow(r, 1.5); return 1 / (r15 + D.aStar); } // Kerr, prograda, unità di M
 
-  let planeN = cross(camPos, rayDir);
-  const pnLen = Math.hypot(planeN[0], planeN[1], planeN[2]);
-  if (pnLen < 1e-7) {
-    // il raggio è quasi radiale: se punta verso il centro cade dentro, altrimenti fugge — nessun piano da definire
-    return cospsi > 0.999999 ? { kind: b < B_CRIT ? 'horizon' : 'sky' } : { kind: 'sky' };
+// Flusso emesso da un disco sottile (profilo di Shakura–Sunyaev / Novikov–Thorne senza le correzioni
+// relativistiche): F ∝ r⁻³·(1 − √(r_in/r)). Si annulla al bordo interno e ha il massimo a
+// r = (49/36)·r_in. Normalizzato a 1 sul massimo.
+function fluxOf(r) {
+  const rin = D.rDiskIn;
+  if (r <= rin) return 0;
+  const rp = rin * 49 / 36;
+  return Math.pow(r, -3) * (1 - Math.sqrt(rin / r)) / (Math.pow(rp, -3) / 7);
+}
+
+// Fattore di spostamento g = ν_osservata / ν_emessa per gas in orbita circolare:
+// g = 1 / [u^t · (1 − Ω·λ)], con λ = L_z/E momento angolare del fotone attorno all'asse del disco.
+// Contiene insieme Doppler (il lato che si avvicina ha g > 1) e redshift gravitazionale.
+function shiftFactor(r, lam) {
+  const r15 = Math.pow(r, 1.5), a = D.aStar;
+  const ut = (1 + a / r15) / Math.sqrt(Math.max(0.01, 1 - 3 / r + 2 * a / r15));
+  return 1 / (ut * Math.max(0.05, 1 - omegaOf(r) * lam));
+}
+
+// Resa a schermo. Fisicamente T ∝ F^¼, ma su un disco così piccolo darebbe un colore quasi uniforme:
+// l'esponente è accentuato perché il gradiente dal bordo interno caldo a quello esterno freddo si veda.
+const COLOR_EXP = 0.36, EXPOSURE = 1.5, TONE_EXP = 0.5;
+
+// Colore di un corpo nero alla temperatura T (approssimazione di T. Helland), massimo = 1
+const _bb = [0, 0, 0];
+function bbColor(T) {
+  const t = clamp(T, 800, 40000) / 100;
+  let r, g, b;
+  if (t <= 66) { r = 255; g = 99.4708025861 * Math.log(t) - 161.1195681661; }
+  else { r = 329.698727446 * Math.pow(t - 60, -0.1332047592); g = 288.1221695283 * Math.pow(t - 60, -0.0755148492); }
+  b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  _bb[0] = clamp(r, 0, 255) / 255; _bb[1] = clamp(g, 0, 255) / 255; _bb[2] = clamp(b, 0, 255) / 255;
+  return _bb;
+}
+
+// ═══ Rumore per la turbolenza del gas (texture ripetibile, calcolata una volta) ═════════════════
+const NZ = 256;
+let noiseTex = null;
+function buildNoise() {
+  noiseTex = new Float32Array(NZ * NZ);
+  const hash = (i, j, s) => { const v = Math.sin(i * 127.1 + j * 311.7 + s * 74.7) * 43758.5453; return v - Math.floor(v); };
+  let amp = 0.5, tot = 0;
+  for (const period of [64, 32, 16, 8]) {
+    const n = NZ / period;
+    for (let y = 0; y < NZ; y++) for (let x = 0; x < NZ; x++) {
+      const fx = x / period, fy = y / period, ix = Math.floor(fx), iy = Math.floor(fy);
+      let ux = fx - ix, uy = fy - iy; ux = ux * ux * (3 - 2 * ux); uy = uy * uy * (3 - 2 * uy);
+      const i1 = (ix + 1) % n, j1 = (iy + 1) % n;
+      noiseTex[y * NZ + x] += amp * ((hash(ix, iy, period) * (1 - ux) + hash(i1, iy, period) * ux) * (1 - uy)
+        + (hash(ix, j1, period) * (1 - ux) + hash(i1, j1, period) * ux) * uy);
+    }
+    tot += amp; amp *= 0.55;
   }
-  planeN = [planeN[0] / pnLen, planeN[1] / pnLen, planeN[2] / pnLen];
+  for (let i = 0; i < noiseTex.length; i++) noiseTex[i] /= tot;
+}
+function sampleNoise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const x0 = ix & 255, x1 = (ix + 1) & 255, y0 = (iy & 255) * NZ, y1 = ((iy + 1) & 255) * NZ;
+  return (noiseTex[y0 + x0] * (1 - fx) + noiseTex[y0 + x1] * fx) * (1 - fy) + (noiseTex[y1 + x0] * (1 - fx) + noiseTex[y1 + x1] * fx) * fy;
+}
 
-  const e1 = radial;
-  let e2 = cross(planeN, e1);
-  if (dot(rayDir, e2) < 0) e2 = [-e2[0], -e2[1], -e2[2]];
-
-  let nodeDir = cross(planeN, [0, 0, 1]);
-  const ndLen = Math.hypot(nodeDir[0], nodeDir[1], nodeDir[2]);
-  if (ndLen < 1e-7) nodeDir = e1; else nodeDir = [nodeDir[0] / ndLen, nodeDir[1] / ndLen, nodeDir[2] / ndLen];
-
-  const nx = dot(nodeDir, e1), ny = dot(nodeDir, e2);
-  let phiNode = Math.atan2(ny, nx);
-  if (phiNode < 0) phiNode += TWO;
-
-  for (let k = 0; k < 10; k++) {
-    const phiCross = phiNode + k * Math.PI;
-    if (phiCross > PHI_MAX - PHI_STEP) break;
-    const u = lookupU(b, phiCross);
-    if (u === -1) return { kind: 'horizon' };
-    if (u === null) continue;
-    const r = 1 / u;
-    if (r >= D.rDiskIn && r <= D.rDiskOut) {
-      const cx = Math.cos(phiCross), sx = Math.sin(phiCross);
-      const dir3 = [e1[0] * cx + e2[0] * sx, e1[1] * cx + e2[1] * sx, e1[2] * cx + e2[2] * sx];
-      const globalPhi = Math.atan2(dir3[1], dir3[0]);
-      return { kind: 'disk', r, phi: globalPhi, order: k };
+// ═══ Cielo di sfondo: stelle e una fascia tipo Via Lattea, in funzione della direzione ══════════
+// È procedurale (non un catalogo reale): serve a mostrare come la gravità deforma lo sfondo.
+function skyColor(dx, dy, dz, out, o) {
+  let r = 2, g = 3, b = 7;
+  if (P.stars) {
+    const lat = Math.asin(clamp(dz, -1, 1)), lon = Math.atan2(dy, dx);
+    const band = dx * 0.34 + dy * 0.2 + dz * 0.92;
+    const mw = Math.exp(-(band / 0.17) * (band / 0.17)) * (0.35 + 0.65 * sampleNoise(lon * 60 + 300, lat * 60 + 300));
+    r += 20 * mw; g += 19 * mw; b += 27 * mw;
+    const CS = 400 / Math.PI;                     // celle di ~0,45°
+    const fi = lat * CS + 1000, i = Math.floor(fi);
+    const cl = Math.max(0.05, Math.cos((i + 0.5 - 1000) / CS));
+    const fj = lon * CS * cl + 4000, j = Math.floor(fj);
+    const h1 = Math.sin(i * 127.1 + j * 311.7) * 43758.5453, q = h1 - Math.floor(h1);
+    if (q < 0.09) {
+      const h2 = Math.sin(i * 269.5 + j * 183.3) * 43758.5453, h3 = Math.sin(i * 419.2 + j * 371.9) * 43758.5453;
+      const sx = 0.25 + 0.5 * (h2 - Math.floor(h2)), sy = 0.25 + 0.5 * (h3 - Math.floor(h3));
+      const ddx = fj - j - sx, ddy = fi - i - sy;
+      const mag = 70 + 185 * Math.pow(q / 0.09, 4);
+      const v = mag * Math.exp(-(ddx * ddx + ddy * ddy) / 0.011);
+      const warm = (h2 - Math.floor(h2)) > 0.6 ? 0.8 : 1;
+      r += v; g += v * (0.9 + 0.1 * warm); b += v * warm;
     }
   }
-  return { kind: 'sky' };
+  out[o] = r; out[o + 1] = g; out[o + 2] = b; out[o + 3] = 255;
 }
 
 // ═══ Costruzione dell'immagine (tracciamento completo) ══════════════════════════════════════
@@ -191,104 +248,142 @@ function buildCamera() {
   const up = norm(cross(right, forward));
   return { camPos, forward, right, up };
 }
+
+let labelAnchors = null;
+// Per ogni pixel: si lancia un raggio dalla camera e si segue la geodetica (tabella di deflessione)
+// attraverso i successivi attraversamenti del piano del disco. Tutto ciò che non cambia nel tempo
+// (colore, luminosità, sfondo) viene calcolato qui una volta; a ogni fotogramma resta da animare
+// solo la turbolenza del gas.
 function retrace(lowRes) {
-  const w = lowRes ? 160 : Math.min(760, Math.max(320, Math.round(G.W * 0.62)));
-  const h = Math.round(w * (G.H / G.W));
+  const w = lowRes ? 240 : Math.min(1000, Math.max(320, Math.round(G.W * 0.9)));
+  const h = Math.max(2, Math.round(w * (G.H / G.W)));
+  const N = w * h;
   const { camPos, forward, right, up } = buildCamera();
-  const fovHalf = Math.PI / 180 * 20 / cam.zoomFov;
+  const tf = Math.tan(Math.atan(15 / CAM_R) / cam.zoomFov);
   const aspect = w / h;
-  const kind = new Uint8Array(w * h);       // 0=sky 1=horizon 2=disk
-  const rArr = new Float32Array(w * h);
-  const phiArr = new Float32Array(w * h);
-  const orderArr = new Uint8Array(w * h);
+  const stat = new Uint8ClampedArray(N * 4);
+  const diskIdx = new Uint32Array(N);
+  const cR = new Float32Array(N), cG = new Float32Array(N), cB = new Float32Array(N), baseI = new Float32Array(N);
+  const texX = new Float32Array(N), texY = new Float32Array(N), omg = new Float32Array(N);
+  let nDisk = 0;
+
+  const e1x = camPos[0] / CAM_R, e1y = camPos[1] / CAM_R, e1z = camPos[2] / CAM_R;
+  const lapse = Math.sqrt(1 - 2 / CAM_R);
+  const rin = D.rDiskIn, rout = D.rDiskOut, PI = Math.PI;
+  let hxMin = w, hxMax = 0, hyMin = h, hyMax = 0, hAny = false;
+  let brightVal = -1, brightX = 0, brightY = 0;
+  let topDiskY = h, topDiskX = 0, botDiskY = 0, botDiskX = 0, leftDiskX = w, leftDiskY = 0, rightDiskX = 0, rightDiskY = 0;
+
   for (let j = 0; j < h; j++) {
-    const py = (0.5 - j / (h - 1)) * 2;
+    const py = (0.5 - j / (h - 1)) * 2 * tf;
     for (let i = 0; i < w; i++) {
-      const px = (i / (w - 1) - 0.5) * 2 * aspect;
-      const rd = norm([
-        forward[0] + px * Math.tan(fovHalf) * right[0] + py * Math.tan(fovHalf) * up[0],
-        forward[1] + px * Math.tan(fovHalf) * right[1] + py * Math.tan(fovHalf) * up[1],
-        forward[2] + px * Math.tan(fovHalf) * right[2] + py * Math.tan(fovHalf) * up[2],
-      ]);
-      const res = traceRay(camPos, rd);
-      const idx = j * w + i;
-      if (res.kind === 'horizon') kind[idx] = 1;
-      else if (res.kind === 'disk') { kind[idx] = 2; rArr[idx] = res.r; phiArr[idx] = res.phi; orderArr[idx] = res.order; }
+      const px = (i / (w - 1) - 0.5) * 2 * aspect * tf;
+      let dx = forward[0] + px * right[0] + py * up[0], dy = forward[1] + px * right[1] + py * up[1], dz = forward[2] + px * right[2] + py * up[2];
+      const dl = Math.hypot(dx, dy, dz); dx /= dl; dy /= dl; dz /= dl;
+      const idx = j * w + i, o = idx * 4;
+      const cospsi = e1x * dx + e1y * dy + e1z * dz;
+      const sinpsi = Math.sqrt(Math.max(0, 1 - cospsi * cospsi));
+      let kind = 0;                                   // 0 = cielo, 1 = orizzonte, 2 = disco
+      let hitR = 0, hitPhi = 0, lam = 0, skyX = dx, skyY = dy, skyZ = dz;
+      const b = CAM_R * sinpsi / lapse;
+      if (sinpsi < 1e-6) kind = cospsi < 0 ? 1 : 0;   // raggio radiale: verso il centro cade nell'orizzonte
+      else if (b < B_MAX) {
+        // piano dell'orbita del fotone: n = e1 × d, e2 = n × e1 (il raggio avanza da e1 verso e2)
+        const nx = (e1y * dz - e1z * dy) / sinpsi, ny = (e1z * dx - e1x * dz) / sinpsi, nz = (e1x * dy - e1y * dx) / sinpsi;
+        const e2x = ny * e1z - nz * e1y, e2y = nz * e1x - nx * e1z, e2z = nx * e1y - ny * e1x;
+        // la linea dei nodi (intersezione con il piano del disco) è lungo n × z = (ny, −nx, 0)
+        const nl = Math.hypot(nx, ny);
+        let phiNode = PI;
+        if (nl > 1e-7) {
+          phiNode = Math.atan2((ny * e2x - nx * e2y) / nl, (ny * e1x - nx * e1y) / nl);
+          phiNode -= PI * Math.floor(phiNode / PI);    // i nodi si ripetono ogni π
+          if (phiNode < 1e-6) phiNode += PI;
+        }
+        let escaped = false;
+        for (let k = 0; k < 10; k++) {
+          const pc = phiNode + k * PI;
+          if (pc > PHI_MAX - PHI_STEP) break;
+          const u = lookupU(b, pc);
+          if (u === -1) { kind = 1; break; }
+          if (u < ESCAPE_U * 1.2) { escaped = true; break; }
+          const r = 1 / u;
+          if (r >= rin && r <= rout) {
+            const c = Math.cos(pc), sn = Math.sin(pc);
+            kind = 2; hitR = r;
+            hitPhi = Math.atan2(e1y * c + e2y * sn, e1x * c + e2x * sn);
+            lam = -b * nz;                             // il fotone reale viaggia in senso opposto al raggio tracciato
+            break;
+          }
+        }
+        if (kind === 0) {
+          const pe = lookupEscape(b);
+          if (pe < 0 && !escaped) kind = 1;
+          else if (pe >= 0) { const c = Math.cos(pe), sn = Math.sin(pe); skyX = e1x * c + e2x * sn; skyY = e1y * c + e2y * sn; skyZ = e1z * c + e2z * sn; }
+          else kind = 1;
+        }
+      }
+
+      if (kind === 0) { skyColor(skyX, skyY, skyZ, stat, o); continue; }
+      stat[o + 3] = 255;
+      if (kind === 1) {
+        hAny = true; if (i < hxMin) hxMin = i; if (i > hxMax) hxMax = i; if (j < hyMin) hyMin = j; if (j > hyMax) hyMax = j;
+        continue;
+      }
+      const F = fluxOf(hitR), gfac = P.doppler ? shiftFactor(hitR, lam) : 1;
+      const col = bbColor(P.tempK * Math.pow(Math.max(F, 1e-6), COLOR_EXP) * gfac);
+      const I = Math.min(40, F * gfac * gfac * gfac * gfac);   // intensità bolometrica ∝ g⁴
+      // esposizione (comprime le alte luci) e viraggio al bianco delle zone più brillanti: non
+      // dipendono dal tempo, quindi si calcolano qui
+      const wm = I > 4 ? Math.min(0.55, (I - 4) / 20) : 0;
+      cR[idx] = col[0] + (1 - col[0]) * wm; cG[idx] = col[1] + (1 - col[1]) * wm; cB[idx] = col[2] + (1 - col[2]) * wm;
+      baseI[idx] = 255 * (1 - Math.exp(-EXPOSURE * Math.pow(I, TONE_EXP)));
+      texX[idx] = hitPhi / TWO * NZ; texY[idx] = Math.log(hitR) * 230; omg[idx] = omegaOf(hitR);
+      diskIdx[nDisk++] = idx;
+      if (I > brightVal) { brightVal = I; brightX = i; brightY = j; }
+      if (j < topDiskY) { topDiskY = j; topDiskX = i; }
+      if (j > botDiskY) { botDiskY = j; botDiskX = i; }
+      if (i < leftDiskX) { leftDiskX = i; leftDiskY = j; }
+      if (i > rightDiskX) { rightDiskX = i; rightDiskY = j; }
     }
   }
-  traceBuf = { w, h, kind, r: rArr, phi: phiArr, order: orderArr };
+  traceBuf = { w, h, stat, diskIdx, nDisk, cR, cG, cB, baseI, texX, texY, omg };
   if (!offCanvas) { offCanvas = document.createElement('canvas'); offCtx = offCanvas.getContext('2d'); }
   offCanvas.width = w; offCanvas.height = h;
   offImg = offCtx.createImageData(w, h);
-  needsRetrace = false;
-}
-
-// ═══ Colorazione del disco (temperatura, turbolenza, beaming Doppler, redshift gravitazionale) ═══
-function tempColor(t) {
-  t = clamp(t, 0, 1);
-  const stops = [[0, 110, 15, 8], [0.28, 235, 70, 15], [0.58, 255, 175, 60], [0.83, 255, 240, 205], [1, 255, 255, 255]];
-  for (let i = 0; i < stops.length - 1; i++) {
-    const a = stops[i], b = stops[i + 1];
-    if (t >= a[0] && t <= b[0]) { const f = (t - a[0]) / (b[0] - a[0]); return [a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f]; }
-  }
-  return [255, 255, 255];
-}
-function omegaOf(r) { const r15 = Math.pow(r, 1.5); return 1 / (r15 + D.aStar); } // Kerr, prograda, unità di M
-// bande scure "a solchi" nel gas: due frequenze indipendenti (una segue la rotazione, una fissa nel
-// raggio) si moltiplicano invece di sommarsi, cosi' dove entrambe sono basse si scava un solco
-// davvero scuro invece di una semplice ondulazione di luminosità — l'effetto "vinile" della figura di riferimento
-function streakTexture(phiLocal, rr) {
-  const band1 = 0.5 + 0.5 * Math.sin(phiLocal * 5.2 + rr * 1.05);
-  const band2 = 0.5 + 0.5 * Math.sin(phiLocal * 11.3 - rr * 2.1 + 1.4);
-  const fine = 0.5 + 0.5 * Math.sin(phiLocal * 21 + rr * 3.4 - 0.7);
-  const radialGroove = 0.5 + 0.5 * Math.sin(rr * 5.5 - phiLocal * 0.8);
-  let t = (0.35 + 0.55 * band1) * (0.55 + 0.45 * band2) * (0.8 + 0.2 * fine) * (0.45 + 0.55 * radialGroove);
-  return clamp(t, 0.08, 1.35);
-}
-let labelAnchors = null;
-function paintFrame() {
-  if (!traceBuf) return;
-  const { w, h, kind, r, phi, order } = traceBuf;
-  const data = offImg.data;
-  const { camPos } = buildCamera();
-  let hxMin = w, hxMax = 0, hyMin = h, hyMax = 0, hAny = false;
-  let brightVal = -1, brightX = 0, brightY = 0;
-  let topDiskY = h, topDiskX = 0, botDiskY = 0, botDiskX = 0;
-  let leftDiskX = w, leftDiskY = 0, rightDiskX = 0, rightDiskY = 0;
-  for (let idx = 0; idx < w * h; idx++) {
-    const p4 = idx * 4, xPix = idx % w, yPix = (idx / w) | 0;
-    if (kind[idx] === 0) { data[p4] = 2; data[p4 + 1] = 3; data[p4 + 2] = 7; data[p4 + 3] = 255; continue; }
-    if (kind[idx] === 1) {
-      data[p4] = 0; data[p4 + 1] = 0; data[p4 + 2] = 0; data[p4 + 3] = 255;
-      hAny = true; if (xPix < hxMin) hxMin = xPix; if (xPix > hxMax) hxMax = xPix; if (yPix < hyMin) hyMin = yPix; if (yPix > hyMax) hyMax = yPix;
-      continue;
-    }
-    const rr = r[idx], phiLocal = phi[idx] - omegaOf(rr) * animT * SPIN_VISUAL_BOOST;
-    const tempFrac = clamp(Math.pow(D.rDiskIn / rr, 0.75), 0, 1);
-    const turb = streakTexture(phiLocal, rr);
-    const [tr, tg, tb] = tempColor(tempFrac * turb);
-    // beaming relativistico approssimato: velocità locale orbitale beta=sqrt(1/(r-2)), confrontata con la direzione verso la camera
-    const beta = Math.min(0.93, Math.sqrt(1 / Math.max(0.05, rr - 2)));
-    const velDir = [-Math.sin(phi[idx]), Math.cos(phi[idx]), 0];
-    const diskPt = [rr * Math.cos(phi[idx]), rr * Math.sin(phi[idx]), 0];
-    const toCam = norm(sub3(camPos, diskPt));
-    const cosAlpha = dot(velDir, toCam);
-    const beam = Math.pow(clamp(1 / (1 - beta * cosAlpha), 0.15, 6), 2.2);
-    const gravRed = Math.sqrt(clamp(1 - 2 / rr, 0.02, 1));
-    const orderFade = Math.pow(0.62, order[idx]);
-    const bright = clamp(beam * gravRed * orderFade, 0.05, 3.2);
-    data[p4] = clamp(tr * bright, 0, 255); data[p4 + 1] = clamp(tg * bright, 0, 255); data[p4 + 2] = clamp(tb * bright, 0, 255); data[p4 + 3] = 255;
-    if (bright > brightVal) { brightVal = bright; brightX = xPix; brightY = yPix; }
-    if (yPix < topDiskY) { topDiskY = yPix; topDiskX = xPix; }
-    if (yPix > botDiskY) { botDiskY = yPix; botDiskX = xPix; }
-    if (xPix < leftDiskX) { leftDiskX = xPix; leftDiskY = yPix; }
-    if (xPix > rightDiskX) { rightDiskX = xPix; rightDiskY = yPix; }
-  }
-  offCtx.putImageData(offImg, 0, 0);
-  labelAnchors = hAny
+  offImg.data.set(stat);
+  labelAnchors = hAny && nDisk
     ? { hcx: (hxMin + hxMax) / 2, hcy: (hyMin + hyMax) / 2, hTopX: (hxMin + hxMax) / 2, hTopY: hyMin, hRadius: (hxMax - hxMin) / 2,
         brightX, brightY, topDiskX, topDiskY, botDiskX, botDiskY, leftDiskX, leftDiskY, rightDiskX, rightDiskY, w, h }
     : null;
+  needsRetrace = false;
+}
+
+// ═══ Fotogramma: turbolenza del gas trascinata dalla rotazione differenziale ════════════════════
+// Il gas interno gira più in fretta di quello esterno, quindi una struttura si allunga in strisce.
+// Lasciata andare all'infinito si avvolgerebbe in righe sempre più fitte: si usano due copie
+// sfasate di mezzo ciclo che sfumano l'una nell'altra, così l'aspetto resta stabile nel tempo.
+const FLOW_PERIOD = 6;
+function paintFrame() {
+  if (!traceBuf) return;
+  const { diskIdx, nDisk, cR, cG, cB, baseI, texX, texY, omg } = traceBuf;
+  const data = offImg.data;
+  const tA = animT % FLOW_PERIOD, cA = Math.floor(animT / FLOW_PERIOD);
+  const tB = (animT + FLOW_PERIOD / 2) % FLOW_PERIOD, cB2 = Math.floor((animT + FLOW_PERIOD / 2) / FLOW_PERIOD);
+  const wA = 1 - Math.abs(2 * tA / FLOW_PERIOD - 1), wB = 1 - wA;
+  const kA = tA * SPIN_VISUAL_BOOST / TWO * NZ, kB = tB * SPIN_VISUAL_BOOST / TWO * NZ;
+  const oA = cA * 37 % NZ, oB = cB2 * 37 % NZ + 91;
+  for (let n = 0; n < nDisk; n++) {
+    const idx = diskIdx[n], o = idx * 4;
+    const y = texY[idx], om = omg[idx];
+    const xa = texX[idx] - om * kA, xb = texX[idx] - om * kB;
+    const na = 0.62 * sampleNoise(xa + oA, y + oA) + 0.38 * sampleNoise(xa * 2 + 53 + oA, y * 2.3 + 17);
+    const nb = 0.62 * sampleNoise(xb + oB, y + oB) + 0.38 * sampleNoise(xb * 2 + 53 + oB, y * 2.3 + 71);
+    let tx = (wA * na + wB * nb - 0.5) * 1.9 + 0.5;          // più contrasto
+    tx = tx < 0 ? 0 : tx > 1 ? 1 : tx;
+    const v = baseI[idx] * (0.42 + 1.05 * tx);                // la turbolenza modula la luminosità già esposta
+    data[o] = v * cR[idx]; data[o + 1] = v * cG[idx]; data[o + 2] = v * cB[idx];
+  }
+  offCtx.putImageData(offImg, 0, 0);
 }
 
 // ═══ Etichette con connettori a gomito ═══════════════════════════════════════════════════════
@@ -324,9 +419,9 @@ function drawLabels(ctx, W, H) {
   };
 
   const items = [];
-  const aShadow = [hcx, hcy]; items.push({ a: aShadow, l: place(aShadow, 1, -0.7), text: 'Ombra del buco nero' });
-  const aRing = pt(a.hTopX, a.hTopY); items.push({ a: aRing, l: place(aRing, 0.2, -1), text: 'Anello di fotoni' });
-  const aFar = pt(a.topDiskX, a.topDiskY); items.push({ a: aFar, l: place(aFar, -0.9, -1), text: 'Lato lontano del disco' });
+  const aShadow = [hcx, hcy]; items.push({ a: aShadow, l: place(aShadow, 1, 0.12), text: 'Ombra del buco nero' });
+  const aRing = pt(a.hTopX, a.hTopY); items.push({ a: aRing, l: place(aRing, 1, -0.5), text: 'Anello di fotoni' });
+  const aFar = pt(a.topDiskX, a.topDiskY); items.push({ a: aFar, l: place(aFar, -0.55, -1), text: 'Lato lontano del disco' });
   const aBeam = pt(a.brightX, a.brightY); items.push({ a: aBeam, l: place(aBeam, -1, -0.3), text: 'Beaming Doppler' });
   const aDisk = pt(a.leftDiskX, a.leftDiskY); items.push({ a: aDisk, l: place(aDisk, -1, 0.35), text: 'Disco di accrescimento' });
   if (P.incDeg > 55) { const aUnder = pt(a.botDiskX, a.botDiskY); items.push({ a: aUnder, l: place(aUnder, 0.1, 1), text: 'Lato inferiore (lensato)' }); }
@@ -354,7 +449,24 @@ function draw(canvas) {
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
   ctx.drawImage(offCanvas, 0, 0, W, H);
 
-  drawLabels(ctx, W, H);
+  // bagliore: copie rimpicciolite e riallargate dell'immagine, sommate — è l'alone che una
+  // sorgente molto luminosa lascia nell'occhio o in una camera
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const [div, alpha] of [[5, 0.42], [14, 0.3]]) {
+    const bw = Math.max(2, Math.round(offCanvas.width / div)), bh = Math.max(2, Math.round(offCanvas.height / div));
+    if (!bloomCanvas[div]) bloomCanvas[div] = document.createElement('canvas');
+    const bc = bloomCanvas[div];
+    if (bc.width !== bw || bc.height !== bh) { bc.width = bw; bc.height = bh; }
+    const bx = bc.getContext('2d');
+    bx.imageSmoothingEnabled = true;
+    bx.drawImage(offCanvas, 0, 0, bw, bh);
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(bc, 0, 0, W, H);
+  }
+  ctx.restore();
+
+  if (P.labels) drawLabels(ctx, W, H);
 
   ctx.textAlign = 'left';
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
@@ -362,7 +474,7 @@ function draw(canvas) {
   ctx.fillStyle = 'rgba(230,240,250,0.9)'; ctx.font = '10px "Space Mono",monospace';
   ctx.fillText(`M=${P.massSolar}M☉ (rs=${D.rsKm.toFixed(1)}km)   a*=${D.aStar.toFixed(2)}   disco: ${D.rDiskIn.toFixed(1)}M–${D.rDiskOut.toFixed(1)}M`, 14, 36);
   ctx.fillStyle = 'rgba(200,215,230,0.8)'; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
-  ctx.fillText('trascina per ruotare — la luce del lato lontano del disco è piegata sopra l\'orizzonte: è vero ray-tracing, non un disegno', W / 2, H - 8);
+  ctx.fillText('trascina per ruotare · rotella per lo zoom — la luce del lato lontano del disco è piegata sopra e sotto l\'ombra', W / 2, H - 8);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
@@ -404,13 +516,14 @@ function drawGraphTemp() {
   const { gW, gH } = gBase(ctx, W, H, PAD);
   for (let i = 0; i < gW; i++) {
     const r = D.rDiskIn + (i / gW) * (D.rDiskOut - D.rDiskIn);
-    const tf = clamp(Math.pow(D.rDiskIn / r, 0.75), 0, 1);
-    const [cr, cg, cb] = tempColor(tf);
-    ctx.fillStyle = `rgb(${cr | 0},${cg | 0},${cb | 0})`;
+    const F = fluxOf(r);
+    const col = bbColor(P.tempK * Math.pow(Math.max(F, 1e-6), COLOR_EXP));
+    const v = 255 * (1 - Math.exp(-EXPOSURE * Math.pow(F, TONE_EXP)));
+    ctx.fillStyle = `rgb(${col[0] * v | 0},${col[1] * v | 0},${col[2] * v | 0})`;
     ctx.fillRect(PAD.l + i, PAD.t, 1, gH * 0.55);
   }
   ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`T(r) ∝ (rISCO/r)^0.75 — ISCO=${D.rDiskIn.toFixed(1)}M`, PAD.l + 2, PAD.t + gH * 0.55 + 12);
+  ctx.fillText(`colore del gas dal bordo interno (${D.rDiskIn.toFixed(1)}M) a quello esterno`, PAD.l + 2, PAD.t + gH * 0.55 + 12);
   ctx.textAlign = 'right'; ctx.fillText(`${D.rDiskOut.toFixed(0)}M`, PAD.l + gW - 2, PAD.t + gH * 0.55 + 12);
 }
 function drawGraphOmega() {
@@ -446,6 +559,16 @@ function buildControls() {
   const sc = Lab.Section('Camera'); cont.appendChild(sc.el);
   sc.add(Lab.Slider({ label: 'Inclinazione', min: 15, max: 89, step: 1, value: P.incDeg, unit: '°', onChange(v) { P.incDeg = v; needsRetrace = true; } }));
 
+  const sa = Lab.Section('Aspetto'); cont.appendChild(sa.el);
+  sa.add(Lab.Toggle({ label: 'Doppler e redshift', value: P.doppler, onChange(v) { P.doppler = v; needsRetrace = true; } }));
+  sa.add(Lab.Slider({ label: 'Temperatura di colore', min: 3000, max: 15000, step: 500, value: P.tempK, unit: ' K', onChange(v) { P.tempK = v; needsRetrace = true; } }));
+  sa.add(Lab.Toggle({ label: 'Stelle di sfondo', value: P.stars, onChange(v) { P.stars = v; needsRetrace = true; } }));
+  sa.add(Lab.Toggle({ label: 'Etichette', value: P.labels, onChange(v) { P.labels = v; } }));
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:10px;color:var(--text-hint);line-height:1.6;margin-bottom:12px;';
+  note.textContent = 'Il lato del disco che ruota verso di noi appare più luminoso e più blu, quello che si allontana più debole e più rosso. I colori sono riscalati: un disco reale attorno a un buco nero stellare è così caldo da emettere soprattutto raggi X.';
+  sa.add(note);
+
   const sv = Lab.Section('Simulazione'); cont.appendChild(sv.el);
   sv.add(Lab.Slider({ label: 'Velocità animazione', min: 0.1, max: 4, step: 0.1, value: P.speed, unit: '×', onChange(v) { P.speed = v; } }));
 }
@@ -475,7 +598,7 @@ function initGraphs() {
 function init() {
   Lab.initTheme();
   cam.zoomFov = 1;
-  buildDeflectionTable();
+  buildDeflectionTable(); buildNoise();
   buildControls(); initGraphs(); buildReadout(); newRun();
   const simCanvas = document.getElementById('simCanvas');
   const btnPlay = document.getElementById('btnPlay');
@@ -484,6 +607,7 @@ function init() {
   btnPlay.addEventListener('click', () => { P.paused = !P.paused; syncPlay(); });
   document.getElementById('btnReset').addEventListener('click', () => {
     P.aStar = 0.6; P.massSolar = 10; P.incDeg = 75; P.diskOut = 16; P.speed = 1.0; P.paused = false;
+    P.doppler = true; P.tempK = 5500; P.stars = true; P.labels = true;
     cam = { az: 0.4, zoomFov: 1 };
     buildControls(); buildReadout(); newRun(); syncPlay();
   });

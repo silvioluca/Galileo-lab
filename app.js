@@ -10,6 +10,7 @@ const TOPICS = [
   { id: 'elettromagnetismo', label: 'Elettromagnetismo' },
   { id: 'nucleare',          label: 'Nucleare' },
   { id: 'relativita',        label: 'Relatività' },
+  { id: 'chimica',           label: 'Chimica' },
 ];
 
 const LABS = [
@@ -221,9 +222,18 @@ const LABS = [
     url: 'labs/moon-motions/',
   },
   {
+    id: 'moon',
+    name: 'La Luna',
+    desc: 'Esplora un globo lunare realistico, costruito sul mosaico della sonda LRO della NASA: ruotalo, ingrandiscilo e scopri i nomi di mari, crateri, monti e siti di allunaggio. Osserva le fasi, apri la Luna per vederne la struttura interna e consulta i dati tecnici.',
+    topic: 'astronomia',
+    status: 'beta',
+    icon: '🌕',
+    url: 'labs/moon/',
+  },
+  {
     id: 'solar-eclipse',
     name: 'Eclissi di Sole',
-    desc: 'Effemeridi reali di Sole e Luna (Meeus): imposta data, ora, latitudine e longitudine e osserva il transito con la copertura esatta, l\'oscuramento del cielo e i raggi angolari veri — oppure lascia che il lab cerchi la prossima eclissi visibile da dove sei.',
+    desc: 'Effemeridi reali di Sole e Luna (Meeus): imposta data, ora, latitudine e longitudine e osserva il transito con la copertura esatta, l\'oscuramento del cielo e i raggi angolari veri; alla totalità compaiono corona, protuberanze, grani di Baily e anello di diamante — oppure lascia che il lab cerchi la prossima eclissi visibile da dove sei.',
     topic: 'astronomia',
     status: 'beta',
     icon: '🌘',
@@ -940,10 +950,37 @@ const LABS = [
     icon: '🫙',
     url: 'labs/stokes-drag/',
   },
+  {
+    id: 'chemical-bonds',
+    name: 'Legami Chimici',
+    desc: 'Tutti i tipi di legame in un unico laboratorio: ionico, covalente puro, polare e dativo, metallico, e le forze intermolecolari (legame a idrogeno, ione–dipolo, dipolo–dipolo, dipoli indotti, forze di London). Animazioni, confronto delle energie e previsione del legame dalla differenza di elettronegatività.',
+    topic: 'chimica',
+    status: 'beta',
+    icon: '🧪',
+    url: 'labs/chemical-bonds/',
+  },
 ];
 
-let activeFilter = 'all';
-let searchQuery = '';
+// Stato dell'hub (filtro, ricerca, scroll) salvato per la sessione:
+// tornando indietro da un lab si ritrova la pagina com'era.
+const HUB_STATE_KEY = 'gl-hub-state';
+
+function loadHubState() {
+  try { return JSON.parse(sessionStorage.getItem(HUB_STATE_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+
+function saveHubState() {
+  try {
+    sessionStorage.setItem(HUB_STATE_KEY, JSON.stringify({
+      filter: activeFilter, query: searchQuery, scrollY: window.scrollY,
+    }));
+  } catch (e) { /* storage non disponibile: si riparte dall'inizio */ }
+}
+
+const savedHubState = loadHubState();
+let activeFilter = TOPICS.some(t => t.id === savedHubState.filter) ? savedHubState.filter : 'all';
+let searchQuery = typeof savedHubState.query === 'string' ? savedHubState.query : '';
 
 function renderFilters() {
   const container = document.getElementById('filters');
@@ -957,6 +994,7 @@ function renderFilters() {
       document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       applyFilter();
+      saveHubState();
     });
     container.appendChild(btn);
   });
@@ -1047,7 +1085,25 @@ function applyFilter() {
 function initSearch() {
   const input = document.getElementById('searchInput');
   if (!input) return;
-  input.addEventListener('input', () => { searchQuery = input.value; applyFilter(); });
+  input.value = searchQuery;
+  input.addEventListener('input', () => { searchQuery = input.value; applyFilter(); saveHubState(); });
+}
+
+function initHubState() {
+  applyFilter();
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+  const y = Number(savedHubState.scrollY) || 0;
+  if (y > 0) {
+    window.scrollTo(0, y);
+    // i font caricati dopo possono spostare il layout: si riallinea a caricamento finito
+    window.addEventListener('load', () => window.scrollTo(0, y), { once: true });
+  }
+  let scrollTimer = null;
+  window.addEventListener('scroll', () => {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(saveHubState, 120);
+  }, { passive: true });
+  window.addEventListener('pagehide', saveHubState);
 }
 
 function initTheme() {
@@ -1063,4 +1119,5 @@ function initTheme() {
 renderFilters();
 renderGroups();
 initSearch();
+initHubState();
 initTheme();
