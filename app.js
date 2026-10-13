@@ -590,6 +590,15 @@ const LABS = [
     url: 'labs/doppler/',
   },
   {
+    id: 'sonic-boom',
+    name: 'Boom Supersonico',
+    desc: 'Un aereo sorvola un osservatore a terra: sotto Mach 1 i fronti d\'onda lo precedono, sopra Mach 1 si accumulano nel cono di Mach e arrivano al suolo tutti insieme come boom. Regola Mach, quota e temperatura, osserva il ritardo del boom, il tappeto sonoro e l\'onda di pressione a N.',
+    topic: 'onde',
+    status: 'beta',
+    icon: '✈️',
+    url: 'labs/sonic-boom/',
+  },
+  {
     id: 'diffraction',
     name: 'Interferenza e Diffrazione',
     desc: 'Studia la diffrazione di Fraunhofer con fenditura singola, doppia, tripla e reticolo. Visualizza lo schema ottico e il pattern sullo schermo con luce monocromatica o bianca.',

@@ -333,7 +333,7 @@ function drawEnergyPanel(offX, pw) {
   gctx.beginPath();
   gctx.moveTo(offX+pad.l,pad.t); gctx.lineTo(offX+pad.l,pad.t+ih); gctx.lineTo(offX+pad.l+iw,pad.t+ih);
   gctx.stroke();
-  gctx.fillStyle=tc; gctx.font='9px "Space Mono",monospace'; gctx.textAlign='center';
+  gctx.fillStyle=tc; gctx.font='9px "Space Mono",monospace'; gctx.textAlign='right';
   gctx.fillText('t='+tMax.toFixed(1), offX+pad.l+iw, pad.t+ih+14);
 }
 
@@ -354,7 +354,9 @@ function drawLyapPanel(offX, pw) {
     const lam=histLyap[n-1];
     const chaos=lam>0.05;
     gctx.fillStyle=chaos?'#e07070':'#7ae052';
+    gctx.textAlign='right';
     gctx.fillText(chaos?'CAOTICO':'STABILE', offX+pad.l+iw-4, 13);
+    gctx.textAlign='left';
   }
 
   if (n<2) {
@@ -414,7 +416,7 @@ function drawLyapPanel(offX, pw) {
   gctx.beginPath();
   gctx.moveTo(offX+pad.l,pad.t); gctx.lineTo(offX+pad.l,pad.t+ih); gctx.lineTo(offX+pad.l+iw,pad.t+ih);
   gctx.stroke();
-  gctx.fillStyle=tc; gctx.font='9px "Space Mono",monospace'; gctx.textAlign='center';
+  gctx.fillStyle=tc; gctx.font='9px "Space Mono",monospace'; gctx.textAlign='right';
   gctx.fillText('t='+tMax.toFixed(1), offX+pad.l+iw, pad.t+ih+14);
   gctx.textAlign='start';
 }
@@ -527,7 +529,7 @@ function buildControls() {
   for (const [key,pr] of Object.entries(PRESETS)) {
     const btn=document.createElement('button');
     btn.textContent=pr.label;
-    btn.style.cssText='padding:6px 4px;border-radius:6px;border:1px solid var(--border);background:var(--bg-2);color:var(--text);cursor:pointer;font-family:"Space Mono",monospace;font-size:11px;transition:border-color 0.15s;';
+    btn.style.cssText='padding:6px 4px;border-radius:6px;border:1px solid var(--border-hover);background:var(--bg3);color:var(--text-primary);cursor:pointer;font-family:"Space Mono",monospace;font-size:11px;transition:border-color 0.15s;';
     if (P.preset===key) btn.style.borderColor='var(--accent)';
     btn.addEventListener('click',()=>{
       P.preset=key; resetSim(); buildControls();

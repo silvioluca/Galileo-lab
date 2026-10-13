@@ -146,7 +146,9 @@ body {
 .lab-layout {
   display: grid;
   grid-template-columns: 1fr var(--panel-width);
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -160,6 +162,9 @@ body {
 
 #simCanvas {
   flex: 1;
+  /* senza min-height:0 il canvas non scende sotto l'altezza impostata via JS
+     e spinge grafici e readout fuori dalla finestra */
+  min-height: 0;
   width: 100%;
   display: block;
 }
@@ -197,6 +202,9 @@ body {
   letter-spacing: 0.8px;
   text-transform: uppercase;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .readout-value {
@@ -206,6 +214,9 @@ body {
   color: var(--accent);
   letter-spacing: -0.3px;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Controls Panel ───────────────────────────────────────── */

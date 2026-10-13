@@ -42,6 +42,9 @@ const C2 = '#ff6b35';
 const C1d = '#0088aa';
 const C2d = '#aa3800';
 
+// canvas non interpreta var(): i colori del tema vanno letti dal CSS
+const themeColor = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
 /* ─────────────────────────────────────────────
    SimState
 ───────────────────────────────────────────── */
@@ -369,7 +372,7 @@ function drawScene() {
   const [rx, ry] = worldToScreen( 100, 0);
   ctx.beginPath();
   ctx.moveTo(lx, ly); ctx.lineTo(rx, ry);
-  ctx.strokeStyle = 'var(--border)';
+  ctx.strokeStyle = themeColor('--border-hover');
   ctx.lineWidth = 1;
   ctx.setLineDash([4, 8]);
   ctx.stroke();
@@ -402,7 +405,7 @@ function drawScene() {
 
   // phase label
   const phaseLabel = { pre: 'Prima dell\'urto', colliding: 'Urto', post: 'Dopo l\'urto' }[sim.phase] || '';
-  ctx.fillStyle = 'var(--fg-muted)';
+  ctx.fillStyle = themeColor('--text-secondary');
   ctx.font = '12px Space Mono, monospace';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
@@ -513,14 +516,14 @@ function drawKEPanel(x, y, w, h, hasPost) {
 
     // total above bar
     const ktot = g.ke1 + g.ke2;
-    gctx.fillStyle = g.dimmed ? 'var(--fg-muted)' : 'var(--fg)';
+    gctx.fillStyle = g.dimmed ? themeColor('--text-secondary') : themeColor('--text-primary');
     gctx.globalAlpha = g.alpha;
     gctx.textBaseline = 'bottom';
     gctx.fillText(ktot.toFixed(2) + ' J', bx[gi] + barW / 2, stackBase - h1 - h2 - 3);
     gctx.globalAlpha = 1;
 
     // group label below
-    gctx.fillStyle = 'var(--fg-muted)';
+    gctx.fillStyle = themeColor('--text-secondary');
     gctx.font = '10px DM Sans, sans-serif';
     gctx.textBaseline = 'top';
     gctx.fillText(groupLabels[gi], bx[gi] + barW / 2, baseY + 4);
@@ -536,7 +539,7 @@ function drawKEPanel(x, y, w, h, hasPost) {
     const lx2 = legX + i * 36;
     gctx.fillStyle = col;
     gctx.fillRect(lx2, legY - 4, 8, 8);
-    gctx.fillStyle = 'var(--fg-muted)';
+    gctx.fillStyle = themeColor('--text-secondary');
     gctx.fillText(lbl, lx2 + 10, legY);
   });
 
@@ -597,7 +600,7 @@ function drawMomPanel(x, y, w, h, hasPost) {
       // total label above/below the combined bar
       const ptot    = pa + pb_;
       const extreme = midY - ha - hb; // canvas y at bar tip
-      gctx.fillStyle = 'var(--fg)';
+      gctx.fillStyle = themeColor('--text-primary');
       gctx.font = '9px Space Mono, monospace';
       gctx.textAlign = 'center';
       if (ptot >= 0) {
@@ -615,14 +618,14 @@ function drawMomPanel(x, y, w, h, hasPost) {
     drawStackedBar(1, p1post, p2post, hasPost ? 1 : 0.3);
 
     // zero line
-    gctx.strokeStyle = 'var(--border)';
+    gctx.strokeStyle = themeColor('--border-hover');
     gctx.lineWidth = 1;
     gctx.beginPath();
     gctx.moveTo(cx + pl2, midY); gctx.lineTo(cx + pl2 + iW, midY);
     gctx.stroke();
 
     // group labels
-    gctx.fillStyle = 'var(--fg-muted)';
+    gctx.fillStyle = themeColor('--text-secondary');
     gctx.font = '9px DM Sans, sans-serif';
     gctx.textAlign = 'center';
     gctx.textBaseline = 'top';
@@ -630,16 +633,16 @@ function drawMomPanel(x, y, w, h, hasPost) {
     gctx.fillText('Dopo',  bxs[1] + barW / 2, cy + pt2 + iH + 2);
 
     // component title
-    gctx.fillStyle = 'var(--fg-muted)';
+    gctx.fillStyle = themeColor('--text-secondary');
     gctx.font = '10px DM Sans, sans-serif';
-    gctx.textAlign = 'center';
+    gctx.textAlign = 'left';
     gctx.textBaseline = 'top';
-    gctx.fillText(compLabel, cx + cw / 2, cy + 6);
+    if (compLabel) gctx.fillText(compLabel, cx + pl2 + 4, cy + pt2);
 
     // divider between groups
     const divX = (bxs[0] + barW + bxs[1]) / 2;
     gctx.setLineDash([3, 5]);
-    gctx.strokeStyle = 'var(--border)';
+    gctx.strokeStyle = themeColor('--border-hover');
     gctx.beginPath();
     gctx.moveTo(divX, cy + pt2); gctx.lineTo(divX, cy + pt2 + iH);
     gctx.stroke();
@@ -654,10 +657,10 @@ function drawMomPanel(x, y, w, h, hasPost) {
     const p1yPre  = sim.pre_p1y,  p2yPre  = sim.pre_p2y;
     const p1yPost = hasPost ? sim.post_p1y : sim.pre_p1y;
     const p2yPost = hasPost ? sim.post_p2y : sim.pre_p2y;
-    drawComponent(x,       y, w / 2, h, p1xPre, p2xPre, p1xPost, p2xPost, 'p  x');
-    drawComponent(x + w/2, y, w / 2, h, p1yPre, p2yPre, p1yPost, p2yPost, 'p  y');
+    drawComponent(x,       y, w / 2, h, p1xPre, p2xPre, p1xPost, p2xPost, 'componente x');
+    drawComponent(x + w/2, y, w / 2, h, p1yPre, p2yPre, p1yPost, p2yPost, 'componente y');
   } else {
-    drawComponent(x, y, w, h, p1xPre, p2xPre, p1xPost, p2xPost, 'p  x');
+    drawComponent(x, y, w, h, p1xPre, p2xPre, p1xPost, p2xPost, '');
   }
 
   // legend
@@ -668,7 +671,7 @@ function drawMomPanel(x, y, w, h, hasPost) {
   [[C1, 'A'], [C2, 'B']].forEach(([col, lbl], i) => {
     gctx.fillStyle = col;
     gctx.fillRect(legX + i * 28, legY - 4, 8, 8);
-    gctx.fillStyle = 'var(--fg-muted)';
+    gctx.fillStyle = themeColor('--text-secondary');
     gctx.textAlign = 'left';
     gctx.fillText(lbl, legX + i * 28 + 10, legY);
   });

@@ -934,7 +934,7 @@ function buildControls() {
   panel.appendChild(secVis.el);
 
   const info = document.createElement('div');
-  info.style.cssText = 'margin-top:14px;font-size:11px;color:var(--text-secondary);line-height:1.7;padding:10px 12px;background:var(--bg-hover);border-radius:8px';
+  info.style.cssText = 'margin-top:14px;font-size:11px;color:var(--text-secondary);line-height:1.7;padding:10px 12px;background:var(--bg3);border-radius:8px';
   info.innerHTML =
     '<b>2D:</b> Trascina un <b>magnete</b> per spostarlo.<br>' +
     'Scroll su magnete: ruotalo. Scroll canvas: zoom.<br>' +

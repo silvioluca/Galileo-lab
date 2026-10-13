@@ -51,9 +51,17 @@ let running = true;
 let simT    = 0;
 let nextEmit = 0;
 
-// Source and listener: world-x positions (world units), moving horizontally
-let srcX  = 0;
-let lstX  = 8;
+// Source and listener: world positions (world units). They move horizontally
+// at the slider speed, or follow the mouse while dragged.
+let srcX  = 0, srcY = 0;
+let lstX  = 8, lstY = 0;
+
+// Current velocities in m/s: slider value, or mouse velocity while dragged
+const srcV = { x: 0, y: 0 };
+const lstV = { x: 0, y: 0 };
+
+let drag = null;                 // 'src' | 'lst' | null
+const mouseW = { x: 0, y: 0 };   // pointer position in world units
 
 // Wavefronts: {ox, oy, r}  — origin in world units, radius growing at v_sound
 const wavefronts = [];
@@ -159,29 +167,31 @@ function updateAudioFreq(fObs) {
 // Standard formula with direction:
 //   f_obs = f_s * (v + v_L·sign) / (v - v_S·sign)
 // where sign = sign of (lstX - srcX), i.e. +1 if listener is to the right.
+// In 2D only the velocity components along the source→listener line count:
+// off-axis the shift shrinks, and it vanishes when the motion is perpendicular.
 function computeFObs() {
-  const v  = P.vSound / WORLD_SCALE;   // keep ratio; units cancel
-  const vs = P.vSource / WORLD_SCALE;
-  const vl = P.vListener / WORLD_SCALE;
-  const dir = Math.sign(lstX - srcX) || 1; // +1 if listener right of source
-  // component of velocities along the source→listener axis
-  const vsAlong = vs * dir;   // positive if source moves toward listener
-  const vlAlong = -vl * dir;  // positive if listener moves toward source (opposite sign)
+  const v  = P.vSound;
+  const dx = lstX - srcX, dy = lstY - srcY;
+  const d  = Math.hypot(dx, dy);
+  const nx = d > 1e-6 ? dx / d : 1, ny = d > 1e-6 ? dy / d : 0;
+  const vsAlong = srcV.x * nx + srcV.y * ny;      // positive if source moves toward listener
+  const vlAlong = -(lstV.x * nx + lstV.y * ny);   // positive if listener moves toward source
   const denom = v - vsAlong;
   if (Math.abs(denom) < 0.01 * v) return Infinity; // sonic / supersonic singularity
   return P.fSource * (v + vlAlong) / denom;
 }
 
 function getMachNumber() {
-  return Math.abs(P.vSource) / P.vSound;
+  return Math.hypot(srcV.x, srcV.y) / P.vSound;
 }
 
 // ── Reset ─────────────────────────────────────────────────────────────────────
 function resetSim() {
   simT     = 0;
   nextEmit = 0;
-  srcX     = 0;
-  lstX     = 8;
+  srcX     = 0; srcY = 0;
+  lstX     = 8; lstY = 0;
+  drag     = null;
   wavefronts.length = 0;
   histT.length = 0;
   histF.length = 0;
@@ -257,8 +267,10 @@ function drawWavefronts(C, mach) {
     const sinTheta = 1 / mach;
     const cosTheta = Math.sqrt(Math.max(0, 1 - sinTheta * sinTheta));
     const srcSX = wx2sx(srcX);
-    const srcSY = wy2sy(0);
-    const dir = Math.sign(P.vSource) || 1;
+    const srcSY = wy2sy(srcY);
+    // unit vector pointing backward along the source velocity
+    const sp = Math.hypot(srcV.x, srcV.y) || 1;
+    const bx = -srcV.x / sp, by = -srcV.y / sp;
 
     // Also draw the compressed wavefronts behind the cone
     for (const wf of wavefronts) {
@@ -275,9 +287,9 @@ function drawWavefronts(C, mach) {
     // The apex is at srcX. The half-angle is θ from the direction of motion.
     const armLen = Math.max(SW, SH) / scale;
     for (const ysign of [-1, 1]) {
-      // direction of cone arm: (−dir·cosθ, ysign·sinθ) — cone opens backward
-      const dx = -dir * cosTheta;
-      const dy = ysign * sinTheta;
+      // cone arm: backward direction rotated by ±θ
+      const dx = bx * cosTheta - ysign * by * sinTheta;
+      const dy = ysign * bx * sinTheta + by * cosTheta;
       ctx.beginPath();
       ctx.moveTo(srcSX, srcSY);
       ctx.lineTo(srcSX + dx * armLen * scale, srcSY - dy * armLen * scale);
@@ -289,8 +301,8 @@ function drawWavefronts(C, mach) {
     // Shock cone fill
     ctx.beginPath();
     ctx.moveTo(srcSX, srcSY);
-    const dx1 = -dir * cosTheta, dy1 = sinTheta;
-    const dx2 = -dir * cosTheta, dy2 = -sinTheta;
+    const dx1 = bx * cosTheta - by * sinTheta, dy1 =  bx * sinTheta + by * cosTheta;
+    const dx2 = bx * cosTheta + by * sinTheta, dy2 = -bx * sinTheta + by * cosTheta;
     ctx.lineTo(srcSX + dx1 * armLen * scale, srcSY - dy1 * armLen * scale);
     ctx.lineTo(srcSX + dx2 * armLen * scale, srcSY - dy2 * armLen * scale);
     ctx.closePath();
@@ -301,7 +313,7 @@ function drawWavefronts(C, mach) {
 
 function drawSource(C) {
   const sx = wx2sx(srcX);
-  const sy = wy2sy(0);
+  const sy = wy2sy(srcY);
   const r  = 12;
 
   // Glow
@@ -325,14 +337,12 @@ function drawSource(C) {
   ctx.fillText('S', sx, sy);
 
   // velocity arrow
-  if (Math.abs(P.vSource) > 1) {
-    drawArrow(ctx, sx, sy, sx + Math.sign(P.vSource) * Math.min(50, Math.abs(P.vSource) / P.vSound * 80), sy, C.accent);
-  }
+  drawVelocityArrow(sx, sy, srcV, C.accent);
 }
 
 function drawListener(C) {
   const sx = wx2sx(lstX);
-  const sy = wy2sy(0);
+  const sy = wy2sy(lstY);
   const r  = 12;
 
   const grd = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 2.5);
@@ -354,9 +364,14 @@ function drawListener(C) {
   ctx.textBaseline = 'middle';
   ctx.fillText('L', sx, sy);
 
-  if (Math.abs(P.vListener) > 1) {
-    drawArrow(ctx, sx, sy, sx + Math.sign(P.vListener) * Math.min(50, Math.abs(P.vListener) / P.vSound * 80), sy, '#a855f7');
-  }
+  drawVelocityArrow(sx, sy, lstV, '#a855f7');
+}
+
+function drawVelocityArrow(sx, sy, vel, color) {
+  const sp = Math.hypot(vel.x, vel.y);
+  if (sp <= 1) return;
+  const len = Math.min(50, sp / P.vSound * 80);
+  drawArrow(ctx, sx, sy, sx + vel.x / sp * len, sy - vel.y / sp * len, color);
 }
 
 function drawArrow(c, x1, y1, x2, y2, color) {
@@ -378,6 +393,16 @@ function drawArrow(c, x1, y1, x2, y2, color) {
   c.closePath();
   c.fillStyle = color;
   c.fill();
+}
+
+function drawDragHint(C) {
+  ctx.save();
+  ctx.font = '10px DM Sans, sans-serif';
+  ctx.fillStyle = C.muted;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.fillText('trascina S o L con il mouse', SW - 12, 14);
+  ctx.restore();
 }
 
 function drawMachLabel(C, mach) {
@@ -627,6 +652,61 @@ function buildControls() {
   cont.append(secSource.el, secListener.el, secWave.el, secAudio.el);
 }
 
+// ── Drag di sorgente e osservatore ───────────────────────────────────────────
+const HIT_R = 22; // px
+
+function pointerWorld(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left - SW / 2) / scale, y: (SH / 2 - (e.clientY - r.top)) / scale };
+}
+
+function hitTest(w) {
+  const dS = Math.hypot(w.x - srcX, w.y - srcY) * scale;
+  const dL = Math.hypot(w.x - lstX, w.y - lstY) * scale;
+  if (Math.min(dS, dL) > HIT_R) return null;
+  return dS <= dL ? 'src' : 'lst';
+}
+
+// The dragged body follows the pointer; its (smoothed) velocity feeds the Doppler formula
+function updateDrag(dt) {
+  if (!drag) return;
+  const hw = SW / scale / 2 - 0.3, hh = SH / scale / 2 - 0.3;
+  const tx = Math.min(Math.max(mouseW.x, -hw), hw);
+  const ty = Math.min(Math.max(mouseW.y, -hh), hh);
+  const isSrc = drag === 'src';
+  const px = isSrc ? srcX : lstX, py = isSrc ? srcY : lstY;
+  const vel = isSrc ? srcV : lstV;
+  if (running) {
+    const k = 1 - Math.exp(-dt / 0.12);   // smoothing: mouse events are jittery
+    vel.x += ((tx - px) / dt * WORLD_SCALE - vel.x) * k;
+    vel.y += ((ty - py) / dt * WORLD_SCALE - vel.y) * k;
+  } else {
+    vel.x = 0; vel.y = 0;
+  }
+  if (isSrc) { srcX = tx; srcY = ty; } else { lstX = tx; lstY = ty; }
+}
+
+canvas.style.touchAction = 'none';
+canvas.addEventListener('pointerdown', e => {
+  const w = pointerWorld(e);
+  const hit = hitTest(w);
+  if (!hit) return;
+  drag = hit;
+  mouseW.x = w.x; mouseW.y = w.y;
+  const vel = hit === 'src' ? srcV : lstV;
+  vel.x = 0; vel.y = 0;
+  canvas.setPointerCapture(e.pointerId);
+  canvas.style.cursor = 'grabbing';
+});
+canvas.addEventListener('pointermove', e => {
+  const w = pointerWorld(e);
+  mouseW.x = w.x; mouseW.y = w.y;
+  if (!drag) canvas.style.cursor = hitTest(w) ? 'grab' : 'default';
+});
+const endDrag = () => { drag = null; canvas.style.cursor = 'default'; };
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+
 // ── Main loop ─────────────────────────────────────────────────────────────────
 function setRunning(v) {
   running = v;
@@ -639,14 +719,19 @@ function loop(ts) {
   const dt = lastTS === null ? 0 : Math.min((ts - lastTS) / 1000, 0.05);
   lastTS = ts;
 
+  // Velocities: slider value, replaced by the mouse velocity for a dragged body
+  if (drag !== 'src') { srcV.x = P.vSource;   srcV.y = 0; }
+  if (drag !== 'lst') { lstV.x = P.vListener; lstV.y = 0; }
+  if (dt > 0) updateDrag(dt);
+
   if (running && dt > 0) {
     // Advance sim time
     simT += dt;
 
     // Move source and listener (wrap horizontally at ±world boundary)
     const worldBound = 12;
-    srcX += (P.vSource / WORLD_SCALE) * dt;
-    lstX += (P.vListener / WORLD_SCALE) * dt;
+    if (drag !== 'src') srcX += (P.vSource / WORLD_SCALE) * dt;
+    if (drag !== 'lst') lstX += (P.vListener / WORLD_SCALE) * dt;
 
     // Soft wrap to keep them visible
     if (srcX >  worldBound) srcX -= 2 * worldBound;
@@ -657,7 +742,7 @@ function loop(ts) {
     // Emit new wavefront — interval proportional to 1/fSource so spacing reflects wavelength
     const emitInterval = 26 / P.fSource;
     if (simT >= nextEmit) {
-      wavefronts.push({ ox: srcX, oy: 0, r: 0 });
+      wavefronts.push({ ox: srcX, oy: srcY, r: 0 });
       nextEmit = simT + emitInterval;
       if (wavefronts.length > MAX_WAVEFRONTS) wavefronts.shift();
     }
@@ -699,6 +784,7 @@ function loop(ts) {
   drawSource(C);
   drawListener(C);
   drawMachLabel(C, mach);
+  drawDragHint(C);
   drawGraph(C);
 }
 

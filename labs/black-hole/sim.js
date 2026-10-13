@@ -741,7 +741,7 @@ function buildControls() {
   secSat.el.appendChild(row);
 
   const info = document.createElement('div');
-  info.style.cssText = 'margin-top:14px;font-size:11px;color:var(--text-secondary);line-height:1.68;padding:10px 12px;background:var(--bg-hover);border-radius:8px';
+  info.style.cssText = 'margin-top:14px;font-size:11px;color:var(--text-secondary);line-height:1.68;padding:10px 12px;background:var(--bg3);border-radius:8px';
   info.innerHTML = '<b style="color:var(--text-primary)">Geodetiche di Schwarzschild/Kerr</b><br>Lo sfondo è deformato dalla lente gravitazionale.<br><span style="color:rgba(0,255,120,0.8)">━ ISCO  r = 6M</span>: orbita stabile più interna.<br><span style="color:rgba(0,212,255,0.7)">━</span> sfera fotonica  r = 3M.<br>Con <b>a&gt;0</b> l\'orizzonte r<sub>+</sub>&lt;2M si restringe.<br>Trascina il buco nero per spostarlo.';
   secSat.el.appendChild(info);
   panel.appendChild(secSat.el);

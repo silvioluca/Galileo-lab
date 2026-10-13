@@ -739,7 +739,7 @@ function init() {
     const ar = area.getBoundingClientRect();
     const gh = gArea ? gArea.getBoundingClientRect().height : 190;
     simCanvas.width  = Math.floor(ar.width);
-    simCanvas.height = Math.floor(ar.height - gh - 4);
+    simCanvas.height = Math.floor(simCanvas.clientHeight || ar.height - gh - 56);
     if (graphCanvas) {
       graphCanvas.width  = Math.floor(ar.width);
       graphCanvas.height = Math.floor(gh);
