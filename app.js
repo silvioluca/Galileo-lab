@@ -959,6 +959,15 @@ const LABS = [
     icon: '🧪',
     url: 'labs/chemical-bonds/',
   },
+  {
+    id: 'electron-configuration',
+    name: 'Configurazione Elettronica',
+    desc: 'Riempi gli orbitali di tutti gli elementi, da H a Og, e degli ioni: principio di Aufbau con la regola di Madelung, principio di esclusione di Pauli, regola di Hund e numeri quantici di ogni elettrone. Guarda il riempimento animato oppure sistema tu gli elettroni nelle caselle: il lab segnala le regole violate. Include le eccezioni reali (Cr, Cu, Ag, Au...) e la tavola periodica divisa in blocchi.',
+    topic: 'chimica',
+    status: 'beta',
+    icon: '🔼',
+    url: 'labs/electron-configuration/',
+  },
 ];
 
 // Stato dell'hub (filtro, ricerca, scroll) salvato per la sessione:
