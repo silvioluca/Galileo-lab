@@ -146,7 +146,7 @@ body {
 /* ── Lab Layout ───────────────────────────────────────────── */
 .lab-layout {
   display: grid;
-  grid-template-columns: 1fr var(--panel-width);
+  grid-template-columns: minmax(0, 1fr) var(--panel-width);
   grid-template-rows: minmax(0, 1fr);
   flex: 1;
   min-height: 0;
@@ -729,7 +729,7 @@ body {
 @media (max-width: 800px) {
   body { overflow: auto; }
   .lab-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: clamp(380px, 55vh, 560px) 1fr;
   }
   .lab-panel {

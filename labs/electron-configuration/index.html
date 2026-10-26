@@ -7,6 +7,43 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../../shared/lab.css">
+  <style>
+    /* Intestazione in HTML: il testo va a capo da solo e non si sovrappone al disegno */
+    .ec-info {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+      padding: 8px 12px; flex-shrink: 0;
+      background: var(--bg1); border-bottom: 1px solid var(--border-idle);
+    }
+    .ec-tile {
+      width: 64px; height: 64px; flex-shrink: 0; border-radius: 8px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      border: 1px solid var(--border-hover); position: relative;
+    }
+    .ec-tile .z { position: absolute; top: 4px; left: 6px; font: 700 9px 'Space Mono', monospace; color: var(--text-secondary); }
+    .ec-tile .sym { font: 700 24px 'DM Sans', sans-serif; color: var(--text-primary); line-height: 1; }
+    .ec-tile .nm { font: 600 9px 'DM Sans', sans-serif; color: var(--text-secondary); margin-top: 3px; }
+    .ec-conf { flex: 0 1 270px; min-width: 200px; display: flex; flex-direction: column; gap: 3px; }
+    .ec-conf .t { font-size: 12px; color: var(--text-secondary); }
+    .ec-conf .full { font: 700 13px 'Space Mono', monospace; color: var(--accent); overflow-wrap: anywhere; }
+    .ec-conf .short { font: 11px 'Space Mono', monospace; color: var(--text-secondary); }
+    .ec-explain {
+      flex: 1 1 260px; font-size: 12px; line-height: 1.45; color: var(--text-primary);
+      padding: 7px 12px; background: var(--bg2); border-left: 3px solid var(--accent); border-radius: 6px;
+    }
+    .ec-explain .bad  { color: #ff5c5c; }
+    .ec-explain .warn { color: #ffb44d; }
+    .ec-explain .good { color: #4cd97b; }
+    [data-theme="light"] .ec-explain .bad  { color: #e03131; }
+    [data-theme="light"] .ec-explain .warn { color: #e8590c; }
+    [data-theme="light"] .ec-explain .good { color: #2b8a3e; }
+    .ec-explain.flash { animation: ec-flash 1.4s ease-out; }
+    /* schermi stretti: il pannello va sotto e la pagina scorre, quindi il diagramma ha un'altezza fissa */
+    @media (max-width: 800px) {
+      .lab-layout { grid-template-rows: auto auto; }
+      .lab-canvas-area { overflow: visible; }
+    }
+    @keyframes ec-flash { 0% { box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+  </style>
 </head>
 <body>
   <header class="lab-header">
@@ -21,8 +58,17 @@
   </header>
   <div class="lab-layout">
     <div class="lab-canvas-area">
+      <div class="ec-info" id="infoBar">
+        <div class="ec-tile" id="infoTile"><span class="z" id="infoZ"></span><span class="sym" id="infoSym"></span><span class="nm" id="infoName"></span></div>
+        <div class="ec-conf">
+          <div class="t" id="infoTitle"></div>
+          <div class="full" id="infoFull"></div>
+          <div class="short" id="infoShort"></div>
+        </div>
+        <div class="ec-explain" id="infoExplain"></div>
+      </div>
       <canvas id="simCanvas"></canvas>
-      <div class="graph-area" id="graphArea" style="min-height:230px;">
+      <div class="graph-area" id="graphArea">
         <canvas id="graphCanvas"></canvas>
       </div>
       <div class="readout-bar" id="readout"></div>
@@ -32,7 +78,7 @@
         <div id="controls"></div>
       </div>
       <div class="panel-actions">
-        <button class="btn-primary" id="btnPlay">⏸  PAUSA</button>
+        <button class="btn-primary" id="btnPlay">▶  RIEMPI</button>
         <button class="btn-secondary" id="btnReset">↺  RESET</button>
       </div>
     </aside>

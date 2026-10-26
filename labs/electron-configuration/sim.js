@@ -26,7 +26,6 @@ for (let sum = 1; sum <= 8; sum++) {
     SUBSHELLS.push({ n, l, label: n + L_LETTER[l], cap: 2 * (2 * l + 1), k: 2 * l + 1, order: SUBSHELLS.length });
   }
 }
-const SUB = Object.fromEntries(SUBSHELLS.map(s => [s.label, s]));
 
 // Stati fondamentali che non seguono la regola di Madelung (configurazioni sperimentali, NIST)
 const EXCEPTIONS = {
@@ -110,6 +109,7 @@ function fillSequence(c) {
 
 const SUPS = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 const sup = n => String(n).split('').map(d => SUPS[+d]).join('');
+const ionLabel = q => q === 0 ? '' : (Math.abs(q) > 1 ? sup(Math.abs(q)) : '') + (q > 0 ? '⁺' : '⁻');
 
 function configString(c, byN, shorthand, isIon = false) {
   let subs = SUBSHELLS.filter(s => c[s.label] > 0);
@@ -145,142 +145,20 @@ function tablePos(Z) {
 }
 const blockOf = Z => L_LETTER[fillSequence(aufbau(Z)).pop().sub.l];
 
-// ── Parametri ────────────────────────────────────────────────────────────────
-const P = {
-  Z: 8,
-  charge: 0,
-  mode: 'ground',      // 'ground' | 'build'
-  byN: false,          // ordine della configurazione: per energia (false) o per n (true)
-  speed: 1,
-};
-let build = null;      // caselle compilate dallo studente
-let anim = null;       // { seq, shown, t }
-let selected = null;   // { sub, box, slot }
-
-const nElectrons = () => P.Z - P.charge;
-
-// ── Canvas / layout ──────────────────────────────────────────────────────────
-const canvas  = document.getElementById('simCanvas');
-const ctx     = canvas.getContext('2d');
-const gCanvas = document.getElementById('graphCanvas');
-const gctx    = gCanvas.getContext('2d');
-const graphArea = document.getElementById('graphArea');
-const readoutEl = document.getElementById('readout');
-let SW = 0, SH = 0, GW = 0, GH = 0, DPR = 1;
-
-function resize() {
-  DPR = window.devicePixelRatio || 1;
-  const area = canvas.parentElement;
-  SW = area.clientWidth;
-  SH = Math.max(0, area.clientHeight - graphArea.offsetHeight - (readoutEl.offsetHeight || 0));
-  canvas.width = SW * DPR; canvas.height = SH * DPR;
-  canvas.style.width = SW + 'px'; canvas.style.height = SH + 'px';
-  GW = graphArea.clientWidth; GH = graphArea.clientHeight;
-  gCanvas.width = GW * DPR; gCanvas.height = GH * DPR;
-  gCanvas.style.width = GW + 'px'; gCanvas.style.height = GH + 'px';
-}
-
-function getCSSVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
-let C = {};
-function getColors() {
-  const light = document.documentElement.dataset.theme === 'light';
-  return {
-    light,
-    bg: getCSSVar('--bg1') || '#060a10', panel: getCSSVar('--bg2') || '#0b1018', bg3: getCSSVar('--bg3') || '#111820',
-    text: getCSSVar('--text-primary') || '#ddeeff', muted: getCSSVar('--text-secondary') || '#6b8099',
-    hint: getCSSVar('--text-hint') || '#2d4055', accent: getCSSVar('--accent') || '#00d4ff',
-    grid: light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)',
-    up: light ? '#0a84c0' : '#3fd6ff', down: light ? '#d6336c' : '#ff6b9d',
-    bad: light ? '#e03131' : '#ff5c5c', good: light ? '#2b8a3e' : '#4cd97b', warn: light ? '#e8590c' : '#ffb44d',
-    block: { s: '#ff8a5c', p: '#5cc8ff', d: '#ffd24d', f: '#7ee08a' },
-  };
-}
-
-function text(str, x, y, { color = C.text, size = 12, align = 'left', base = 'middle', bold = false, mono = false } = {}) {
-  ctx.fillStyle = color;
-  ctx.font = `${bold ? '700 ' : ''}${size}px ${mono ? 'Space Mono, monospace' : 'DM Sans, sans-serif'}`;
-  ctx.textAlign = align; ctx.textBaseline = base;
-  ctx.fillText(str, x, y);
-}
-
-function spinArrow(x, y, h, spin, color, width = 2) {
-  const top = y - h / 2, bot = y + h / 2, head = Math.max(3, h * 0.28);
-  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(x, spin > 0 ? bot : top); ctx.lineTo(x, spin > 0 ? top + head * 0.6 : bot - head * 0.6); ctx.stroke();
-  const ty = spin > 0 ? top : bot, d = spin > 0 ? 1 : -1;
-  ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x - head * 0.6, ty + d * head); ctx.lineTo(x + head * 0.6, ty + d * head); ctx.closePath(); ctx.fill();
-}
-
-// ── Stato da mostrare ────────────────────────────────────────────────────────
-function currentBoxes() {
-  if (P.mode === 'build') return build;
-  const target = groundConfig(P.Z, P.charge);
-  if (!anim) return boxesFromCounts(target);
-  const b = boxesFromCounts(emptyCounts());
-  for (let i = 0; i < anim.shown; i++) { const e = anim.seq[i]; b[e.sub.label][e.box][e.spin > 0 ? 0 : 1] = e.spin; }
-  return b;
-}
-const countsOf = boxes => Object.fromEntries(SUBSHELLS.map(s => [s.label, boxes[s.label].reduce((a, bx) => a + (bx[0] ? 1 : 0) + (bx[1] ? 1 : 0), 0)]));
-
-// Verifica delle regole sulla configurazione costruita dallo studente
-function validate(boxes) {
-  const res = { pauli: new Set(), hund: new Set(), aufbau: false, count: 0, ok: false, msgs: [] };
-  const c = countsOf(boxes);
-  res.count = Object.values(c).reduce((a, v) => a + v, 0);
-  for (const s of SUBSHELLS) {
-    const bx = boxes[s.label];
-    bx.forEach((b, j) => { if (b[0] && b[1] && b[0] === b[1]) res.pauli.add(s.label + ':' + j); });
-    const e = c[s.label], doubles = bx.filter(b => b[0] && b[1]).length, empties = bx.filter(b => !b[0] && !b[1]).length;
-    const singles = bx.filter(b => (b[0] !== 0) !== (b[1] !== 0)).map(b => b[0] || b[1]);
-    if ((doubles > 0 && empties > 0) || (singles.length > 1 && new Set(singles).size > 1)) res.hund.add(s.label);
-    if (e > 0) {
-      const lowerOpen = SUBSHELLS.some(t => t.order < s.order && c[t.label] < t.cap);
-      if (lowerOpen) res.aufbau = true;
-    }
-  }
-  const target = groundConfig(P.Z, P.charge), N = nElectrons();
-  const matches = SUBSHELLS.every(s => c[s.label] === target[s.label]);
-  if (res.pauli.size) res.msgs.push(['bad', 'Pauli: due elettroni nello stesso orbitale hanno lo stesso spin. Devono avere spin opposti (↑↓).']);
-  if (res.hund.size) res.msgs.push(['warn', `Hund: in ${[...res.hund].join(', ')} gli elettroni vanno prima uno per orbitale, con spin paralleli.`]);
-  if (res.count !== N) res.msgs.push(['warn', `Elettroni sistemati: ${res.count} su ${N}.`]);
-  else if (!matches && !res.pauli.size) res.msgs.push(['warn', res.aufbau
-    ? 'Aufbau: c\'è un sottolivello a energia più bassa non ancora pieno. Così è uno stato eccitato, non quello fondamentale.'
-    : 'La distribuzione non corrisponde allo stato fondamentale.']);
-  res.ok = res.count === N && matches && !res.pauli.size && !res.hund.size;
-  if (res.ok) res.msgs.push(['good', EXCEPTIONS[P.Z] && P.charge === 0
-    ? 'Corretto! È lo stato fondamentale (e questo elemento è un\'eccezione alla regola di Madelung).'
-    : 'Corretto! È la configurazione dello stato fondamentale.']);
-  return res;
-}
-
-// ── Disegno ──────────────────────────────────────────────────────────────────
-let slotRects = [];
-
-function layout(top) {
-  const leftW = Math.max(360, Math.min(SW * 0.6, SW - 330));
-  const B = Math.max(12, Math.min((leftW - 70) / 20.6, (SH - top - 26) / 14.6, 30));
-  return { top, leftW, B };
-}
-
-function caption(boxes, valid) {
-  if (P.mode === 'build') return valid.msgs;
-  if (anim && anim.shown > 0 && anim.shown < anim.seq.length) {
-    const e = anim.seq[anim.shown - 1], s = e.sub;
-    if (e.idx === 0) return [['info', `Aufbau: il prossimo elettrone va nel sottolivello libero a energia più bassa, ${s.label}.`]];
-    if (e.spin > 0) return [['info', `Regola di Hund: in ${s.label} un elettrone per orbitale, tutti con spin paralleli.`]];
-    return [['info', `Principio di Pauli: il secondo elettrone dell'orbitale ha spin opposto (al massimo 2 per orbitale).`]];
-  }
-  return [['explain', explain(P.Z, P.charge)]];
-}
-
-// ── Spiegazione breve dell'elemento o dello ione scelto ──────────────────────
-const ionLabel = q => q === 0 ? '' : (Math.abs(q) > 1 ? sup(Math.abs(q)) : '') + (q > 0 ? '⁺' : '⁻');
 function unpairedOf(c) {
   let u = 0;
   for (const s of SUBSHELLS) { const e = c[s.label]; u += e <= s.k ? e : 2 * s.k - e; }
   return u;
 }
 
+// Elettroni del guscio di valenza per il simbolo di Lewis: s e p del livello esterno dell'atomo
+// neutro (per i metalli di transizione e le terre rare restano solo gli s esterni).
+function lewisDots(Z, c) {
+  const n = tablePos(Z).period;
+  return (c[n + 's'] || 0) + (c[n + 'p'] || 0);
+}
+
+// ── Spiegazione breve dell'elemento o dello ione scelto ──────────────────────
 // Tre frasi: chi è, cosa ha di particolare la sua configurazione (e perché), elettroni spaiati.
 function explain(Z, q) {
   const el = ELEMENTS[Z], N = Z - q, c = groundConfig(Z, q), pos = tablePos(Z), n = pos.period;
@@ -301,7 +179,7 @@ function explain(Z, q) {
       const art = { 2: 'dell\'elio', 10: 'del neon', 18: 'dell\'argon', 36: 'del kripton', 54: 'dello xeno', 86: 'del radon' }[noble];
       out.push(`Ha la stessa configurazione ${art} (è isoelettronico con un gas nobile): per questo è uno ione stabile.`);
     } else if (q > 0 && sLost) {
-      out.push(`Si tolgono prima gli elettroni del livello n più alto, cioè gli s, anche se nell'atomo neutro il sottolivello d si era riempito dopo.`);
+      out.push('Si tolgono prima gli elettroni del livello n più alto, cioè gli s, anche se nell\'atomo neutro il sottolivello d si era riempito dopo.');
     } else if (q > 0) {
       out.push('Si tolgono per primi gli elettroni del livello più esterno, i meno trattenuti dal nucleo.');
     } else {
@@ -343,218 +221,419 @@ function explain(Z, q) {
   return out.join(' ');
 }
 
-// Testo a capo entro una larghezza massima
-function wrapLines(str, maxW, font) {
-  ctx.font = font;
-  const words = str.split(' '), lines = [];
-  let cur = '';
-  for (const w of words) {
-    const t = cur ? cur + ' ' + w : w;
-    if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t;
-  }
-  if (cur) lines.push(cur);
-  return lines;
+// ── Parametri e stato ─────────────────────────────────────────────────────────
+const P = {
+  Z: 8,
+  charge: 0,
+  mode: 'ground',      // 'ground' | 'build'
+  byN: false,          // ordine della configurazione: per energia (false) o per n (true)
+  speed: 1,
+};
+let build = null;      // caselle compilate dallo studente
+let anim = null;       // { seq, shown, t }
+let selected = null;   // { sub, box, slot }
+const nElectrons = () => P.Z - P.charge;
+
+// ── Canvas / layout ──────────────────────────────────────────────────────────
+const canvas  = document.getElementById('simCanvas');
+const ctx     = canvas.getContext('2d');
+const gCanvas = document.getElementById('graphCanvas');
+const gctx    = gCanvas.getContext('2d');
+const graphArea = document.getElementById('graphArea');
+const readoutEl = document.getElementById('readout');
+const infoBar   = document.getElementById('infoBar');
+let SW = 0, SH = 0, GW = 0, GH = 0, DPR = 1;
+
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  const area = canvas.parentElement, areaH = area.clientHeight;
+  const stacked = window.innerWidth <= 800;    // layout a colonna: la pagina scorre
+  // l'area della tavola periodica si adatta all'altezza disponibile, così il diagramma resta grande
+  const gh = stacked ? 170 : Math.round(Math.max(118, Math.min(230, areaH * 0.26)));
+  if (graphArea.offsetHeight !== gh) { graphArea.style.height = gh + 'px'; graphArea.style.minHeight = '0'; }
+  SW = area.clientWidth;
+  SH = stacked ? 380 : Math.max(0, areaH - infoBar.offsetHeight - gh - (readoutEl.offsetHeight || 0));
+  canvas.width = Math.round(SW * DPR); canvas.height = Math.round(SH * DPR);
+  canvas.style.width = SW + 'px'; canvas.style.height = SH + 'px';
+  GW = graphArea.clientWidth; GH = gh;
+  gCanvas.width = Math.round(GW * DPR); gCanvas.height = Math.round(GH * DPR);
+  gCanvas.style.width = GW + 'px'; gCanvas.style.height = GH + 'px';
 }
 
-let explainKey = '', flashT = 0;
+function getCSSVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+let C = {};
+function getColors() {
+  const light = document.documentElement.dataset.theme === 'light';
+  return {
+    light,
+    bg: getCSSVar('--bg1') || '#060a10', panel: getCSSVar('--bg2') || '#0b1018', bg3: getCSSVar('--bg3') || '#111820',
+    text: getCSSVar('--text-primary') || '#ddeeff', muted: getCSSVar('--text-secondary') || '#6b8099',
+    accent: getCSSVar('--accent') || '#00d4ff',
+    grid: light ? 'rgba(0,0,0,0.16)' : 'rgba(255,255,255,0.16)',
+    up: light ? '#0a84c0' : '#3fd6ff', down: light ? '#d6336c' : '#ff6b9d',
+    bad: light ? '#e03131' : '#ff5c5c', warn: light ? '#e8590c' : '#ffb44d',
+    block: { s: '#ff8a5c', p: '#5cc8ff', d: '#ffd24d', f: '#7ee08a' },
+  };
+}
 
-function drawDiagram(boxes, valid, L) {
-  const { top, B } = L;
-  const x0 = 58, dy = B * 0.75;
-  const colX = [x0, x0 + 2.6 * B, x0 + 7 * B, x0 + 13.4 * B];
-  const baseY = SH - 18 - B / 2;
+// Testo centrato davvero: base "middle" corretta di poco verso il basso per le maiuscole
+function text(c, str, x, y, { color = C.text, size = 12, align = 'center', bold = false, mono = false } = {}) {
+  c.fillStyle = color;
+  c.font = `${bold ? '700 ' : ''}${size}px ${mono ? 'Space Mono, monospace' : 'DM Sans, sans-serif'}`;
+  c.textAlign = align; c.textBaseline = 'middle';
+  c.fillText(str, x, y + size * 0.06);
+}
+
+function spinArrow(x, y, h, spin, color, width = 2) {
+  const top = y - h / 2, bot = y + h / 2, head = Math.max(3, h * 0.28);
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x, spin > 0 ? bot : top); ctx.lineTo(x, spin > 0 ? top + head * 0.6 : bot - head * 0.6); ctx.stroke();
+  const ty = spin > 0 ? top : bot, d = spin > 0 ? 1 : -1;
+  ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x - head * 0.6, ty + d * head); ctx.lineTo(x + head * 0.6, ty + d * head); ctx.closePath(); ctx.fill();
+}
+
+function card(c, x, y, w, h, title) {
+  c.fillStyle = C.panel; c.strokeStyle = C.grid; c.lineWidth = 1;
+  c.beginPath(); c.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 8); c.fill(); c.stroke();
+  if (title) text(c, title, x + 12, y + 14, { size: 10.5, color: C.muted, align: 'left' });
+}
+
+// ── Stato da mostrare ────────────────────────────────────────────────────────
+function currentBoxes() {
+  if (P.mode === 'build') return build;
+  const target = groundConfig(P.Z, P.charge);
+  if (!anim) return boxesFromCounts(target);
+  const b = boxesFromCounts(emptyCounts());
+  for (let i = 0; i < anim.shown; i++) { const e = anim.seq[i]; b[e.sub.label][e.box][e.spin > 0 ? 0 : 1] = e.spin; }
+  return b;
+}
+const countsOf = boxes => Object.fromEntries(SUBSHELLS.map(s => [s.label, boxes[s.label].reduce((a, bx) => a + (bx[0] ? 1 : 0) + (bx[1] ? 1 : 0), 0)]));
+
+// Verifica delle regole sulla configurazione costruita dallo studente
+function validate(boxes) {
+  const res = { pauli: new Set(), hund: new Set(), aufbau: false, count: 0, ok: false, msgs: [] };
   const c = countsOf(boxes);
-  const lastFilled = Math.max(-1, ...SUBSHELLS.filter(s => c[s.label] > 0).map(s => s.order));
+  res.count = Object.values(c).reduce((a, v) => a + v, 0);
+  for (const s of SUBSHELLS) {
+    const bx = boxes[s.label];
+    bx.forEach((b, j) => { if (b[0] && b[1] && b[0] === b[1]) res.pauli.add(s.label + ':' + j); });
+    const doubles = bx.filter(b => b[0] && b[1]).length, empties = bx.filter(b => !b[0] && !b[1]).length;
+    const singles = bx.filter(b => (b[0] !== 0) !== (b[1] !== 0)).map(b => b[0] || b[1]);
+    if ((doubles > 0 && empties > 0) || (singles.length > 1 && new Set(singles).size > 1)) res.hund.add(s.label);
+    if (c[s.label] > 0 && SUBSHELLS.some(t => t.order < s.order && c[t.label] < t.cap)) res.aufbau = true;
+  }
+  const target = groundConfig(P.Z, P.charge), N = nElectrons();
+  const matches = SUBSHELLS.every(s => c[s.label] === target[s.label]);
+  if (res.pauli.size) res.msgs.push(['bad', 'Pauli: due elettroni nello stesso orbitale hanno lo stesso spin. Devono avere spin opposti (↑↓).']);
+  if (res.hund.size) res.msgs.push(['warn', `Hund: in ${[...res.hund].join(', ')} gli elettroni vanno prima uno per orbitale, con spin paralleli.`]);
+  if (res.count !== N) res.msgs.push(['warn', `Elettroni sistemati: ${res.count} su ${N}.`]);
+  else if (!matches && !res.pauli.size) res.msgs.push(['warn', res.aufbau
+    ? 'Aufbau: c\'è un sottolivello a energia più bassa non ancora pieno. Così è uno stato eccitato, non quello fondamentale.'
+    : 'La distribuzione non corrisponde allo stato fondamentale.']);
+  res.ok = res.count === N && matches && !res.pauli.size && !res.hund.size;
+  if (res.ok) res.msgs.push(['good', EXCEPTIONS[P.Z] && P.charge === 0
+    ? 'Corretto! È lo stato fondamentale (e questo elemento è un\'eccezione alla regola di Madelung).'
+    : 'Corretto! È la configurazione dello stato fondamentale.']);
+  return res;
+}
+
+function messages(valid) {
+  if (P.mode === 'build') return [['', `Sistema ${nElectrons()} elettroni nelle caselle.`], ...valid.msgs];
+  if (anim && anim.shown > 0 && anim.shown < anim.seq.length) {
+    const e = anim.seq[anim.shown - 1], s = e.sub;
+    if (e.idx === 0) return [['', `Aufbau: l'elettrone ${anim.shown} va nel sottolivello libero a energia più bassa, ${s.label}.`]];
+    if (e.spin > 0) return [['', `Regola di Hund: in ${s.label} un elettrone per orbitale, tutti con spin paralleli (elettrone ${anim.shown}).`]];
+    return [['', `Principio di Pauli: il secondo elettrone dell'orbitale ha spin opposto, al massimo 2 per orbitale (elettrone ${anim.shown}).`]];
+  }
+  return [['', explain(P.Z, P.charge)]];
+}
+
+// ── Intestazione (HTML) ──────────────────────────────────────────────────────
+let infoKey = '', flashKey = '';
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+function updateInfo(boxes, valid) {
+  const c = countsOf(boxes), el = ELEMENTS[P.Z];
+  const msgs = messages(valid);
+  const short = configString(c, true, true, P.charge !== 0);
+  const key = [P.Z, P.charge, P.mode, P.byN, C.light, configString(c, P.byN, false), JSON.stringify(msgs)].join('|');
+  if (key === infoKey) return;
+  infoKey = key;
+  const blk = blockOf(P.Z);
+  const tile = document.getElementById('infoTile');
+  tile.style.background = C.block[blk] + (C.light ? '55' : '33');
+  tile.style.borderColor = C.block[blk];
+  document.getElementById('infoZ').textContent = P.Z;
+  document.getElementById('infoSym').textContent = el.sym + ionLabel(P.charge);
+  document.getElementById('infoName').textContent = el.name;
+  document.getElementById('infoTitle').textContent = `Z = ${P.Z} · ${nElectrons()} elettroni${P.charge ? ` (ione ${P.charge > 0 ? 'positivo' : 'negativo'})` : ''}`;
+  document.getElementById('infoFull').textContent = configString(c, P.byN, false);
+  document.getElementById('infoShort').textContent = short.startsWith('[') ? 'forma abbreviata: ' + short : '';
+  const ex = document.getElementById('infoExplain');
+  ex.innerHTML = msgs.map(([k, m]) => `<div class="${k}">${esc(m)}</div>`).join('');
+  // evidenzia per un attimo quando cambia elemento, carica o modalità
+  const fk = `${P.Z}|${P.charge}|${P.mode}`;
+  if (fk !== flashKey) { flashKey = fk; ex.classList.remove('flash'); void ex.offsetWidth; ex.classList.add('flash'); }
+  resize();
+}
+
+// ── Diagramma degli orbitali (caselle di Pauli e Hund) ───────────────────────
+let slotRects = [];
+
+// Si mostrano i sottolivelli fino a due oltre l'ultimo occupato: il diagramma resta grande
+function visibleSubshells(boxes) {
+  const c = countsOf(boxes);
+  const groundLast = fillSequence(groundConfig(P.Z, Math.min(P.charge, 0))).pop();
+  let last = groundLast ? groundLast.sub.order : 0;
+  for (const s of SUBSHELLS) if (c[s.label] > 0) last = Math.max(last, s.order);
+  const maxOrder = Math.min(SUBSHELLS.length - 1, Math.max(5, last + 2));
+  return SUBSHELLS.filter(s => s.order <= maxOrder);
+}
+
+// Geometria: colonne per l (s, p, d, f), righe in ordine di energia. Due sottolivelli della
+// stessa colonna non si sovrappongono mai: la riga sale di almeno una casella intera.
+function diagramGeometry(subs, x0, y0, w, h) {
+  const cols = [0, 1, 2, 3].filter(l => subs.some(s => s.l === l));
+  const LABEL = 1.3, GAP = 0.45;
+  const widthUnits = cols.reduce((a, l) => a + LABEL + (2 * l + 1) + GAP, 0) - GAP;
+  const ys = [], lastInCol = {};
+  let y = 0;
+  subs.forEach((s, i) => {
+    if (i > 0) y += 0.72;
+    if (lastInCol[s.l] !== undefined) y = Math.max(y, lastInCol[s.l] + 1.18);
+    ys.push(y); lastInCol[s.l] = y;
+  });
+  const heightUnits = y + 1;
+  const B = Math.max(10, Math.min(w / widthUnits, h / heightUnits, 46));
+  const colX = {};
+  let x = x0 + (w - widthUnits * B) / 2;
+  for (const l of cols) { colX[l] = x + LABEL * B; x += (LABEL + (2 * l + 1) + GAP) * B; }
+  const yBase = y0 + h / 2 + (heightUnits * B) / 2 - B / 2;   // centro della riga più bassa
+  return { B, pos: subs.map((s, i) => ({ s, x: colX[s.l], y: yBase - ys[i] * B })), top: yBase - (heightUnits - 1) * B - B / 2, bottom: yBase + B / 2 };
+}
+
+function drawDiagram(boxes, valid, x0, y0, w, h) {
+  const subs = visibleSubshells(boxes);
+  const G = diagramGeometry(subs, x0 + 34, y0, w - 34, h);
+  const { B } = G;
   slotRects = [];
 
   // asse dell'energia
+  const ax = x0 + 14;
   ctx.strokeStyle = C.muted; ctx.fillStyle = C.muted; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(18, baseY + B / 2); ctx.lineTo(18, top + 8); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(18, top + 2); ctx.lineTo(14, top + 10); ctx.lineTo(22, top + 10); ctx.closePath(); ctx.fill();
-  ctx.save(); ctx.translate(30, (top + baseY) / 2); ctx.rotate(-Math.PI / 2);
-  text('energia', 0, 0, { color: C.muted, size: 10, align: 'center' }); ctx.restore();
+  ctx.beginPath(); ctx.moveTo(ax, G.bottom); ctx.lineTo(ax, G.top + 8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax, G.top); ctx.lineTo(ax - 4, G.top + 9); ctx.lineTo(ax + 4, G.top + 9); ctx.closePath(); ctx.fill();
+  ctx.save(); ctx.translate(ax + 11, (G.top + G.bottom) / 2); ctx.rotate(-Math.PI / 2);
+  text(ctx, 'energia', 0, 0, { color: C.muted, size: 10 }); ctx.restore();
 
-  for (const s of SUBSHELLS) {
-    const y = baseY - s.order * dy, x = colX[s.l];
-    const dim = P.mode === 'ground' && s.order > lastFilled + 1;
-    ctx.globalAlpha = dim ? 0.3 : 1;
-    const bad = valid && valid.hund.has(s.label);
-    text(s.label, x - 6, y, { color: bad ? C.warn : C.block[L_LETTER[s.l]], size: Math.max(9, B * 0.5), align: 'right', bold: true });
+  const c = countsOf(boxes);
+  for (const { s, x, y } of G.pos) {
+    const hundBad = valid && valid.hund.has(s.label);
+    const empty = c[s.label] === 0 && P.mode === 'ground';
+    ctx.globalAlpha = empty ? 0.45 : 1;
+    text(ctx, s.label, x - B * 0.3, y, { color: hundBad ? C.warn : C.block[L_LETTER[s.l]], size: Math.max(10, B * 0.46), align: 'right', bold: true });
     for (let j = 0; j < s.k; j++) {
       const bx = x + j * B, by = y - B / 2;
       const pauliBad = valid && valid.pauli.has(s.label + ':' + j);
-      ctx.strokeStyle = pauliBad ? C.bad : bad ? C.warn : C.grid;
-      ctx.lineWidth = pauliBad || bad ? 2 : 1;
+      ctx.strokeStyle = pauliBad ? C.bad : hundBad ? C.warn : C.grid;
+      ctx.lineWidth = pauliBad || hundBad ? 2 : 1;
       ctx.strokeRect(bx + 0.5, by + 0.5, B - 1, B - 1);
       const box = boxes[s.label][j];
       for (let k = 0; k < 2; k++) {
-        const sx = bx + B * (k ? 0.68 : 0.32);
         slotRects.push({ x: bx + (k ? B / 2 : 0), y: by, w: B / 2, h: B, sub: s, box: j, slot: k });
         if (!box[k]) continue;
         const isSel = selected && selected.sub === s && selected.box === j && selected.slot === k;
-        if (isSel) { ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(bx + (k ? B / 2 : 1), by + 1, B / 2 - 1, B - 2); }
-        spinArrow(sx, y, B * 0.66, box[k], pauliBad ? C.bad : box[k] > 0 ? C.up : C.down, Math.max(1.5, B / 13));
+        if (isSel) { ctx.fillStyle = C.light ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.14)'; ctx.fillRect(bx + (k ? B / 2 : 1), by + 1, B / 2 - 1, B - 2); }
+        spinArrow(bx + B * (k ? 0.68 : 0.32), y, B * 0.62, box[k], pauliBad ? C.bad : box[k] > 0 ? C.up : C.down, Math.max(1.5, B / 14));
       }
     }
     ctx.globalAlpha = 1;
   }
+  if (P.mode === 'build') {
+    text(ctx, 'clic sulla metà sinistra o destra di una casella: vuota → ↑ → ↓ → vuota', x0 + w / 2, y0 + h + 4, { size: 10, color: C.muted });
+  }
 }
 
-// Diagramma di Madelung: sottolivelli per n e l, frecce diagonali nell'ordine di riempimento
-function drawMadelung(boxes, L) {
-  const c = countsOf(boxes);
-  const x0 = L.leftW + 24, w = SW - x0 - 16;
-  const cw = Math.min(64, w / 4.4), ch = Math.min(40, (SH - L.top - 120) / 7.4);
-  if (cw < 30 || ch < 20) return;
-  const ox = x0 + (w - cw * 4) / 2 + cw / 2, oy = L.top + 22;
-  const pos = s => [ox + s.l * cw, oy + (s.n - 1) * ch];
-  text('Ordine di riempimento (regola di Madelung)', x0 + w / 2, L.top + 2, { color: C.muted, size: 11, align: 'center' });
+// ── Simbolo di Lewis ─────────────────────────────────────────────────────────
+function drawLewis(boxes, x, y, w, h) {
+  if (h < 64 || w < 150) return;
+  card(ctx, x, y, w, h, 'Simbolo di Lewis');
+  const c = countsOf(boxes), el = ELEMENTS[P.Z];
+  const dots = lewisDots(P.Z, c);
+  const compact = h < 115;                     // poco spazio: simbolo a sinistra, testo a destra
+  const cx = compact ? x + Math.min(w * 0.3, 90) : x + w / 2;
+  const cy = compact ? y + 14 + (h - 14) / 2 : y + 28 + (h - 76) / 2;
+  const fs = compact ? Math.max(18, Math.min(40, (h - 22) * 0.36)) : Math.max(20, Math.min(54, (h - 72) * 0.45, w * 0.2));
+  const R = fs * 0.78, gapPair = fs * 0.24, dr = Math.max(2.6, fs * 0.075);
+  text(ctx, el.sym, cx, cy, { size: fs, bold: true });
 
-  ctx.strokeStyle = C.muted; ctx.lineWidth = 1; ctx.globalAlpha = 0.55;
-  for (let sum = 1; sum <= 8; sum++) {
-    const diag = SUBSHELLS.filter(s => s.n + s.l === sum);
-    if (diag.length < 1) continue;
-    const [ax, ay] = pos(diag[0]), [bx, by] = pos(diag[diag.length - 1]);
-    const ex = ax + cw * 0.42, ey = ay - ch * 0.42, fx = bx - cw * 0.42, fy = by + ch * 0.42;
-    ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(fx, fy); ctx.stroke();
-    const a = Math.atan2(fy - ey, fx - ex);
-    ctx.beginPath(); ctx.moveTo(fx, fy);
-    ctx.lineTo(fx - 7 * Math.cos(a - 0.4), fy - 7 * Math.sin(a - 0.4));
-    ctx.lineTo(fx - 7 * Math.cos(a + 0.4), fy - 7 * Math.sin(a + 0.4));
-    ctx.closePath(); ctx.fillStyle = C.muted; ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-
-  const r = Math.min(cw, ch) * 0.4;
-  for (const s of SUBSHELLS) {
-    const [x, y] = pos(s), col = C.block[L_LETTER[s.l]], f = c[s.label] / s.cap;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
-    ctx.fillStyle = C.bg3; ctx.fill();
-    if (f > 0) {
-      ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + f * 2 * Math.PI); ctx.closePath();
-      ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+  // un elettrone per lato (su, destra, giù, sinistra), poi le coppie: come la regola di Hund
+  const sides = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+  const perSide = [0, 0, 0, 0];
+  if (P.Z === 2 && dots === 2) perSide[1] = 2;
+  else for (let i = 0; i < dots; i++) perSide[i % 4]++;
+  sides.forEach(([sx, sy], i) => {
+    const n = perSide[i];
+    for (let k = 0; k < n; k++) {
+      const off = n === 2 ? (k ? gapPair : -gapPair) / 2 : 0;
+      const px = cx + sx * R + (sy ? off : 0), py = cy + sy * R + (sx ? off : 0);
+      ctx.beginPath(); ctx.arc(px, py, dr, 0, 2 * Math.PI);
+      ctx.fillStyle = n === 1 ? C.accent : C.text; ctx.fill();
     }
-    ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
-    ctx.strokeStyle = f > 0 ? col : C.grid; ctx.lineWidth = 1.5; ctx.stroke();
-    text(s.label, x, y - 1, { size: Math.max(9, r * 0.62), align: 'center', bold: true, color: f > 0 ? C.text : C.muted });
-    if (c[s.label]) text(String(c[s.label]), x + r * 0.95, y - r * 0.85, { size: 9, color: col, mono: true });
+  });
+  if (P.charge !== 0) {
+    ctx.strokeStyle = C.text; ctx.lineWidth = Math.max(1.5, fs / 26);
+    const bw = R + fs * 0.42, bh = R + fs * 0.36, t = fs * 0.16;
+    ctx.beginPath();
+    ctx.moveTo(cx - bw + t, cy - bh); ctx.lineTo(cx - bw, cy - bh); ctx.lineTo(cx - bw, cy + bh); ctx.lineTo(cx - bw + t, cy + bh);
+    ctx.moveTo(cx + bw - t, cy - bh); ctx.lineTo(cx + bw, cy - bh); ctx.lineTo(cx + bw, cy + bh); ctx.lineTo(cx + bw - t, cy + bh);
+    ctx.stroke();
+    text(ctx, (Math.abs(P.charge) > 1 ? Math.abs(P.charge) : '') + (P.charge > 0 ? '+' : '−'), cx + bw + 4, cy - bh + fs * 0.12, { size: fs * 0.42, bold: true, align: 'left' });
   }
-  return oy + 6.6 * ch;
+  const pairs = perSide.filter(n => n === 2).length, singles = perSide.filter(n => n === 1).length;
+  const blk = blockOf(P.Z);
+  const note = dots === 0 ? 'guscio di valenza vuoto'
+    : `${dots} elettron${dots === 1 ? 'e' : 'i'} di valenza` + (pairs ? ` · ${pairs} coppi${pairs === 1 ? 'a' : 'e'}` : '') + (singles ? ` · ${singles} spaiat${singles === 1 ? 'o' : 'i'}` : '');
+  const sub2 = blk === 'd' || blk === 'f' ? 'metallo di transizione: solo gli s esterni' : 'punti colorati = elettroni spaiati';
+  if (compact) {
+    const tx = cx + R + fs * 0.75 + 10, room = x + w - tx - 10;
+    const lines = [
+      ...fitLines(note.split(' · '), room, '11px DM Sans, sans-serif').map(t => [t, 11, C.text]),
+      ...fitLines([sub2], room, '9.5px DM Sans, sans-serif').map(t => [t, 9.5, C.muted]),
+    ];
+    let ly = cy - (lines.length - 1) * 7.5;
+    for (const [t, size, color] of lines) { text(ctx, t, tx, ly, { size, color, align: 'left' }); ly += 15; }
+  } else {
+    text(ctx, note, cx, y + h - 34, { size: 11.5, color: C.text });
+    text(ctx, sub2, cx, y + h - 16, { size: 10, color: C.muted });
+  }
 }
 
-// Numeri quantici dell'elettrone selezionato
-function drawQuantum(y0, L) {
-  const x0 = L.leftW + 24, w = SW - x0 - 16;
-  if (!selected || y0 + 70 > SH) return;
-  const { sub, box, slot } = selected, spin = currentBoxes()[sub.label][box][slot];
-  if (!spin) return;
-  const ml = box - sub.l;
-  ctx.fillStyle = C.panel; ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.roundRect(x0, y0, w, 66, 8); ctx.fill(); ctx.stroke();
-  text('Numeri quantici dell\'elettrone selezionato', x0 + 10, y0 + 13, { size: 10, color: C.muted });
-  const items = [['n', sub.n], ['l', `${sub.l} (${L_LETTER[sub.l]})`], ['mₗ', (ml > 0 ? '+' : '') + ml], ['mₛ', spin > 0 ? '+½ ↑' : '−½ ↓']];
+// Unisce i pezzi finché stanno nella larghezza, altrimenti va a capo (anche dentro un pezzo)
+function fitLines(parts, maxW, font) {
+  ctx.font = font;
+  const lines = [];
+  let cur = '';
+  const push = t => {
+    if (ctx.measureText(t).width <= maxW) { lines.push(t); return; }
+    let line = '';
+    for (const w of t.split(' ')) {
+      const tt = line ? line + ' ' + w : w;
+      if (ctx.measureText(tt).width > maxW && line) { lines.push(line); line = w; } else line = tt;
+    }
+    if (line) lines.push(line);
+  };
+  for (const part of parts) {
+    const t = cur ? cur + ' · ' + part : part;
+    if (ctx.measureText(t).width <= maxW) cur = t;
+    else { if (cur) push(cur); cur = part; }
+  }
+  if (cur) push(cur);
+  return lines;
+}
+
+// ── Numeri quantici dell'elettrone selezionato ───────────────────────────────
+function drawQuantum(boxes, x, y, w, h) {
+  card(ctx, x, y, w, h, w < 280 ? 'Numeri quantici' : 'Numeri quantici dell\'elettrone selezionato');
+  const spin = selected ? boxes[selected.sub.label][selected.box][selected.slot] : 0;
+  if (!spin) { text(ctx, 'fai clic su una freccia', x + w / 2, y + h / 2 + 7, { size: 11, color: C.muted }); return; }
+  const { sub, box } = selected, ml = box - sub.l;
+  const items = [['n', String(sub.n)], ['l', `${sub.l} (${L_LETTER[sub.l]})`], ['mₗ', (ml > 0 ? '+' : '') + ml], ['mₛ', spin > 0 ? '+½ ↑' : '−½ ↓']];
+  const cw = (w - 16) / 4, mid = y + 14 + (h - 14) / 2;
   items.forEach(([k, v], i) => {
-    const x = x0 + 10 + i * (w - 20) / 4;
-    text(k, x, y0 + 33, { size: 11, color: C.muted, mono: true });
-    text(String(v), x, y0 + 51, { size: 13, bold: true, mono: true, color: k === 'mₛ' ? (spin > 0 ? C.up : C.down) : C.text });
+    const cx = x + 8 + cw * (i + 0.5);
+    text(ctx, k, cx, mid - 9, { size: 11, color: C.muted, mono: true });
+    text(ctx, v, cx, mid + 10, { size: 13, bold: true, mono: true, color: k === 'mₛ' ? (spin > 0 ? C.up : C.down) : C.text });
   });
 }
 
-function drawHeader(boxes, msgs) {
-  const el = ELEMENTS[P.Z], c = countsOf(boxes);
-  const ion = ionLabel(P.charge);
-  text(el.sym + ion, 16, 26, { size: 26, bold: true });
-  ctx.font = '700 26px DM Sans, sans-serif';
-  const sw = ctx.measureText(el.sym + ion).width;
-  text(`${el.name} · Z = ${P.Z}${P.charge ? ` · ${nElectrons()} elettroni` : ''}`, 16 + sw + 10, 20, { size: 12, color: C.muted });
-  text(configString(c, P.byN, false), 16 + sw + 10, 38, { size: 13, mono: true, bold: true, color: C.accent });
-  const short = configString(c, true, true, P.charge !== 0);
-  if (short.startsWith('[')) text('forma abbreviata: ' + short, SW - 16, 20, { size: 11, mono: true, color: C.muted, align: 'right' });
-
-  let y = 58;
-  for (const [kind, m] of msgs.slice(0, 3)) {
-    const explainMsg = kind === 'explain';
-    const font = `${explainMsg ? 12.5 : 11}px DM Sans, sans-serif`;
-    const lines = wrapLines(m, SW - 44, font).slice(0, 4);
-    if (explainMsg) {
-      // riquadro che si illumina per un attimo quando cambia l'elemento o la carica
-      const h = lines.length * 16 + 10;
-      ctx.fillStyle = C.panel; ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.roundRect(10, y - 9, SW - 20, h, 7); ctx.fill(); ctx.stroke();
-      if (flashT > 0) {
-        ctx.save(); ctx.globalAlpha = Math.min(1, flashT) * 0.35;
-        ctx.strokeStyle = C.accent; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.roundRect(10, y - 9, SW - 20, h, 7); ctx.stroke();
-        ctx.fillStyle = C.accent; ctx.globalAlpha *= 0.4; ctx.fill();
-        ctx.restore();
-      }
-      ctx.fillStyle = C.accent; ctx.fillRect(10, y - 9, 3, h);
-    }
-    const col = kind === 'bad' ? C.bad : kind === 'warn' ? C.warn : kind === 'good' ? C.good : explainMsg ? C.text : C.muted;
-    for (const ln of lines) {
-      ctx.fillStyle = col; ctx.font = font; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillText(ln, explainMsg ? 22 : 16, y + (explainMsg ? 1 : 0));
-      y += explainMsg ? 16 : 15;
-    }
-    if (explainMsg) y += 6;
-  }
-  return y;
-}
-
-function drawScene() {
+function drawScene(boxes, valid) {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = C.bg; ctx.fillRect(0, 0, SW, SH);
-  if (SW < 50 || SH < 50) return;
-  const boxes = currentBoxes();
-  const valid = P.mode === 'build' ? validate(boxes) : null;
-  const msgs = caption(boxes, valid);
-  const key = `${P.Z}|${P.charge}|${P.mode}`;
-  if (key !== explainKey) { explainKey = key; flashT = 1.6; }
-  const L = layout(drawHeader(boxes, msgs) + 6);
-  drawDiagram(boxes, valid, L);
-  const yq = drawMadelung(boxes, L);
-  if (yq) drawQuantum(yq + 8, L);
-  if (P.mode === 'build') {
-    text('clic sulla metà sinistra o destra di una casella: vuota → ↑ → ↓ → vuota', SW - 16, SH - 10, { size: 10, color: C.muted, align: 'right' });
+  if (SW < 60 || SH < 60) return;
+  const pad = 12;
+  // il diagramma ha la precedenza: Lewis e numeri quantici compaiono a lato solo se c'è spazio
+  const side = SW >= 520 ? Math.max(190, Math.min(360, SW * 0.3)) : 0;
+  const strip = side ? 0 : Math.min(96, SH * 0.36);
+  const bottomHint = P.mode === 'build' ? 16 : 0;
+  drawDiagram(boxes, valid, pad, pad, SW - side - pad * (side ? 3 : 2), SH - pad * 2 - bottomHint - (strip ? strip + pad : 0));
+  if (side) {
+    const x = SW - side - pad, qh = Math.max(64, Math.min(80, SH * 0.28));
+    drawLewis(boxes, x, pad, side, SH - qh - pad * 3);
+    drawQuantum(boxes, x, SH - qh - pad, side, qh);
+  } else if (strip > 50) {
+    const y = SH - strip - pad, lw = (SW - pad * 3) * 0.55;
+    drawLewis(boxes, pad, y, lw, strip);
+    drawQuantum(boxes, pad * 2 + lw, y, SW - pad * 3 - lw, strip);
   }
 }
 
-// ── Tavola periodica (area grafici) ──────────────────────────────────────────
+// ── Tavola periodica e diagramma di Madelung (area in basso) ─────────────────
 let cellRects = [];
-function drawTable() {
-  gctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  gctx.fillStyle = C.panel; gctx.fillRect(0, 0, GW, GH);
+function drawTable(w) {
   cellRects = [];
-  const pad = 8, cw = (GW - pad * 2) / 18, rows = 9.4, ch = Math.min(26, (GH - pad * 2) / rows);
+  const pad = 8, cw = (w - pad * 2) / 18, ch = (GH - pad * 2) / 9.3;
   for (let Z = 1; Z <= 118; Z++) {
     const p = tablePos(Z);
     const x = pad + (p.col ? p.col - 1 : p.fcol + 2) * cw;
-    const y = pad + (p.col ? p.period - 1 : 7.4 + p.frow) * ch;
-    const blk = blockOf(Z), col = C.block[blk], sel = Z === P.Z;
-    gctx.globalAlpha = sel ? 0.95 : 0.28;
+    const y = pad + (p.col ? p.period - 1 : 7.3 + p.frow) * ch;
+    const col = C.block[blockOf(Z)], sel = Z === P.Z;
+    gctx.globalAlpha = sel ? 0.95 : 0.3;
     gctx.fillStyle = col; gctx.fillRect(x + 1, y + 1, cw - 2, ch - 2);
     gctx.globalAlpha = 1;
     if (sel) { gctx.strokeStyle = C.text; gctx.lineWidth = 2; gctx.strokeRect(x + 1, y + 1, cw - 2, ch - 2); }
-    gctx.fillStyle = sel ? '#06101a' : C.text;
-    gctx.font = `${sel ? '700 ' : ''}${Math.min(12, ch * 0.5)}px DM Sans, sans-serif`;
-    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    gctx.fillText(ELEMENTS[Z].sym, x + cw / 2, y + ch / 2 + 1);
-    if (cw > 34) {
-      gctx.font = `${Math.min(8, ch * 0.32)}px Space Mono, monospace`; gctx.textAlign = 'left';
-      gctx.fillStyle = sel ? '#06101a' : C.muted;
-      gctx.fillText(String(Z), x + 3, y + 7);
-    }
+    text(gctx, ELEMENTS[Z].sym, x + cw / 2, y + ch / 2, { size: Math.max(8, Math.min(12, ch * 0.5, cw * 0.42)), bold: sel, color: sel ? '#06101a' : C.text });
+    if (cw > 36 && ch > 18) text(gctx, String(Z), x + 3, y + 6, { size: 7.5, mono: true, align: 'left', color: sel ? '#06101a' : C.muted });
     cellRects.push({ x, y, w: cw, h: ch, Z });
   }
-  // legenda dei blocchi
-  const lx = pad + 3 * cw, ly = pad + 1.1 * ch;
+  // legenda dei blocchi nello spazio vuoto in alto, fra il gruppo 2 e il gruppo 13
+  const lx = pad + 2.4 * cw, ly = pad + ch * 0.5, room = 10 * cw;
+  const long = room >= 4 * 66, step = long ? Math.min(70, room / 4) : Math.min(30, room / 4);
   ['s', 'p', 'd', 'f'].forEach((b, i) => {
-    gctx.globalAlpha = 0.6; gctx.fillStyle = C.block[b]; gctx.fillRect(lx + i * 66, ly - 5, 10, 10); gctx.globalAlpha = 1;
-    gctx.fillStyle = C.muted; gctx.font = '10px DM Sans, sans-serif'; gctx.textAlign = 'left'; gctx.textBaseline = 'middle';
-    gctx.fillText('blocco ' + b, lx + i * 66 + 14, ly);
+    gctx.globalAlpha = 0.65; gctx.fillStyle = C.block[b]; gctx.fillRect(lx + i * step, ly - 5, 10, 10); gctx.globalAlpha = 1;
+    text(gctx, long ? 'blocco ' + b : b, lx + i * step + 14, ly, { size: 10, color: C.muted, align: 'left' });
   });
-  gctx.fillStyle = C.muted; gctx.font = '10px DM Sans, sans-serif';
-  gctx.fillText('clic su un elemento per sceglierlo', lx, ly + 16);
+  if (ch > 14 && room > 190) text(gctx, 'clic su un elemento per sceglierlo', lx, ly + ch, { size: 10, color: C.muted, align: 'left' });
+}
+
+function drawMadelung(boxes, x0, w) {
+  const c = countsOf(boxes);
+  card(gctx, x0, 6, w, GH - 12, 'Ordine di riempimento');
+  const cw = (w - 20) / 4, ch = (GH - 40) / 7;
+  const r = Math.max(7, Math.min(cw * 0.42, ch * 0.44));
+  const pos = s => [x0 + 10 + cw * (s.l + 0.5), 30 + ch * (s.n - 0.5)];
+  // diagonali n + l = costante, percorse dall'alto a destra verso il basso a sinistra
+  gctx.strokeStyle = C.muted; gctx.fillStyle = C.muted; gctx.lineWidth = 1; gctx.globalAlpha = 0.5;
+  for (let sum = 1; sum <= 8; sum++) {
+    const diag = SUBSHELLS.filter(s => s.n + s.l === sum);
+    const [ax, ay] = pos(diag[0]), [bx, by] = pos(diag[diag.length - 1]);
+    const a = Math.atan2(ch, -cw), ux = Math.cos(a), uy = Math.sin(a);
+    const sx = ax - ux * r * 1.1, sy = ay - uy * r * 1.1, ex = bx + ux * r * 1.25, ey = by + uy * r * 1.25;
+    gctx.beginPath(); gctx.moveTo(sx, sy); gctx.lineTo(ex, ey); gctx.stroke();
+    gctx.beginPath(); gctx.moveTo(ex, ey);
+    gctx.lineTo(ex - 6 * Math.cos(a - 0.45), ey - 6 * Math.sin(a - 0.45));
+    gctx.lineTo(ex - 6 * Math.cos(a + 0.45), ey - 6 * Math.sin(a + 0.45));
+    gctx.closePath(); gctx.fill();
+  }
+  gctx.globalAlpha = 1;
+  for (const s of SUBSHELLS) {
+    const [x, y] = pos(s), col = C.block[L_LETTER[s.l]], f = c[s.label] / s.cap;
+    gctx.beginPath(); gctx.arc(x, y, r, 0, 2 * Math.PI); gctx.fillStyle = C.bg3; gctx.fill();
+    if (f > 0) {
+      gctx.beginPath(); gctx.moveTo(x, y); gctx.arc(x, y, r, -Math.PI / 2, -Math.PI / 2 + f * 2 * Math.PI); gctx.closePath();
+      gctx.globalAlpha = 0.55; gctx.fillStyle = col; gctx.fill(); gctx.globalAlpha = 1;
+    }
+    gctx.beginPath(); gctx.arc(x, y, r, 0, 2 * Math.PI);
+    gctx.strokeStyle = f > 0 ? col : C.grid; gctx.lineWidth = 1.4; gctx.stroke();
+    text(gctx, s.label + (c[s.label] ? sup(c[s.label]) : ''), x, y, { size: Math.max(8, r * 0.62), bold: true, color: f > 0 ? C.text : C.muted });
+  }
+}
+
+function drawBottom(boxes) {
+  gctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  gctx.fillStyle = C.panel; gctx.fillRect(0, 0, GW, GH);
+  const mw = GW >= 640 ? Math.max(170, Math.min(240, GW * 0.22)) : 0;
+  drawTable(GW - mw - (mw ? 8 : 0));
+  if (mw) drawMadelung(boxes, GW - mw - 6, mw);
 }
 
 // ── Readout ───────────────────────────────────────────────────────────────────
@@ -563,44 +642,45 @@ const readout = new Lab.Readout(readoutEl, [
   { key: 'conf',  label: 'Configurazione' },
   { key: 'unp',   label: 'Elettroni spaiati' },
   { key: 'mag',   label: 'Magnetismo' },
-  { key: 'outer', label: 'Guscio esterno' },
-  { key: 'pos',   label: 'Periodo · gruppo · blocco' },
+  { key: 'pos',   label: 'Periodo · gruppo' },
 ]);
 
-function updateReadout() {
-  const boxes = currentBoxes(), c = countsOf(boxes);
+function updateReadout(boxes) {
+  const c = countsOf(boxes);
   let unp = 0;
   for (const s of SUBSHELLS) for (const b of boxes[s.label]) if ((b[0] !== 0) !== (b[1] !== 0)) unp++;
-  const occupied = SUBSHELLS.filter(s => c[s.label] > 0);
-  const nMax = occupied.length ? Math.max(...occupied.map(s => s.n)) : 0;
-  const outer = occupied.filter(s => s.n === nMax).reduce((a, s) => a + c[s.label], 0);
   const p = tablePos(P.Z);
-  readout.set('el', `${ELEMENTS[P.Z].sym} · ${ELEMENTS[P.Z].name}`);
+  readout.set('el', `${ELEMENTS[P.Z].sym}${ionLabel(P.charge)} · ${ELEMENTS[P.Z].name}`);
   readout.set('conf', configString(c, true, true, P.charge !== 0));
   readout.set('unp', String(unp));
   readout.set('mag', unp > 0 ? 'paramagnetico' : 'diamagnetico');
-  readout.set('outer', nMax ? `n = ${nMax}: ${outer} e⁻` : '—');
-  readout.set('pos', `${p.period} · ${p.col || '—'} · ${blockOf(P.Z)}`);
+  readout.set('pos', `${p.period} · ${p.col || '—'} (${blockOf(P.Z)})`);
 }
 
 // ── Controlli ─────────────────────────────────────────────────────────────────
 let zSlider, chargeSlider, buildBox;
 
-function resetBuild() { build = boxesFromCounts(emptyCounts()); selected = null; }
+function resetBuild() { build = boxesFromCounts(emptyCounts()); if (P.mode === 'build') selected = null; }
 
 function setElement(Z) {
   P.Z = Math.max(1, Math.min(118, Z));
   if (P.charge >= P.Z) P.charge = P.Z - 1;
   zSlider.setValue(P.Z); chargeSlider.setValue(P.charge);
-  anim = null; resetBuild();
-  selectLast();
+  anim = null; resetBuild(); selectLast(); syncPlay();
 }
 
 function selectLast() {
   if (P.mode === 'build') { selected = null; return; }
-  const seq = fillSequence(groundConfig(P.Z, P.charge));
-  const e = seq[seq.length - 1];
+  const e = fillSequence(groundConfig(P.Z, P.charge)).pop();
   selected = e ? { sub: e.sub, box: e.box, slot: e.spin > 0 ? 0 : 1 } : null;
+}
+
+function smallButton(label, fn) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.style.cssText = 'padding:7px 4px;border-radius:6px;border:1px solid var(--border-hover);background:var(--bg3);color:var(--text-primary);cursor:pointer;font-family:"DM Sans",sans-serif;font-size:11px;font-weight:600;';
+  b.addEventListener('click', fn);
+  return b;
 }
 
 function buildControls() {
@@ -611,8 +691,13 @@ function buildControls() {
   const secAtom = Lab.Section('Atomo');
   zSlider = Lab.Slider({ label: 'Numero atomico Z', min: 1, max: 118, step: 1, value: P.Z, onChange(v) { setElement(v); } });
   chargeSlider = Lab.Slider({ label: 'Carica dello ione', min: -3, max: 3, step: 1, value: P.charge,
-    onChange(v) { P.charge = Math.min(v, P.Z - 1); if (P.charge !== v) chargeSlider.setValue(P.charge); anim = null; resetBuild(); selectLast(); } });
-  secAtom.add(zSlider); secAtom.add(chargeSlider);
+    onChange(v) { P.charge = Math.min(v, P.Z - 1); if (P.charge !== v) chargeSlider.setValue(P.charge); anim = null; resetBuild(); selectLast(); syncPlay(); } });
+  secAtom.add(zSlider);
+  const nav = document.createElement('div');
+  nav.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:-6px 0 16px;';
+  nav.append(smallButton('◀  precedente', () => setElement(P.Z - 1)), smallButton('successivo  ▶', () => setElement(P.Z + 1)));
+  secAtom.add(nav);
+  secAtom.add(chargeSlider);
 
   const secMode = Lab.Section('Modalità');
   secMode.add(Lab.RadioGroup({
@@ -622,22 +707,16 @@ function buildControls() {
       { value: 'build',  label: 'Costruisci tu', hint: 'prova' },
     ],
     value: P.mode,
-    onChange(v) { P.mode = v; anim = null; resetBuild(); selectLast(); buildBox.style.display = v === 'build' ? '' : 'none'; },
+    onChange(v) { P.mode = v; anim = null; resetBuild(); selectLast(); syncPlay(); buildBox.style.display = v === 'build' ? '' : 'none'; },
   }));
   buildBox = document.createElement('div');
   buildBox.style.display = P.mode === 'build' ? '' : 'none';
   const row = document.createElement('div');
   row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;';
-  for (const [label, fn] of [['Svuota', () => { resetBuild(); }], ['Mostra soluzione', () => { build = boxesFromCounts(groundConfig(P.Z, P.charge)); }]]) {
-    const b = document.createElement('button');
-    b.textContent = label;
-    b.style.cssText = 'padding:7px 4px;border-radius:6px;border:1px solid var(--border-hover);background:var(--bg3);color:var(--text-primary);cursor:pointer;font-family:"DM Sans",sans-serif;font-size:11px;font-weight:600;';
-    b.addEventListener('click', fn);
-    row.appendChild(b);
-  }
+  row.append(smallButton('Svuota', () => resetBuild()), smallButton('Mostra soluzione', () => { build = boxesFromCounts(groundConfig(P.Z, P.charge)); }));
   const hint = document.createElement('div');
   hint.style.cssText = boxCss + 'margin-bottom:12px;';
-  hint.innerHTML = 'Sistema gli elettroni nelle caselle: clic sulla metà sinistra o destra di una casella per mettere ↑, poi ↓, poi toglierlo. Il lab controlla Pauli, Hund e Aufbau mentre lavori.';
+  hint.textContent = 'Sistema gli elettroni nelle caselle: clic sulla metà sinistra o destra di una casella per mettere ↑, poi ↓, poi toglierlo. Il lab controlla Pauli, Hund e Aufbau mentre lavori.';
   buildBox.append(row, hint);
   secMode.add(buildBox);
 
@@ -645,8 +724,8 @@ function buildControls() {
   secView.add(Lab.RadioGroup({
     label: 'Ordine nella configurazione',
     options: [
-      { value: 'energy', label: 'Per energia', hint: '… 4s² 3d⁶' },
-      { value: 'n',      label: 'Per livello n', hint: '… 3d⁶ 4s²' },
+      { value: 'energy', label: 'Per energia', hint: '4s² 3d⁶' },
+      { value: 'n',      label: 'Per livello n', hint: '3d⁶ 4s²' },
     ],
     value: P.byN ? 'n' : 'energy',
     onChange(v) { P.byN = v === 'n'; },
@@ -661,6 +740,7 @@ function buildControls() {
     '<b style="color:var(--text-primary)">Principio di esclusione di Pauli.</b> In un atomo due elettroni non possono avere tutti e quattro i numeri quantici uguali: un orbitale contiene al massimo 2 elettroni, con spin opposti.<br>' +
     '<b style="color:var(--text-primary)">Principio di Aufbau.</b> Gli elettroni occupano prima i sottolivelli a energia più bassa, nell\'ordine dato dalla regola di Madelung (n + l crescente; a parità, n crescente).<br>' +
     '<b style="color:var(--text-primary)">Regola di Hund.</b> In un sottolivello con più orbitali (p, d, f) gli elettroni si dispongono prima uno per orbitale, con spin paralleli, e solo dopo si appaiano.<br>' +
+    '<b style="color:var(--text-primary)">Simbolo di Lewis.</b> Il simbolo dell\'elemento circondato dai suoi elettroni di valenza, come punti: prima uno per lato, poi in coppie.<br>' +
     'Alcuni elementi (Cr, Cu, Mo, Ag, Au, molte terre rare) fanno eccezione: il lab mostra la loro configurazione reale.';
   secRules.add(rules);
 
@@ -668,9 +748,12 @@ function buildControls() {
 }
 
 // ── Interazione ───────────────────────────────────────────────────────────────
+const hitSlot = (x, y) => slotRects.find(s => x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h);
+const hitCell = (x, y) => cellRects.find(c => x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h);
+const localXY = (el, e) => { const r = el.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+
 canvas.addEventListener('click', e => {
-  const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-  const hit = slotRects.find(s => x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h);
+  const hit = hitSlot(...localXY(canvas, e));
   if (!hit) return;
   if (P.mode === 'build') {
     const b = build[hit.sub.label][hit.box];
@@ -680,20 +763,18 @@ canvas.addEventListener('click', e => {
     selected = { sub: hit.sub, box: hit.box, slot: hit.slot };
   }
 });
-canvas.addEventListener('mousemove', e => {
-  const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-  canvas.style.cursor = slotRects.some(s => x >= s.x && x < s.x + s.w && y >= s.y && y < s.y + s.h) ? 'pointer' : 'default';
-});
-gCanvas.addEventListener('click', e => {
-  const r = gCanvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-  const hit = cellRects.find(c => x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h);
-  if (hit) setElement(hit.Z);
-});
+canvas.addEventListener('mousemove', e => { canvas.style.cursor = hitSlot(...localXY(canvas, e)) ? 'pointer' : 'default'; });
+gCanvas.addEventListener('click', e => { const hit = hitCell(...localXY(gCanvas, e)); if (hit) setElement(hit.Z); });
 gCanvas.addEventListener('mousemove', e => {
-  const r = gCanvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-  const hit = cellRects.find(c => x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h);
+  const hit = hitCell(...localXY(gCanvas, e));
   gCanvas.style.cursor = hit ? 'pointer' : 'default';
   gCanvas.title = hit ? `${hit.Z} · ${ELEMENTS[hit.Z].name}` : '';
+});
+// frecce della tastiera: elemento precedente / successivo
+window.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('input, select, textarea')) return;
+  if (e.key === 'ArrowRight') setElement(P.Z + 1);
+  if (e.key === 'ArrowLeft') setElement(P.Z - 1);
 });
 
 // ── Animazione del riempimento ───────────────────────────────────────────────
@@ -707,7 +788,7 @@ btnPlay.addEventListener('click', () => {
 });
 document.getElementById('btnReset').addEventListener('click', () => {
   P.charge = 0; P.mode = 'ground'; P.byN = false; P.speed = 1;
-  buildControls(); setElement(8); syncPlay();
+  buildControls(); setElement(8);
 });
 
 let lastTS = null;
@@ -724,20 +805,23 @@ function loop(ts) {
     }
     if (anim.shown >= anim.seq.length) syncPlay();
   }
-  flashT = Math.max(0, flashT - dt);
   C = getColors();
-  drawScene();
-  drawTable();
-  updateReadout();
+  const boxes = currentBoxes();
+  const valid = P.mode === 'build' ? validate(boxes) : null;
+  updateInfo(boxes, valid);
+  drawScene(boxes, valid);
+  drawBottom(boxes);
+  updateReadout(boxes);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 Lab.initTheme('themeToggle');
-resize();
 buildControls();
 resetBuild();
 selectLast();
 syncPlay();
+resize();
 window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(canvas.parentElement);
+new ResizeObserver(resize).observe(infoBar);
 requestAnimationFrame(loop);
