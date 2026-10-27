@@ -24,7 +24,7 @@
   <div class="lab-layout">
     <div class="lab-canvas-area">
       <canvas id="simCanvas"></canvas>
-      <div class="graph-area" id="graphArea" style="min-height:200px;">
+      <div class="graph-area" id="graphArea">
         <canvas id="graphCanvas"></canvas>
       </div>
       <div class="readout-bar" id="readout"></div>
@@ -33,6 +33,10 @@
     <aside class="lab-panel">
       <div class="panel-scroll">
         <div id="controls"></div>
+      </div>
+      <div class="panel-actions">
+        <button class="btn-primary" id="btnPlay">⏸  PAUSA</button>
+        <button class="btn-secondary" id="btnReset">↺  RESET</button>
       </div>
     </aside>
   </div>

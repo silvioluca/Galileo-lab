@@ -277,12 +277,11 @@ function drawVoltageSymbol(ctx, W, H) {
   ctx.fillStyle = T.txt; ctx.font = 'bold 11px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText('V∼', x + 8, y + 22);
   ctx.font = '9px "Space Mono",monospace'; ctx.fillStyle = T.sub;
-  ctx.fillText(P.V0.toFixed(0) + ' V @ ' + P.freqMHz.toFixed(1) + ' MHz', x + 8, y + 34);
+  ctx.fillText(Lab.fmt(P.V0,0) + ' V @ ' + Lab.fmt(P.freqMHz,1) + ' MHz', x + 8, y + 34);
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -304,7 +303,7 @@ function draw(canvas) {
   ctx.fillText('Ciclotrone — spirale di accelerazione', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
   const detuning = (P.freqMHz - fC_MHz()) / fC_MHz() * 100;
-  ctx.fillText(`B=${(P.B * 1000).toFixed(1)} mT   f_c=${fC_MHz().toFixed(1)} MHz   f_RF=${P.freqMHz.toFixed(1)} MHz   scarto=${detuning.toFixed(1)}%`, 14, 40);
+  ctx.fillText(`B=${Lab.fmt((P.B * 1000),1)} mT   f_c=${Lab.fmt(fC_MHz(),1)} MHz   f_RF=${Lab.fmt(P.freqMHz,1)} MHz   scarto=${Lab.fmt(detuning,1)}%`, 14, 40);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   const hint = Math.abs(detuning) < 2
@@ -314,69 +313,42 @@ function draw(canvas) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: raggio dell'orbita in funzione del numero di attraversamenti — asse Y VERAMENTE fisso
-// (0..DEE_RADIUS): il raggio di estrazione è una costante del dispositivo, non un parametro
-// esplorato, quindi qui non c'è alcun conflitto con la regola "non nascondere l'effetto esplorato"
+// Ascissa: numero di attraversamenti del gap (cresce durante la corsa).
+function nAxis(){ const X=beams[0].X; return [0, Math.max(10, Lab.niceMax(X.length-1))]; }
+// 1: raggio dell'orbita: asse fisso fino al raggio delle "D", costante del dispositivo
 function drawGraphRadius() {
-  const cv = gCanvas[0]; if (!cv || !cv.width || !beams[0]) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const X = beams[0].X, nMax = Math.max(10, X.length - 1);
-  const xOf = n => PAD.l + clamp(n / nMax, 0, 1) * gW;
-  const yOf = r => PAD.t + gH - clamp(r / DEE_RADIUS, 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  X.forEach((rec, i) => { const x = xOf(i), y = yOf(rec.r); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(X.length - 1), yOf(X[X.length - 1].r), 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('raggio orbita (cm)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('n (attraversamenti)', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!beams[0]) return;
+  const X = beams[0].X, R = DEE_RADIUS*100;
+  const g = Lab.panel(gCanvas[0], { title: 'Raggio dell\'orbita (cm)', xr: nAxis(), yr: [0, R], xLabel: 'attraversamenti n' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, X.map((rec, i) => [i, rec.r*100]), f.C.accent, 2);
+  Lab.dot(ctx, f, X.length - 1, X[X.length - 1].r*100, f.C.amber, 4);
 }
-// 2: energia cinetica vs n — asse Y ricalcolato su B (KE_max∝B²: fissarlo al valore peggiore
-// renderebbe illeggibili quasi tutti gli altri B) MAI su V₀/frequenza, che restano leggibili
-// dalla FORMA della curva (rampa pulita vs oscillazione stagnante), non dalla scala dell'asse
+// 2: energia cinetica: il fondo scala dipende da B (E_max ∝ B²), non da V₀ o dalla frequenza,
+// che si leggono dalla forma della curva (rampa regolare o oscillazione senza guadagno)
 function drawGraphEnergy() {
-  const cv = gCanvas[1]; if (!cv || !cv.width || !beams[0]) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const X = beams[0].X, nMax = Math.max(10, X.length - 1), keMax = Math.max(keMaxEV(), X[X.length - 1].KEeV * 1.15, 10);
-  const xOf = n => PAD.l + clamp(n / nMax, 0, 1) * gW;
-  const yOf = ke => PAD.t + gH - clamp(ke / keMax, 0, 1) * gH;
-  ctx.strokeStyle = '#7fe0a0'; ctx.lineWidth = 1.4; ctx.beginPath();
-  X.forEach((rec, i) => { const x = xOf(i), y = yOf(rec.KEeV); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('energia cinetica (eV)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('n (attraversamenti)', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!beams[0]) return;
+  const X = beams[0].X, keMax = Lab.niceMax(Math.max(keMaxEV(), X[X.length - 1].KEeV * 1.15, 10));
+  const kev = keMax >= 2000, u = kev ? 1e-3 : 1;
+  const g = Lab.panel(gCanvas[1], { title: `Energia cinetica (${kev ? 'keV' : 'eV'})`, xr: nAxis(), yr: [0, keMax*u], xLabel: 'attraversamenti n' });
+  if (!g) return; const [ctx, f] = g;
+  ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.text; ctx.beginPath(); ctx.moveTo(f.L, f.Y(keMaxEV()*u)); ctx.lineTo(f.R, f.Y(keMaxEV()*u)); ctx.stroke(); ctx.restore();
+  Lab.plotPts(ctx, f, X.map((rec, i) => [i, rec.KEeV*u]), f.C.green, 2);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[f.C.green, 'E(n)'], [f.C.text, 'energia all\'estrazione', [3, 3]]]);
 }
-// 3: guadagno di energia AD OGNI attraversamento vs n — asse Y fisso a ±V₀ corrente (ricalcolato
-// solo se cambia V₀): mostra direttamente sin(θₙ) — pinnato in alto se in risonanza, oscillante fra
-// i due estremi se fuori sincronismo — è il grafico che spiega perché la frequenza deve combaciare
+// 3: guadagno a ogni passaggio = e·V₀·sin(fase): fisso a +V₀ in risonanza, oscilla se fuori sincronismo
 function drawGraphKick() {
-  const cv = gCanvas[2]; if (!cv || !cv.width || !beams[0]) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const X = beams[0].X, nMax = Math.max(10, X.length - 1), vMax = Math.max(P.V0, 1);
-  const zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  const xOf = n => PAD.l + clamp(n / nMax, 0, 1) * gW;
-  const yOf = v => zero - clamp(v / vMax, -1, 1) * (gH * 0.46);
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  X.forEach((rec, i) => { const x = xOf(i), y = yOf(rec.dKEeV); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('guadagno per attraversamento (eV)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('n', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!beams[0]) return;
+  const X = beams[0].X, vMax = Lab.niceMax(Math.max(P.V0, 1));
+  const g = Lab.panel(gCanvas[2], { title: 'Guadagno per attraversamento (eV)', xr: nAxis(), yr: [-vMax, vMax], xLabel: 'attraversamenti n' });
+  if (!g) return; const [ctx, f] = g;
+  ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.text;
+  for (const v of [P.V0, -P.V0]) { ctx.beginPath(); ctx.moveTo(f.L, f.Y(v)); ctx.lineTo(f.R, f.Y(v)); ctx.stroke(); }
+  ctx.restore();
+  Lab.plotPts(ctx, f, X.map((rec, i) => [i, rec.dKEeV]), f.C.amber, 2);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[f.C.amber, 'ΔE a ogni passaggio'], [f.C.text, '±e·V₀', [3, 3]]]);
 }
-function drawGraphs() {
-  const titles = ['Raggio dell\'orbita', 'Energia cinetica', 'Guadagno per attraversamento'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphRadius(); drawGraphEnergy(); drawGraphKick();
-}
+function drawGraphs() { drawGraphRadius(); drawGraphEnergy(); drawGraphKick(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -419,18 +391,11 @@ function buildReadout() {
   ]);
 }
 
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -474,8 +439,8 @@ function init() {
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
     simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -490,11 +455,11 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const primary = beams[0], st = primary ? beamPosAt(primary, animT) : null;
-      readout.set('B', (P.B * 1000).toFixed(1) + ' mT');
-      readout.set('fc', fC_MHz().toFixed(1) + ' MHz');
-      readout.set('frf', P.freqMHz.toFixed(1) + ' MHz');
-      readout.set('ke', st ? (st.KEeV >= 1000 ? (st.KEeV / 1000).toFixed(2) + ' keV' : st.KEeV.toFixed(1) + ' eV') : '—');
-      readout.set('r', st ? (st.r * 100).toFixed(2) + ' cm' : '—');
+      readout.set('B', Lab.fmt((P.B * 1000),1) + ' mT');
+      readout.set('fc', Lab.fmt(fC_MHz(),1) + ' MHz');
+      readout.set('frf', Lab.fmt(P.freqMHz,1) + ' MHz');
+      readout.set('ke', st ? (st.KEeV >= 1000 ? Lab.fmt((st.KEeV / 1000),2) + ' keV' : Lab.fmt(st.KEeV,1) + ' eV') : '—');
+      readout.set('r', st ? Lab.fmt((st.r * 100),2) + ' cm' : '—');
       readout.set('stato', st ? (st.exited ? 'estratto' : 'in accelerazione') : '—');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

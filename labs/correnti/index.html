@@ -7,6 +7,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../../shared/lab.css">
+  <style>
+    .cr-note { font-size: 11px; line-height: 1.5; color: var(--text-secondary); margin-top: 4px; }
+    .cr-note b { color: var(--text-primary); font-weight: 600; }
+  </style>
 </head>
 <body>
 
@@ -24,7 +28,7 @@
   <div class="lab-layout">
     <div class="lab-canvas-area">
       <canvas id="simCanvas"></canvas>
-      <div class="graph-area" id="graphArea" style="min-height:180px;">
+      <div class="graph-area" id="graphArea">
         <canvas id="graphCanvas"></canvas>
       </div>
       <div class="readout-bar" id="readout"></div>

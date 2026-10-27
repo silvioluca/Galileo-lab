@@ -88,7 +88,7 @@ function formatEng(v, unit) {
   for (const t of table) { if (abs >= t[0]) { mag = t; break; } }
   const num = v / mag[0];
   const digits = Math.abs(num) < 10 ? 2 : Math.abs(num) < 100 ? 1 : 0;
-  return `${num.toFixed(digits)}${mag[1]}${unit}`;
+  return `${Lab.fmt(num, digits)}${mag[1]}${unit}`;
 }
 function parseEng(str) {
   const m = String(str).trim().match(/^(-?[\d.]+)\s*([GMkmµun]?)/i);
@@ -373,8 +373,7 @@ function drawComponent(ctx, e) {
   }
 }
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGridDots(ctx);
@@ -414,68 +413,42 @@ function draw(canvas) {
 function paletteLabel(type) { const p = PALETTE.find(p => p.type === type); return p ? p.label : type; }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-function drawEmptyGraph(ctx, W, H, msg) {
-  const PAD = { t: 14, b: 14, l: 20, r: 8 };
-  gBase(ctx, W, H, PAD);
-  ctx.fillStyle = T.gText; ctx.font = '8px "Space Mono",monospace'; ctx.textAlign = 'center';
-  ctx.fillText(msg, W / 2, H / 2);
+// Storia degli ultimi 10 s del componente selezionato (o di più componenti con Ctrl+clic).
+// Il fondo scala è il valore "tondo" sopra il picco registrato, con il prefisso SI adatto.
+const G_WIN = 10;
+function drawEmptyGraph(i, title, msg) {
+  const g = Lab.panel(gCanvas[i], { title, xr: [0, G_WIN], yr: [-1, 1], xLabel: 't (s)', yFmt: () => '' });
+  if (!g) return; const [ctx, f] = g;
+  ctx.fillStyle = f.C.text; ctx.font = '10.5px "DM Sans",sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(msg, (f.L + f.R) / 2, (f.T + f.B) / 2);
 }
 // selezione singola: una sola curva nel colore "tema" del grafico. Selezione multipla (Ctrl+clic):
 // una curva per componente selezionato, ciascuna in un colore diverso, con legenda.
-function drawMultiSeriesGraph(ctx, W, H, sels, key, label, unit, themeColor) {
-  const PAD = { t: 14, b: 14, l: 28, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const anyHist = sels.some(el => el.hist && el.hist.length >= 2);
-  if (!anyHist) { ctx.fillStyle = T.gText; ctx.font = '8px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText(label, PAD.l + 2, PAD.t + 7); return; }
-  const WIN = 10, t0 = Math.max(0, animT - WIN);
-  let maxAbs = 1e-9; sels.forEach(el => (el.hist || []).forEach(p => { maxAbs = Math.max(maxAbs, Math.abs(p[key])); }));
-  const xOf = t => PAD.l + clamp((t - t0) / WIN, 0, 1) * gW;
-  const yOf = v => PAD.t + gH / 2 - clamp(v / maxAbs, -1, 1) * (gH / 2 - 2);
-  ctx.strokeStyle = 'rgba(150,180,210,0.25)'; drawLine(ctx, PAD.l, PAD.t + gH / 2, PAD.l + gW, PAD.t + gH / 2);
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  sels.forEach((el, i) => {
-    ctx.strokeStyle = sels.length > 1 ? SEL_COLORS[i % SEL_COLORS.length] : themeColor;
-    ctx.lineWidth = 1.4; ctx.beginPath();
-    (el.hist || []).forEach((p, j) => { const x = xOf(p.t), y = yOf(p[key]); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
+function drawMultiSeriesGraph(i, sels, key, title, unit, themeColor) {
+  const t1 = Math.max(animT, G_WIN), t0 = t1 - G_WIN;
+  let maxAbs = 0; sels.forEach(el => (el.hist || []).forEach(p => { if (p.t >= t0) maxAbs = Math.max(maxAbs, Math.abs(p[key])); }));
+  // prefisso SI scelto sul picco: l'asse mostra numeri semplici (es. 0–5 mA)
+  const pre = [[1, ''], [1e-3, 'm'], [1e-6, 'µ'], [1e-9, 'n']].find(([m]) => maxAbs >= m * 0.999) || [1e-9, 'n'];
+  const m = Lab.niceMax(Math.max(maxAbs / pre[0], 1e-6));
+  const g = Lab.panel(gCanvas[i], { title: `${title} (${pre[1]}${unit})`, xr: [t0, t1], yr: [-m, m], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  sels.forEach((el, k) => {
+    const col = sels.length > 1 ? SEL_COLORS[k % SEL_COLORS.length] : themeColor;
+    Lab.plotPts(ctx, f, (el.hist || []).filter(p => p.t >= t0 - 0.1).map(p => [p.t, p[key] / pre[0]]), col, 2);
   });
-  ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`${label} (picco ${formatEng(maxAbs, unit)})`, PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
-  if (sels.length > 1) {
-    let lx = PAD.l + 2;
-    ctx.textAlign = 'left'; ctx.font = '6px "Space Mono",monospace';
-    sels.forEach((el, i) => {
-      const c = SEL_COLORS[i % SEL_COLORS.length], txt = paletteLabel(el.type);
-      ctx.fillStyle = c; ctx.fillRect(lx, PAD.t + gH - 9, 6, 6);
-      ctx.fillStyle = T.gText; ctx.fillText(txt, lx + 8, PAD.t + gH - 4);
-      lx += 8 + ctx.measureText(txt).width + 8;
-    });
-  }
+  if (sels.length > 1) Lab.legend(ctx, f.L + 8, f.T + 8, sels.map((el, k) => [SEL_COLORS[k % SEL_COLORS.length], paletteLabel(el.type)]));
 }
 function selectedElements() {
   return [...selectedIds].map(id => elements.find(e => e.id === id)).filter(el => el && el.type !== 'WIRE' && el.type !== 'GND');
 }
 function drawGraphs() {
   const titles = ['Tensione V(t)', 'Corrente I(t)', 'Potenza P(t)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
   const sels = selectedElements();
-  if (!sels.length) {
-    [0, 1, 2].forEach(i => { if (gCanvas[i] && gCanvas[i].width) drawEmptyGraph(gCtx[i], gCanvas[i].width, gCanvas[i].height, 'seleziona un componente'); });
-    return;
-  }
+  if (!sels.length) { [0, 1, 2].forEach(i => drawEmptyGraph(i, titles[i], 'clicca su un componente per vederne l\'andamento')); return; }
   sels.forEach(el => (el.hist || []).forEach(p => { p.P = p.V * p.I; }));
-  if (gCanvas[0] && gCanvas[0].width) drawMultiSeriesGraph(gCtx[0], gCanvas[0].width, gCanvas[0].height, sels, 'V', 'tensione', 'V', '#00d4ff');
-  if (gCanvas[1] && gCanvas[1].width) drawMultiSeriesGraph(gCtx[1], gCanvas[1].width, gCanvas[1].height, sels, 'I', 'corrente', 'A', '#ff9d4d');
-  if (gCanvas[2] && gCanvas[2].width) drawMultiSeriesGraph(gCtx[2], gCanvas[2].width, gCanvas[2].height, sels, 'P', 'potenza', 'W', '#7fe0a0');
+  drawMultiSeriesGraph(0, sels, 'V', titles[0], 'V', '#00d4ff');
+  drawMultiSeriesGraph(1, sels, 'I', titles[1], 'A', '#ff9d4d');
+  drawMultiSeriesGraph(2, sels, 'P', titles[2], 'W', '#7fe0a0');
 }
 
 // ═══ Interazione: piazzamento, selezione, modifica valori ═══════════════════════
@@ -622,24 +595,39 @@ function buildReadout() {
     { key: 'nodi', label: 'Nodi del circuito' }, { key: 'stato', label: 'Stato' },
   ]);
 }
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
+}
+
+// ═══ Circuito di esempio ═════════════════════════════════════════════════════
+// All'avvio: pila da 9 V, interruttore, R = 1 kΩ e C = 1 mF (τ = RC = 1 s) con la terra.
+// Il condensatore è selezionato, così i grafici mostrano subito la carica esponenziale.
+function loadExample() {
+  const add = (type, gx1, gy1, gx2, gy2, extra = {}) => {
+    const id = nextId++;
+    elements.push(Object.assign({ id, type, gx1, gy1, gx2, gy2 }, defaultsFor(type), extra));
+    return id;
+  };
+  add('VDC', 3, 4, 3, 9);                 // + in alto (primo terminale)
+  add('WIRE', 3, 4, 6, 4);
+  add('SW', 6, 4, 9, 4, { closed: true });
+  add('R', 9, 4, 13, 4);
+  add('WIRE', 13, 4, 15, 4);
+  const cap = add('C', 15, 4, 15, 9);
+  add('WIRE', 15, 9, 3, 9);
+  add('GND', 3, 9, 3, 9);
+  dirty = true; animT = 0;
+  selectOnly(cap);
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
 function init() {
   Lab.initTheme();
   buildControls(); initGraphs(); buildReadout();
+  loadExample(); refreshProps();
   const simCanvas = document.getElementById('simCanvas');
   const btnPlay = document.getElementById('btnPlay');
   let paused = false;
@@ -721,12 +709,12 @@ function init() {
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
     simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    CELL = Math.max(26, Math.min(42, Math.floor(simCanvas.width / 28)));
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    CELL = Math.max(26, Math.min(42, Math.floor(ar.width / 28)));
     originX = CELL; originY = CELL;
-    GX = Math.max(4, Math.floor((simCanvas.width - 2 * CELL) / CELL));
-    GY = Math.max(4, Math.floor((simCanvas.height - 2 * CELL) / CELL));
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    GX = Math.max(4, Math.floor((Math.floor(ar.width) - 2 * CELL) / CELL));
+    GY = Math.max(4, Math.floor((h - 2 * CELL) / CELL));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));

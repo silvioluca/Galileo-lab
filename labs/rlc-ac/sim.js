@@ -12,6 +12,7 @@ const P = {
 };
 let th=0;             // fase animata
 const flows={};       // accumulatori di scorrimento per elemento
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout;
 
@@ -66,12 +67,23 @@ function vec(ctx,x1,y1,x2,y2,col,lbl){
   ctx.lineTo(x2-9*Math.cos(a-0.4),y2-9*Math.sin(a-0.4));
   ctx.lineTo(x2-9*Math.cos(a+0.4),y2-9*Math.sin(a+0.4));
   ctx.closePath(); ctx.fill();
-  if(lbl){ ctx.font='bold 11px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(lbl,x2+8*Math.cos(a),y2+8*Math.sin(a)-3); }
+  if(lbl){
+    // etichetta oltre la punta; se cade su un'altra (fasori quasi allineati) si sposta di lato
+    ctx.font='bold 11px "Space Mono",monospace'; ctx.textAlign='center';
+    let lx=x2+12*Math.cos(a), ly=y2+12*Math.sin(a)+4;
+    for(let k=1;k<6&&labelSpots.some(([px,py])=>Math.abs(px-lx)<30&&Math.abs(py-ly)<13);k++){
+      const side=k%2?1:-1, m=Math.ceil(k/2)*14;
+      lx=x2+12*Math.cos(a)-side*m*Math.sin(a); ly=y2+12*Math.sin(a)+4+side*m*Math.cos(a);
+    }
+    labelSpots.push([lx,ly]);
+    ctx.fillText(lbl,lx,ly);
+  }
 }
+let labelSpots=[];
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
+  labelSpots=[];
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   const D=derive(P.f);
@@ -86,7 +98,7 @@ function draw(canvas){
     ? 'RLC parallelo in AC · 1/Z = √((1/R)² + (1/X_C − 1/X_L)²)'
     : 'RLC serie in AC · Z = √(R² + (X_L − X_C)²)', 14, 22);
   ctx.fillStyle=T.sub; ctx.font='11px "Space Mono",monospace';
-  ctx.fillText(`X_L=ωL=${D.XL.toFixed(1)} Ω   X_C=1/ωC=${D.XC.toFixed(1)} Ω   φ=${(D.phi*180/Math.PI).toFixed(1)}°`, 14, 40);
+  ctx.fillText(`X_L=ωL=${Lab.fmt(D.XL,1)} Ω   X_C=1/ωC=${Lab.fmt(D.XC,1)} Ω   φ=${Lab.fmt((D.phi*180/Math.PI),1)}°`, 14, 40);
 }
 
 function drawGrid(ctx,W,H){
@@ -128,9 +140,9 @@ function drawCircuit(ctx,x,y,W,H,D){
 
   // etichette componenti con tensioni di picco
   ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
-  ctx.fillStyle=T.vR; ctx.fillText(`R=${P.R}Ω  V_R=${D.VR.toFixed(1)}V`, x0+(x1-x0)*0.32, y0-16);
-  ctx.fillStyle=T.vL; ctx.fillText(`L=${P.L}mH  V_L=${D.VL.toFixed(1)}V`, x0+(x1-x0)*0.68, y0-16);
-  ctx.fillStyle=T.vC; ctx.textAlign='left'; ctx.fillText(`C=${P.C}µF`, x1+10, capY-4); ctx.fillText(`V_C=${D.VC.toFixed(1)}V`, x1+10, capY+10);
+  ctx.fillStyle=T.vR; ctx.fillText(`R=${P.R}Ω  V_R=${Lab.fmt(D.VR,1)}V`, x0+(x1-x0)*0.32, y0-16);
+  ctx.fillStyle=T.vL; ctx.fillText(`L=${P.L}mH  V_L=${Lab.fmt(D.VL,1)}V`, x0+(x1-x0)*0.68, y0-16);
+  ctx.fillStyle=T.vC; ctx.textAlign='left'; ctx.fillText(`C=${P.C}µF`, x1+26, capY-4); ctx.fillText(`V_C=${Lab.fmt(D.VC,1)}V`, x1+26, capY+12);
 }
 
 // ── circuito parallelo: sorgente a sinistra, R∥L∥C come rami VERTICALI tra due rail ──
@@ -178,9 +190,9 @@ function drawCircuitParallel(ctx,x,y,W,H,D){
 
   // etichette rami con correnti di picco (sotto il rail inferiore)
   ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
-  ctx.fillStyle=T.vR; ctx.fillText('R', xR-14, mid+4); ctx.fillText(`I_R=${D.IR.toFixed(2)}A`, xR, y1+18);
-  ctx.fillStyle=T.vL; ctx.fillText('L', xL-14, mid+4); ctx.fillText(`I_L=${D.IL.toFixed(2)}A`, xL, y1+18);
-  ctx.fillStyle=T.vC; ctx.fillText('C', xC+14, mid+4); ctx.fillText(`I_C=${D.IC.toFixed(2)}A`, xC, y1+18);
+  ctx.fillStyle=T.vR; ctx.fillText('R', xR-14, mid+4); ctx.fillText(`I_R=${Lab.fmt(D.IR,2)}A`, xR, y1+18);
+  ctx.fillStyle=T.vL; ctx.fillText('L', xL-14, mid+4); ctx.fillText(`I_L=${Lab.fmt(D.IL,2)}A`, xL, y1+18);
+  ctx.fillStyle=T.vC; ctx.fillText('C', xC+14, mid+4); ctx.fillText(`I_C=${Lab.fmt(D.IC,2)}A`, xC, y1+18);
   ctx.fillStyle=T.sub; ctx.fillText(`R=${P.R}Ω · L=${P.L}mH · C=${P.C}µF`, (xR+xC)/2, y1+32);
 }
 // ramo verticale: due monconi di filo + componente al centro (gap = Lc)
@@ -269,81 +281,53 @@ function drawPhasors(ctx,x,y,W,H,D){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
+// Frequenze su scala logaritmica fissa 10 Hz – 10 kHz: cambiando L o C si vede il picco spostarsi,
+// e le reattanze X_L ∝ f e X_C ∝ 1/f diventano rette.
+const F_AX=[10,10000];
+function fSweep(n=240){ const out=[]; for(let i=0;i<=n;i++) out.push(F_AX[0]*Math.pow(F_AX[1]/F_AX[0],i/n)); return out; }
+// fattore di merito e larghezza di banda (−3 dB)
+function Qfactor(){ const L=P.L*1e-3, C=P.C*1e-6; return P.config==='parallel' ? P.R*Math.sqrt(C/L) : Math.sqrt(L/C)/P.R; }
 
-// 1: forme d'onda v(t) e i(t) su 3 periodi, con cursore
+// 1: forme d'onda su tre periodi; ampiezze relative a V₀ e alla corrente di risonanza
 function drawWaves(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:14,l:16,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const D=derive(P.f);
-  const zero=PAD.t+gH/2, amp=gH*0.42;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4; ctx.beginPath(); ctx.moveTo(PAD.l,zero); ctx.lineTo(PAD.l+gW,zero); ctx.stroke();
-  // corrente massima nella banda → ampiezza di i(t) RELATIVA (varia con f e componenti)
-  const fr=f0(), fmin=Math.max(5,fr*0.2), fmax=fr*3.0;
-  let Iref=1e-9; for(let k=0;k<=60;k++){ Iref=Math.max(Iref, derive(fmin+(fmax-fmin)*k/60).I0); }
-  const iAmp=Math.min(1, D.I0/Iref);
-  // v(t)=V0 cos(ψ) (ampiezza piena), i(t)=I0 cos(ψ−φ) (ampiezza ∝ I0)
-  ctx.strokeStyle=T.vS; ctx.lineWidth=1.3; ctx.beginPath();
-  for(let i=0;i<=gW;i++){ const psi=i/gW*6*Math.PI; const y=zero-Math.cos(psi)*amp; i===0?ctx.moveTo(PAD.l+i,y):ctx.lineTo(PAD.l+i,y); }
-  ctx.stroke();
-  ctx.strokeStyle=T.cur; ctx.lineWidth=1.3; ctx.beginPath();
-  for(let i=0;i<=gW;i++){ const psi=i/gW*6*Math.PI; const y=zero-Math.cos(psi-D.phi)*amp*iAmp; i===0?ctx.moveTo(PAD.l+i,y):ctx.lineTo(PAD.l+i,y); }
-  ctx.stroke();
-  // cursore alla fase corrente
-  const cur=((th%(6*Math.PI))/(6*Math.PI))*gW;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6; ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(PAD.l+cur,PAD.t); ctx.lineTo(PAD.l+cur,PAD.t+gH); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle=T.vS; ctx.font='7px "Space Mono",monospace'; ctx.fillText('v(t)',PAD.l+2,PAD.t+7);
-  ctx.fillStyle=T.cur; ctx.fillText('i(t)',PAD.l+22,PAD.t+7);
+  const D=derive(P.f), Tms=1000/P.f;
+  const Iref=P.config==='parallel' ? Math.max(...fSweep(120).map(f=>derive(f).I0)) : P.V0/P.R;
+  const g=Lab.panel(gCanvas[0],{ title:'v(t)/V₀ e i(t)/I_max', xr:[0,3*Tms], yr:[-1.2,1.2], yStep:0.5, xLabel:'t (ms)', yFmt:v=>Lab.fmt(v,1) });
+  if(!g) return; const [ctx,f]=g;
+  const iAmp=Math.min(1.2, D.I0/Iref);
+  Lab.plot(ctx,f,t=>Math.cos(2*Math.PI*t/Tms),[0,3*Tms],T.vS,1.8);
+  Lab.plot(ctx,f,t=>iAmp*Math.cos(2*Math.PI*t/Tms-D.phi),[0,3*Tms],T.cur,1.8);
+  // cursore alla fase animata
+  const tc=((th%(6*Math.PI))/(2*Math.PI))*Tms;
+  ctx.save(); ctx.strokeStyle=f.C.text; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(f.X(tc),f.T); ctx.lineTo(f.X(tc),f.B); ctx.stroke(); ctx.restore();
+  Lab.legend(ctx,f.L+8,f.T+8,[[T.vS,'v(t)'],[T.cur,'i(t)']]);
 }
 
-// 2: curva di risonanza I0(f)
+// 2: curva di risonanza I₀(f)
 function drawResonance(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:22,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
+  const fs=fSweep(), Is=fs.map(f=>derive(f).I0);
+  const Im=Lab.niceMax(Math.max(...Is, derive(P.f).I0));
+  const g=Lab.panel(gCanvas[1],{ title:`Ampiezza della corrente I₀ (A) · ${P.config==='parallel'?'minimo':'massimo'} a f₀`, xr:F_AX, xLog:true, yr:[0,Im], xLabel:'f (Hz)', xFmt:v=>v>=1000?(v/1000)+'k':String(v) });
+  if(!g) return; const [ctx,f]=g;
   const fr=f0();
-  const fmin=Math.max(5,fr*0.2), fmax=fr*3.0;
-  const Iat=f=>{ const d=derive(f); return d.I0; };
-  let Imax=0; for(let i=0;i<=80;i++){ const f=fmin+(fmax-fmin)*i/80; Imax=Math.max(Imax,Iat(f)); }
-  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let i=0;i<=80;i++){ const f=fmin+(fmax-fmin)*i/80; const x=PAD.l+(f-fmin)/(fmax-fmin)*gW, yv=PAD.t+gH-Iat(f)/Imax*gH*0.92; i===0?ctx.moveTo(x,yv):ctx.lineTo(x,yv); }
-  ctx.stroke();
-  // f0
-  const xf0=PAD.l+(fr-fmin)/(fmax-fmin)*gW;
-  ctx.strokeStyle='rgba(120,255,180,0.5)'; ctx.lineWidth=0.7; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(xf0,PAD.t); ctx.lineTo(xf0,PAD.t+gH); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle='rgba(120,255,180,0.8)'; ctx.font='7px "Space Mono",monospace'; ctx.fillText('f₀',xf0+2,PAD.t+8);
-  // f corrente
-  if(P.f>=fmin&&P.f<=fmax){ const xc=PAD.l+(P.f-fmin)/(fmax-fmin)*gW, yc=PAD.t+gH-Iat(P.f)/Imax*gH*0.92;
-    ctx.fillStyle=T.cur; ctx.beginPath(); ctx.arc(xc,yc,3.5,0,Math.PI*2); ctx.fill(); }
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.fillText('I₀(f)',PAD.l+2,PAD.t+7); ctx.fillText('f',PAD.l+gW-8,PAD.t+gH+11);
+  if(fr>=F_AX[0]&&fr<=F_AX[1]){
+    ctx.save(); ctx.strokeStyle=f.C.green; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(f.X(fr),f.T); ctx.lineTo(f.X(fr),f.B); ctx.stroke(); ctx.restore();
+    ctx.fillStyle=f.C.green; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.fillText('f₀',f.X(fr)+3,f.T+20);
+  }
+  Lab.plotPts(ctx,f,fs.map((fv,i)=>[fv,Is[i]]),T.accent,2);
+  Lab.dot(ctx,f,P.f,derive(P.f).I0,T.cur,4);
 }
 
-// 3: reattanze e impedenza vs f
+// 3: reattanze e impedenza (scala log-log)
 function drawImpedance(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:24,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const fr=f0(); const fmin=Math.max(5,fr*0.2), fmax=fr*3.0;
-  let mx=1e-6; for(let i=0;i<=80;i++){ const f=fmin+(fmax-fmin)*i/80; const d=derive(f); mx=Math.max(mx,d.XL,d.XC,d.Z); }
-  mx=Math.min(mx, P.R*8+ derive(fmin).XC); // limita scala per leggibilità
-  const Y=val=>PAD.t+gH-Math.min(val,mx)/mx*gH*0.92;
-  const plot=(fn,col)=>{ ctx.strokeStyle=col; ctx.lineWidth=1.3; ctx.beginPath();
-    for(let i=0;i<=80;i++){ const f=fmin+(fmax-fmin)*i/80; const x=PAD.l+(f-fmin)/(fmax-fmin)*gW; i===0?ctx.moveTo(x,Y(fn(derive(f)))):ctx.lineTo(x,Y(fn(derive(f)))); } ctx.stroke(); };
-  plot(d=>d.XL, T.vL); plot(d=>d.XC, T.vC); plot(d=>d.Z, T.accent);
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillStyle=T.vL; ctx.fillText('X_L',PAD.l+2,PAD.t+7);
-  ctx.fillStyle=T.vC; ctx.fillText('X_C',PAD.l+22,PAD.t+7);
-  ctx.fillStyle=T.accent; ctx.fillText('Z',PAD.l+42,PAD.t+7);
+  const g=Lab.panel(gCanvas[2],{ title:'Reattanze e impedenza (Ω)', xr:F_AX, xLog:true, yr:[1,1e4], yLog:true, xLabel:'f (Hz)', xFmt:v=>v>=1000?(v/1000)+'k':String(v), yFmt:v=>v>=1000?(v/1000)+'k':String(v) });
+  if(!g) return; const [ctx,f]=g;
+  const fs=fSweep();
+  Lab.plotPts(ctx,f,fs.map(fv=>[fv,derive(fv).XL]),T.vL,1.8);
+  Lab.plotPts(ctx,f,fs.map(fv=>[fv,derive(fv).XC]),T.vC,1.8);
+  Lab.plotPts(ctx,f,fs.map(fv=>[fv,derive(fv).Z]),T.accent,2.2);
+  Lab.dot(ctx,f,P.f,derive(P.f).Z,T.cur,4);
+  Lab.legend(ctx,f.L+8,f.T+8,[[T.vL,'X_L = ωL'],[T.vC,'X_C = 1/ωC'],[T.accent,'Z']]);
 }
 
 function drawGraphs(){ drawWaves(); drawResonance(); drawImpedance(); }
@@ -375,21 +359,10 @@ function buildControls(){
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Forme d\'onda v(t), i(t)','Risonanza I₀(f)','Reattanze e impedenza'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -404,6 +377,8 @@ function init(){
     {key:'I',   label:'Corrente I₀'},
     {key:'phi', label:'Sfasamento φ'},
     {key:'f0',  label:'Risonanza f₀'},
+    {key:'Q',   label:'Fattore di merito Q'},
+    {key:'bw',  label:'Banda Δf = f₀/Q'},
   ]);
 
   document.getElementById('btnRes').addEventListener('click',()=>{ P.f=Math.round(f0()); buildControls(); });
@@ -414,10 +389,8 @@ function init(){
     const ga=document.getElementById('graphArea'); const rb=document.getElementById('readout');
     const gaH=ga?ga.offsetHeight:0, rbH=rb?rb.offsetHeight:0;
     const w=parent.clientWidth, h=Math.max(140,(parent.clientHeight||0)-gaH-rbH);
-    if(w>0){ simCanvas.style.width=w+'px'; simCanvas.style.height=h+'px'; simCanvas.width=w; simCanvas.height=h; }
-    for(const cv of gCanvas){ if(!cv)continue; const p=cv.parentElement;
-      const pw=p.clientWidth, ph=p.clientHeight;
-      if(pw>0&&ph>0){ cv.style.width=pw+'px'; cv.style.height=ph+'px'; cv.width=pw; cv.height=ph; } }
+    if(w>0) Lab.hidpi(simCanvas, w, h);
+    Lab.fitPanels(gCanvas);
     draw(simCanvas); drawGraphs();
   }
   resize();
@@ -435,10 +408,12 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     const D=derive(P.f);
-    readout.set('Z', D.Z.toFixed(1)+' Ω');
-    readout.set('I', D.I0.toFixed(3)+' A');
-    readout.set('phi', (D.phi*180/Math.PI).toFixed(1)+'°');
-    readout.set('f0', f0().toFixed(1)+' Hz');
+    readout.set('Z', Lab.fmt(D.Z,1)+' Ω');
+    readout.set('I', Lab.fmt(D.I0,3)+' A');
+    readout.set('phi', Lab.fmt(D.phi*180/Math.PI,1)+'°');
+    readout.set('f0', Lab.fmt(f0(),1)+' Hz');
+    readout.set('Q', Lab.fmt(Qfactor(),2));
+    readout.set('bw', Lab.fmt(f0()/Qfactor(),1)+' Hz');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

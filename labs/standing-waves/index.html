@@ -7,6 +7,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,600;9..40,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../../shared/lab.css">
+  <style>
+    .sw-snap { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+    .sw-snap button { width: auto; flex: 1; min-width: 34px; padding: 4px 6px; font-size: 10px; }
+    .sw-note { font-size: 11px; line-height: 1.45; color: var(--text-secondary); margin-top: 6px; }
+  </style>
 </head>
 <body>
 
@@ -24,16 +29,19 @@
   <div class="lab-layout">
     <div class="lab-canvas-area">
       <canvas id="simCanvas"></canvas>
+      <div class="graph-area" id="graphArea">
+        <canvas id="graphCanvas"></canvas>
+      </div>
       <div class="readout-bar" id="readout"></div>
     </div>
 
     <aside class="lab-panel">
       <div class="panel-scroll">
         <div id="controls"></div>
-        <div class="panel-actions">
-          <button class="btn-primary"   id="btnPlay">▶  AVVIA</button>
-          <button class="btn-secondary" id="btnReset">↺  RESET</button>
-        </div>
+      </div>
+      <div class="panel-actions">
+        <button class="btn-primary"   id="btnPlay">⏸  PAUSA</button>
+        <button class="btn-secondary" id="btnReset">↺  RESET</button>
       </div>
     </aside>
   </div>

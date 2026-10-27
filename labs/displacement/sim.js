@@ -1,11 +1,10 @@
 'use strict';
 
 const sc   = document.getElementById('simCanvas');
-const gc   = document.getElementById('graphCanvas');
 const ctx  = sc.getContext('2d');
-const gctx = gc.getContext('2d');
-const DPR  = window.devicePixelRatio || 1;
-let SW = 0, SH = 0, GW = 0, GH = 0;
+let DPR  = window.devicePixelRatio || 1;
+let SW = 0, SH = 0;
+let gCanvas = [];
 
 Lab.initTheme('themeToggle');
 const dk = () => document.documentElement.dataset.theme !== 'light';
@@ -16,13 +15,28 @@ const dk = () => document.documentElement.dataset.theme !== 'light';
    In entrambi i casi: I_d = ε₀·dΦ_E/dt = I_c  →  ∮ B·dl uguale nel filo e nel gap
    ─────────────────────────────────────────────────────────────────────────── */
 
+// Valori reali: corrente in mA, frequenza in kHz, misure in cm (PX_CM pixel per cm).
+// L'animazione è al rallentatore: un periodo di 1 ms dura circa 3 s sullo schermo.
+const PX_CM = 10, EPS0 = 8.854e-12, MU0 = 4e-7 * Math.PI;
+const SLOW = 0.35;                          // periodi mostrati al secondo per ogni kHz
 const P = {
-  I0: 1.0,   // peak current [normalized]
-  f:  0.35,  // frequency [Hz] — in DC: charging rate
-  R:  85,    // plate radius / loop radius [px]
-  d:  65,    // half-separation [px] — plates at x = CX ± d
-  ac: true,  // true = AC, false = DC
+  I0: 1.0,   // corrente di picco (mA)
+  f:  1.0,   // frequenza (kHz) — in continua: frequenza delle ricariche
+  R:  85,    // raggio delle armature = raggio del percorso (pixel; 8,5 cm)
+  d:  65,    // semidistanza fra le armature (pixel; 6,5 cm)
+  ac: true,  // true = alternata, false = continua
 };
+const fAnim = () => SLOW * P.f;             // Hz sullo schermo
+const tReal = () => simT * SLOW * 1e-3;    // tempo vero (s): 1 periodo = 1/(f·1000)
+const areaM2 = () => Math.PI * (P.R / PX_CM / 100) ** 2;
+// ampiezza del campo fra le armature (V/m): E = Q/(ε₀A), con Q = I₀/ω in alternata,
+// Q massima = I₀·T nella carica a corrente costante
+function Eamp() {
+  const I = P.I0 * 1e-3, w = 2 * Math.PI * P.f * 1e3;
+  return P.ac ? I / (w * EPS0 * areaM2()) : I / (P.f * 1e3) / (EPS0 * areaM2());
+}
+// campo magnetico sul percorso di raggio R (T): μ₀·I/(2πR), uguale nel filo e fra le armature
+const Bloop = () => MU0 * Math.abs(Ic()) * 1e-3 / (2 * Math.PI * P.R / PX_CM / 100);
 
 /* ── State ───────────────────────────────────────────────────────────────── */
 let simT    = 0;
@@ -40,12 +54,12 @@ let CX = 0, CY = 0;
 
 /* ── Physics functions ───────────────────────────────────────────────────── */
 function Ic() {
-  if (P.ac) return P.I0 * Math.sin(2 * Math.PI * P.f * simT);
+  if (P.ac) return P.I0 * Math.sin(2 * Math.PI * fAnim() * simT);
   return P.I0;                    // DC: constant conduction current
 }
 function Enorm() {
-  if (P.ac) return -Math.cos(2 * Math.PI * P.f * simT);   // 90° lag, ±1
-  return (simT * P.f) % 1;       // DC: linear ramp 0→1 (E grows as cap charges)
+  if (P.ac) return -Math.cos(2 * Math.PI * fAnim() * simT);   // 90° lag, ±1
+  return (simT * fAnim()) % 1;   // continua: rampa 0→1 (E cresce mentre il condensatore si carica)
 }
 
 // B_z at screen-relative position (wx, wy): + = out of screen, – = into screen
@@ -55,7 +69,8 @@ function Bz(wx, wy) {
   if (r < 1) return 0;
   const inGap = Math.abs(wx) < P.d;
   const geo   = (inGap && r < P.R) ? r / (2 * Math.PI * P.R * P.R) : 1 / (2 * Math.PI * r);
-  return Ic() * geo * (wy > 0 ? 1 : -1);
+  // corrente verso +x: sopra il filo B esce dallo schermo (x̂ × ŷ = ẑ), sotto entra
+  return Ic() * geo * (wy > 0 ? -1 : 1);
 }
 
 function loopCirculation() {
@@ -63,11 +78,11 @@ function loopCirculation() {
   return Math.abs(loopZ) < P.d ? Ic() : Ic(); // always equal: I_d = I_c
 }
 
-function fmt(v) {
+function fmt(v) {   // corrente in mA
   if (!isFinite(v)) return '∞';
   const a = Math.abs(v);
-  if (a < 0.005) return '0.00';
-  return v.toFixed(2);
+  if (a < 0.005) return '0,00 mA';
+  return Lab.fmt(v, 2) + ' mA';
 }
 
 /* ── drawSim ─────────────────────────────────────────────────────────────── */
@@ -273,7 +288,7 @@ function drawLoop(dark) {
   ctx.font = 'bold 11px "Space Mono",monospace';
   ctx.fillStyle = col;
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(`∮ B·dl = ${fmt(circ)}`, sx, tipY - 8);
+  ctx.fillText(`∮ B·dl / μ₀ = ${fmt(circ)}`, sx, tipY - 8);
 
   // Enclosed current type label
   ctx.font = '9px "Space Mono",monospace';
@@ -301,89 +316,25 @@ function drawLoop(dark) {
   ctx.restore();
 }
 
-/* ── Graph: I_c(t), I_d(t), E(t) ────────────────────────────────────────── */
+/* ── Grafici ─────────────────────────────────────────────────────────────── */
+// Storia (tempo vero, in ms): 1) corrente di conduzione nel filo e corrente di spostamento fra
+// le armature, che coincidono; 2) campo elettrico fra le armature, la cui derivata dà I_d.
 function drawGraphs() {
-  if (!GW || !GH) return;
-  const dark   = dk();
-  const axCol  = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)';
-  const lblCol = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.40)';
-  gctx.clearRect(0, 0, gc.width, gc.height);
-
-  const PAD  = { t: 22, b: 28, l: 46, r: 14 };
-  const iW   = GW - PAD.l - PAD.r, iH = GH - PAD.t - PAD.b;
-  const vMax = P.I0 * 1.35;
-  const vMin = P.ac ? -vMax : -vMax * 0.08;  // DC: only positive range
-  const hLen = hFull ? HIST : hHead;
-
-  const gx = f => (PAD.l + f * iW) * DPR;
-  const gy = v => (PAD.t + (1 - (v - vMin) / (vMax - vMin)) * iH) * DPR;
-
-  // Background
-  gctx.fillStyle = dark ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.03)';
-  gctx.fillRect(gx(0), PAD.t * DPR, iW * DPR, iH * DPR);
-
-  // Gridlines
-  gctx.lineWidth = DPR;
-  for (let g = 0; g <= 4; g++) {
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    const yy = (PAD.t + g * iH / 4) * DPR;
-    gctx.beginPath(); gctx.moveTo(gx(0), yy); gctx.lineTo(gx(1), yy); gctx.stroke();
+  const C = Lab.graphColors(), hLen = hFull ? HIST : hHead;
+  const tNow = tReal() * 1e3, dtStep = 1 / 60 * SLOW;        // ms per campione (60 fotogrammi/s)
+  const span = HIST * dtStep, t0 = Math.max(0, tNow - span), t1 = Math.max(span, tNow);
+  const ser = arr => { const out = []; for (let k = 0; k < hLen; k++) { const idx = (hHead - hLen + k + HIST) % HIST; out.push([tNow - (hLen - 1 - k) * dtStep, arr[idx]]); } return out; };
+  const Im = Lab.niceMax(P.I0 * 1.1);
+  let g = Lab.panel(gCanvas[0], { title: 'Corrente di conduzione I_c e di spostamento I_d (mA)', xr: [t0, t1], yr: [P.ac ? -Im : -Im * 0.25, Im], xLabel: 't (ms)' });
+  if (g) {
+    const [c, f] = g, s = ser(hIc);
+    Lab.plotPts(c, f, s, C.accent, 3);
+    Lab.plotPts(c, f, s, C.amber, 1.5);
+    Lab.legend(c, f.L + 8, f.T + 8, [[C.accent, 'I_c nel filo'], [C.amber, 'I_d = ε₀·dΦ_E/dt']]);
   }
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
-  gctx.beginPath(); gctx.moveTo(gx(0), gy(0)); gctx.lineTo(gx(1), gy(0)); gctx.stroke();
-
-  // Axes
-  gctx.strokeStyle = axCol;
-  gctx.beginPath();
-  gctx.moveTo(gx(0), PAD.t * DPR); gctx.lineTo(gx(0), (PAD.t + iH) * DPR);
-  gctx.lineTo(gx(1), (PAD.t + iH) * DPR); gctx.stroke();
-
-  if (hLen > 1) {
-    // E(t) — dashed yellow, scaled to same axis as I
-    gctx.strokeStyle = dark ? 'rgba(255,210,50,0.65)' : 'rgba(160,110,0,0.65)';
-    gctx.lineWidth = 1.5 * DPR;
-    gctx.setLineDash([5 * DPR, 3 * DPR]);
-    gctx.beginPath();
-    for (let i = 0; i < hLen; i++) {
-      const idx = (hHead - hLen + i + HIST) % HIST;
-      i === 0 ? gctx.moveTo(gx(i / (HIST - 1)), gy(hE[idx] * P.I0))
-              : gctx.lineTo(gx(i / (HIST - 1)), gy(hE[idx] * P.I0));
-    }
-    gctx.stroke();
-    gctx.setLineDash([]);
-
-    // I_c(t) — solid cyan (and I_d, same value)
-    gctx.strokeStyle = dark ? 'rgba(0,212,255,0.90)' : 'rgba(0,100,200,0.90)';
-    gctx.lineWidth = 2 * DPR;
-    gctx.beginPath();
-    for (let i = 0; i < hLen; i++) {
-      const idx = (hHead - hLen + i + HIST) % HIST;
-      i === 0 ? gctx.moveTo(gx(i / (HIST - 1)), gy(hIc[idx]))
-              : gctx.lineTo(gx(i / (HIST - 1)), gy(hIc[idx]));
-    }
-    gctx.stroke();
-  }
-
-  // Y ticks
-  gctx.fillStyle = lblCol; gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-  gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-  const yTicks = P.ac ? [-P.I0, 0, P.I0] : [0, P.I0 * 0.5, P.I0];
-  for (const v of yTicks) gctx.fillText(v.toFixed(1), (PAD.l - 3) * DPR, gy(v));
-
-  // Title
-  gctx.fillStyle = dark ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.36)';
-  gctx.font = `bold ${9 * DPR}px "Space Mono",monospace`;
-  gctx.textAlign = 'left'; gctx.textBaseline = 'top';
-  gctx.fillText(P.ac ? 'I_c(t) = I_d(t)  vs  tempo' : 'DC — I costante, E cresce', gx(0), 4 * DPR);
-
-  // Legend
-  const legY = (PAD.t + 2) * DPR;
-  gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-  gctx.textAlign = 'right'; gctx.textBaseline = 'top';
-  gctx.fillStyle = dark ? 'rgba(0,212,255,0.85)' : 'rgba(0,100,200,0.85)';
-  gctx.fillText('I_c = I_d', (PAD.l + iW - 2) * DPR, legY);
-  gctx.fillStyle = dark ? 'rgba(255,210,50,0.75)' : 'rgba(160,110,0,0.75)';
-  gctx.fillText(P.ac ? 'E (norm.)' : 'E (cresce)', (PAD.l + iW - 2) * DPR, legY + 12 * DPR);
+  const Ea = Eamp() / 1e3, Em = Lab.niceMax(Ea * 1.1);
+  g = Lab.panel(gCanvas[1], { title: 'Campo elettrico fra le armature (kV/m)', xr: [t0, t1], yr: [P.ac ? -Em : -Em * 0.25, Em], xLabel: 't (ms)', yFmt: v => Lab.sci(v, 2) });
+  if (g) { const [c, f] = g; Lab.plotPts(c, f, ser(hE).map(([t, e]) => [t, e * Ea]), C.amber, 2); }
 }
 
 /* ── Readout ─────────────────────────────────────────────────────────────── */
@@ -391,10 +342,10 @@ function updateReadout() {
   const ic    = Ic();
   const inGap = Math.abs(loopZ) < P.d;
   document.getElementById('readout').innerHTML = [
-    { label: '∮ B·dl',    value: fmt(ic)                   },
-    { label: 'I_c = I_d', value: fmt(ic)                   },
-    { label: 'E (norm.)', value: fmt(Enorm())               },
-    { label: 'modo',      value: P.ac ? 'AC' : 'DC'        },
+    { label: '∮ B·dl / μ₀',   value: fmt(ic) },
+    { label: inGap ? 'I_d (fra le armature)' : 'I_c (nel filo)', value: fmt(ic) },
+    { label: 'E fra le armature', value: Lab.sci(Enorm() * Eamp() / 1e3, 3) + ' kV/m' },
+    { label: 'B sul percorso', value: Lab.fmt(Bloop() * 1e9, 2) + ' nT' },
   ].map(r =>
     `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
@@ -465,50 +416,51 @@ function buildControls() {
       buildControls();
     },
   }));
-  src.add(Lab.Slider({ label: 'Corrente I₀', min: 0.2, max: 3, step: 0.1, value: P.I0,
+  src.add(Lab.Slider({ label: 'Corrente di picco I₀', min: 0.2, max: 3, step: 0.1, value: P.I0, unit: ' mA',
     onChange: v => { P.I0 = v; } }));
   src.add(Lab.Slider({
-    label: P.ac ? 'Frequenza f [Hz]' : 'Vel. carica [1/s]',
-    min: 0.1, max: 2.0, step: 0.05, value: P.f,
+    label: P.ac ? 'Frequenza f' : 'Frequenza delle ricariche',
+    min: 0.1, max: 2.0, step: 0.05, value: P.f, unit: ' kHz',
     onChange: v => { P.f = v; },
   }));
   ctrl.appendChild(src.el);
 
   const cap = Lab.Section('Condensatore');
-  cap.add(Lab.Slider({ label: 'Raggio armature [px]', min: 40, max: 130, step: 5, value: P.R,
-    onChange: v => { P.R = v; } }));
-  cap.add(Lab.Slider({ label: 'Semidistanza d [px]', min: 25, max: 130, step: 5, value: P.d,
-    onChange: v => { P.d = v; } }));
+  cap.add(Lab.Slider({ label: 'Raggio delle armature R', min: 4, max: 13, step: 0.5, value: P.R / PX_CM, unit: ' cm',
+    onChange: v => { P.R = v * PX_CM; } }));
+  cap.add(Lab.Slider({ label: 'Distanza fra le armature', min: 5, max: 26, step: 1, value: 2 * P.d / PX_CM, unit: ' cm',
+    onChange: v => { P.d = v * PX_CM / 2; } }));
+  const note = document.createElement('div');
+  note.className = 'lab-note';
+  note.innerHTML = 'Trascina il <b>percorso</b> (l\'anello verde) lungo il filo: fuori dal condensatore abbraccia la corrente nel filo, fra le armature la corrente di spostamento. ∮B·dl non cambia. Animazione al rallentatore.';
+  cap.add(note);
   ctrl.appendChild(cap.el);
-
-  const sim = Lab.Section('Simulazione');
-  sim.add(Lab.Toggle({ label: 'Pausa', value: !running,
-    onChange: v => { running = !v; } }));
-  ctrl.appendChild(sim.el);
 }
 
 /* ── Resize ──────────────────────────────────────────────────────────────── */
 function resizeCanvases() {
   const area = sc.parentElement;
   const ga   = document.getElementById('graphArea');
+  if (!gCanvas.length) gCanvas = Lab.graphPanels(ga, 2, 180);
   const rd   = area.querySelector('.readout-bar');
-  const rdH  = rd ? rd.clientHeight || 48 : 48;
-  const gaH  = ga.clientHeight || 190;
-
+  const rdH  = rd ? rd.offsetHeight || 48 : 48;
+  const gaH  = ga.offsetHeight || 180;
+  DPR = window.devicePixelRatio || 1;
   SW = area.clientWidth;
   SH = Math.max(80, area.clientHeight - gaH - rdH);
-
-  sc.width  = Math.round(SW * DPR); sc.height = Math.round(SH * DPR);
-  sc.style.width  = SW + 'px';      sc.style.height = SH + 'px';
-
-  GW = area.clientWidth; GH = gaH;
-  gc.width  = Math.round(GW * DPR); gc.height = Math.round(GH * DPR);
-  gc.style.width  = GW + 'px';      gc.style.height = GH + 'px';
-
+  Lab.hidpi(sc, SW, SH);
+  Lab.fitPanels(gCanvas);
   CX = SW / 2; CY = SH / 2;
 }
 
-window.addEventListener('resize', resizeCanvases);
+new ResizeObserver(resizeCanvases).observe(sc.parentElement);
+
+// pausa e azzeramento con i pulsanti in fondo al pannello, come negli altri lab
+document.getElementById('btnPlay').addEventListener('click', e => {
+  running = !running;
+  e.currentTarget.textContent = running ? '⏸  PAUSA' : '▶  AVVIA';
+});
+document.getElementById('btnReset').addEventListener('click', () => { simT = 0; hHead = 0; hFull = false; loopZ = 195; });
 
 function init() {
   resizeCanvases();

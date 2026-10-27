@@ -148,8 +148,7 @@ function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
   ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal();
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   if(P.mode==='volta'){ geomVolta(W,H); ensureDots(); drawVolta(ctx); } else { geomTherm(W,H); drawTherm(ctx); }
@@ -164,7 +163,7 @@ function drawVolta(ctx){
     ctx.strokeStyle=T.edge; ctx.lineWidth=1.4; ctx.strokeRect(b.x0,G.y0,b.x1-b.x0,G.y1-G.y0);
     ctx.fillStyle=T.txt; ctx.font='bold 10px "Space Mono",monospace'; ctx.textAlign='center';
     ctx.fillText(MAT[b.k].name, (b.x0+b.x1)/2, G.y1+15);
-    ctx.fillStyle=T.sub; ctx.font='9px "Space Mono",monospace'; ctx.fillText('φ='+phiOf(b.k).toFixed(2), (b.x0+b.x1)/2, G.y1+27);
+    ctx.fillStyle=T.sub; ctx.font='9px "Space Mono",monospace'; ctx.fillText('φ='+Lab.fmt(phiOf(b.k),2), (b.x0+b.x1)/2, G.y1+27);
   }
   // elettroni
   for(let i=0;i<G.blocks.length;i++) for(const d of (voltDots[i]||[])){ ctx.fillStyle=rgba(T.elec,0.9); ctx.beginPath(); ctx.arc(d.x,d.y,2.5,0,Math.PI*2); ctx.fill(); }
@@ -203,7 +202,7 @@ function drawBands(ctx){
   list.forEach((k,i)=>{ const px=x+w*(i+0.5)/N-colW/2, phi=phiOf(k), fy=y0+phi*sc, c=MAT[k].col;
     ctx.fillStyle=rgba(c,0.5); ctx.fillRect(px,fy,colW,y1-fy);
     ctx.strokeStyle=rgb(T.fermi); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(px,fy); ctx.lineTo(px+colW,fy); ctx.stroke();
-    ctx.fillStyle=T.txt; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(phi.toFixed(2), px+colW/2, fy-3);
+    ctx.fillStyle=T.txt; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(Lab.fmt(phi,2), px+colW/2, fy-3);
   });
   ctx.fillStyle=rgb(T.fermi); ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('E_F', x+w-22, y0+6);
 }
@@ -233,7 +232,7 @@ function drawTherm(ctx){
   ctx.textAlign='left'; ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
   ctx.fillText('Effetto termoionico:  J = A·T²·e^(−φ/kT)', 14, 24);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-  ctx.fillText(`T = ${P.T} K   φ = ${phiOf(P.matA).toFixed(2)} eV   J_sat = ${fmtJ(Jemit())}`, 14, 40);
+  ctx.fillText(`T = ${P.T} K   φ = ${Lab.fmt(phiOf(P.matA),2)} eV   J_sat = ${fmtJ(Jemit())}`, 14, 40);
 }
 function drawFilament(ctx,x,y0,y1,hc){
   const n=8, amp=8, seg=n*10;
@@ -264,7 +263,7 @@ function drawCircuit(ctx){
   ctx.beginPath(); ctx.moveTo(gX-7,yB-9); ctx.lineTo(gX-7,yB+9); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(gX+7,yB-6); ctx.lineTo(gX+7,yB+6); ctx.stroke();
   ctx.strokeStyle=rgb(T.cur); ctx.lineWidth=1; ctx.beginPath(); ctx.arc(gX,yB,17,0,Math.PI*2); ctx.stroke();
-  ctx.fillStyle=T.txt; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(`${P.V>=0?'+':''}${P.V.toFixed(2)} V`, gX, yB+32);
+  ctx.fillStyle=T.txt; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(`${P.V>=0?'+':''}${Lab.fmt(P.V,2)} V`, gX, yB+32);
   ctx.fillStyle=T.sub; ctx.font='9px "Space Mono",monospace'; ctx.fillText('amperometro',aX,yB-22); ctx.fillText('tensione anodica',gX,yB-22);
   // flusso
   if(diodeI(P.V)>1){ const segs=[[G.anoX,cyA,G.anoX,yB],[G.anoX,yB,G.filX,yB],[G.filX,yB,G.filX,G.ty1+8]];
@@ -273,101 +272,76 @@ function drawCircuit(ctx){
     for(let k=0;k<N;k++){ let s=(ph+k*total/N)%total; for(let i=0;i<segs.length;i++){ if(s<=len[i]){ const f=s/len[i],sg=segs[i];
       const x=sg[0]+(sg[2]-sg[0])*f,y=sg[1]+(sg[3]-sg[1])*f; if(Math.hypot(x-aX,y-yB)>19&&Math.hypot(x-gX,y-yB)>21){ ctx.beginPath(); ctx.arc(x,y,2,0,Math.PI*2); ctx.fill(); } break; } s-=len[i]; } } }
 }
-function fmtJ(j){ if(j<1) return j.toExponential(2)+' A/m²'; if(j<1e4) return j.toFixed(0)+' A/m²'; return (j/1e4).toFixed(1)+' A/cm²'; }
+function fmtJ(j){ if(j<1) return Lab.sci(j,3)+' A/m²'; if(j<1e4) return Lab.fmt(j,0)+' A/m²'; return Lab.fmt((j/1e4),1)+' A/cm²'; }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-function setTitles(){
-  const t = P.mode==='volta'
-    ? ['V(estremi) in funzione di φ_ultimo','Livelli energetici','Potenziale vs distanza']
-    : ['J in funzione di T','Caratteristica I–V (diodo)','Richardson: ln(J/T²) vs 1/T'];
-  for(let i=0;i<3;i++) if(gTitle[i]) gTitle[i].textContent=t[i];
-}
+function setTitles(){}   // i titoli sono disegnati dentro i grafici
 function drawGraphs(){ if(P.mode==='volta') graphsVolta(); else graphsTherm(); }
 
 function graphsVolta(){
-  const list=metals(), phi0=phiOf(list[0]);
-  // 1: V(estremi) vs φ_ultimo
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height; const PAD={t:14,b:18,l:26,r:8};
-    const gH=H-PAD.t-PAD.b, gW=W-PAD.l-PAD.r; ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-    const zy=PAD.t+gH/2; ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-    ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.stroke(); ctx.beginPath(); ctx.moveTo(PAD.l,zy); ctx.lineTo(PAD.l+gW,zy); ctx.stroke();
-    const xmax=7,vmax=7,xOf=p=>PAD.l+p/xmax*gW,yOf=v=>zy-v/vmax*(gH/2*0.9);
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0-phi0)); ctx.lineTo(xOf(xmax),yOf(xmax-phi0)); ctx.stroke();
-    ctx.fillStyle=rgb(T.plus); ctx.beginPath(); ctx.arc(xOf(phiOf(list[list.length-1])),yOf(Vtotal()),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('V',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('φ',PAD.l+gW-2,zy-3);
+  const list=metals(), phi0=phiOf(list[0]), C=Lab.graphColors();
+  // 1: d.d.p. fra gli estremi in funzione del lavoro di estrazione dell'ultimo metallo
+  let g=Lab.panel(gCanvas[0],{ title:`V(estremi) = φ_ultimo − φ_primo (V), primo: ${list[0]}`, xr:[1.5,7], yr:[-5,5], yStep:2.5, xLabel:'φ dell\'ultimo metallo (eV)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,p=>p-phi0,[1.5,7],C.accent,2);
+    for(const k of Object.keys(MAT)) Lab.dot(ctx,f,phiOf(k),phiOf(k)-phi0,C.grid.replace(/[\d.]+\)$/,'0.5)'),2.5);
+    Lab.dot(ctx,f,phiOf(list[list.length-1]),Vtotal(),rgb(T.plus),4.5);
   }
-  // 2: livelli energetici (barre φ)
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height; const PAD={t:16,b:22,l:10,r:10};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const max=6.8;
-    const bw=gW/list.length*0.5; list.forEach((k,i)=>{ const cx=PAD.l+gW*(i+0.5)/list.length, bh=phiOf(k)/max*gH;
-      ctx.fillStyle=rgba(MAT[k].col,0.85); ctx.fillRect(cx-bw/2,PAD.t+gH-bh,bw,bh);
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(k,cx,PAD.t+gH+10);
-      ctx.fillStyle=rgb(MAT[k].col); ctx.fillText(phiOf(k).toFixed(2),cx,PAD.t+gH-bh-3); });
+  // 2: livelli di Fermi sotto il livello del vuoto (energia = −φ), come nello schema della scena
+  g=Lab.panel(gCanvas[1],{ title:'Livello di Fermi rispetto al vuoto (eV)', xr:[0,list.length], xStep:1e9, xFmt:()=> '', yr:[-7,0], yStep:1 });
+  if(g){ const [ctx,f]=g;
+    const gap=(f.R-f.L)/list.length, bw=gap*0.5;
+    list.forEach((k,i)=>{ const cx=f.L+gap*(i+0.5), y=f.Y(-phiOf(k));
+      ctx.fillStyle=rgba(MAT[k].col,0.85); ctx.fillRect(cx-bw/2,f.Y(0),bw,y-f.Y(0));
+      ctx.strokeStyle=C.green; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(cx-bw/2,y); ctx.lineTo(cx+bw/2,y); ctx.stroke();
+      ctx.font='9.5px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle=C.title; ctx.fillText('−'+Lab.fmt(phiOf(k),2),cx,y+9);
+      ctx.fillStyle=C.text; ctx.fillText(k,cx,f.B+10); });
   }
-  // 3: POTENZIALE vs distanza (step, V_i = φ_0 − φ_i)
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height; const PAD={t:14,b:18,l:26,r:8};
-    const gH=H-PAD.t-PAD.b, gW=W-PAD.l-PAD.r; ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-    const Vs=list.map(k=>phi0-phiOf(k)); const vmax=Math.max(0.5,Math.max.apply(null,Vs.map(Math.abs)));
-    const zy=PAD.t+gH/2; ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-    ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.stroke(); ctx.beginPath(); ctx.moveTo(PAD.l,zy); ctx.lineTo(PAD.l+gW,zy); ctx.stroke();
-    const N=list.length, segW=gW/N, yOf=v=>zy-v/vmax*(gH/2*0.85);
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=2; ctx.beginPath();
-    for(let i=0;i<N;i++){ const x0=PAD.l+i*segW, x1=PAD.l+(i+1)*segW, y=yOf(Vs[i]);
-      if(i===0) ctx.moveTo(x0,y); else ctx.lineTo(x0,y);   // salto verticale alla giunzione
-      ctx.lineTo(x1,y); }
-    ctx.stroke();
-    // etichette metalli + livelli
-    ctx.font='7px "Space Mono",monospace';
-    for(let i=0;i<N;i++){ const cx=PAD.l+(i+0.5)*segW; ctx.fillStyle=rgb(MAT[list[i]].col); ctx.textAlign='center';
-      ctx.fillText(list[i], cx, PAD.t+gH-3); ctx.fillStyle=T.gText; ctx.fillText(Vs[i].toFixed(2), cx, yOf(Vs[i])-4); }
-    ctx.fillStyle=T.gText; ctx.textAlign='left'; ctx.fillText('V',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('x',PAD.l+gW-2,zy-3);
+  // 3: potenziale lungo la catena di metalli (V_i = φ_primo − φ_i), a gradini alle giunzioni
+  g=Lab.panel(gCanvas[2],{ title:'Potenziale lungo la catena (V)', xr:[0,list.length], xStep:1e9, xFmt:()=> '', yr:[-5,5], yStep:2.5 });
+  if(g){ const [ctx,f]=g;
+    const Vs=list.map(k=>phi0-phiOf(k)), N=list.length;
+    const pts=[]; for(let i=0;i<N;i++){ pts.push([i,Vs[i]]); pts.push([i+1,Vs[i]]); }
+    Lab.plotPts(ctx,f,pts,C.accent,2.2);
+    ctx.font='9.5px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<N;i++){ ctx.fillStyle=rgb(MAT[list[i]].col); ctx.fillText(list[i],f.X(i+0.5),f.B+10);
+      ctx.fillStyle=C.title; ctx.fillText(Lab.fmt(Vs[i],2),f.X(i+0.5),f.Y(Vs[i])+(Vs[i]>=0?-8:9)); }
   }
 }
 
 function graphsTherm(){
-  const Tmax=3000, phi=phiOf(P.matA);
-  // 1: J vs T (log)
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height; const PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const lo=-2,hi=8;
-    const xOf=t=>PAD.l+t/Tmax*gW, yOf=j=>PAD.t+gH-(clamp(Math.log10(Math.max(1e-3,j)),lo,hi)-lo)/(hi-lo)*gH;
-    ctx.strokeStyle=rgb(T.plus); ctx.lineWidth=1.5; ctx.beginPath(); let f=true;
-    for(let t=300;t<=Tmax;t+=40){ const x=xOf(t),y=yOf(richardson(t,phi)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(P.T),yOf(Jemit()),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('J(log)',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('T',PAD.l+gW-2,PAD.t+gH-3);
+  const phi=phiOf(P.matA), C=Lab.graphColors();
+  // 1: densità di corrente emessa J(T) (legge di Richardson–Dushman), scala log
+  let g=Lab.panel(gCanvas[0],{ title:'Corrente emessa J (A/m²), scala log', xr:[300,3000], yr:[1e-4,1e10], yLog:true, xLabel:'T (K)', yFmt:v=>Lab.sci(v,1) });
+  if(g){ const [ctx,f]=g;
+    for(const k of Object.keys(MAT)) if(k!==P.matA) Lab.plot(ctx,f,t=>richardson(t,phiOf(k)),[300,3000],C.grid.replace(/[\d.]+\)$/,'0.35)'),1.2);
+    Lab.plot(ctx,f,t=>richardson(t,phi),[300,3000],rgb(T.plus),2.2);
+    Lab.dot(ctx,f,P.T,Jemit(),C.accent,4);
+    Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.plus),`${MAT[P.matA].name}: J = A·T²·e^(−φ/kT)`]]);
   }
-  // 2: caratteristica I–V del diodo
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height; const PAD={t:14,b:18,l:24,r:8};
-    const gH=H-PAD.t-PAD.b, gW=W-PAD.l-PAD.r; ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-    const Vmin=-2,Vmax=3, zf=(0-Vmin)/(Vmax-Vmin), zx=PAD.l+zf*gW;
-    ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6; ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(zx,PAD.t); ctx.lineTo(zx,PAD.t+gH); ctx.stroke();
-    const Is=Math.max(1e-9,Jemit()), xOf=v=>PAD.l+(v-Vmin)/(Vmax-Vmin)*gW, yOf=i=>PAD.t+gH-clamp(i/Is,0,1)*gH*0.9;
-    ctx.strokeStyle=rgb(T.cur); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let i=0;i<=80;i++){ const v=Vmin+(Vmax-Vmin)*i/80, x=xOf(v), y=yOf(diodeI(v)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(P.V),yOf(diodeI(P.V)),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('V',PAD.l+gW-2,PAD.t+gH-3);
+  // 2: caratteristica del diodo: tensione frenante (esponenziale), carica spaziale, saturazione
+  const Js=Lab.niceMax(Math.max(1e-9,Jemit())*1.1);
+  g=Lab.panel(gCanvas[1],{ title:'Caratteristica del diodo J(V) (A/m²)', xr:[-2,3], yr:[0,Js], xStep:1, xLabel:'V anodo (V)', yFmt:v=>Lab.sci(v,2) });
+  if(g){ const [ctx,f]=g;
+    ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=C.text; ctx.beginPath(); ctx.moveTo(f.L,f.Y(Jemit())); ctx.lineTo(f.R,f.Y(Jemit())); ctx.stroke(); ctx.restore();
+    Lab.plot(ctx,f,diodeI,[-2,3],rgb(T.cur),2.2);
+    Lab.dot(ctx,f,P.V,diodeI(P.V),C.accent,4);
+    Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.cur),'J(V)'],[C.text,'saturazione',[3,3]]]);
   }
-  // 3: Richardson plot
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height; const PAD={t:14,b:18,l:28,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const xs=[1/3000,1/600];
-    const f=t=>Math.log(A_R)-phi*e0/(kB*t), ymax=Math.log(A_R), ymin=f(600);
-    const xOf=it=>PAD.l+(it-xs[0])/(xs[1]-xs[0])*gW, yOf=y=>PAD.t+gH-(y-ymin)/(ymax-ymin)*gH*0.95;
-    ctx.strokeStyle=rgb(T.plus); ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(xOf(xs[0]),yOf(f(3000))); ctx.lineTo(xOf(xs[1]),yOf(f(600))); ctx.stroke();
-    ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(1/P.T),yOf(f(P.T)),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('ln(J/T²)',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('1/T',PAD.l+gW-2,PAD.t+gH-3);
+  // 3: grafico di Richardson: ln(J/T²) contro 1/T è una retta di pendenza −φ/k
+  const lnJ=t=>Math.log(A_R)-phi*e0/(kB*t);
+  g=Lab.panel(gCanvas[2],{ title:'Richardson: ln(J/T²) contro 1000/T', xr:[1000/3000,1000/600], yr:[-120,20], yStep:20, xLabel:'1000/T (K⁻¹)', xFmt:v=>Lab.fmt(v,2) });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,x=>lnJ(1000/x),[1000/3000,1000/600],rgb(T.plus),2.2);
+    Lab.dot(ctx,f,1000/P.T,lnJ(P.T),C.accent,4);
+    Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.plus),`pendenza −φ/k → φ = ${Lab.fmt(phi,2)} eV`]]);
   }
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function matRadio(label,val,cb){ return Lab.RadioGroup({ label,
-  options:Object.keys(MAT).map(k=>({value:k,label:MAT[k].name,hint:MAT[k].phi.toFixed(2)+' eV'})), value:val, onChange:cb }); }
+  options:Object.keys(MAT).map(k=>({value:k,label:MAT[k].name,hint:Lab.fmt(MAT[k].phi,2)+' eV'})), value:val, onChange:cb }); }
 function reControls(){ setTimeout(buildControls,0); }   // rebuild differito → il menù si aggiorna sul click
 function buildControls(){
   const cont=document.getElementById('controls'); cont.innerHTML='';
@@ -397,18 +371,10 @@ function buildReadout(){
 }
 
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d'); gTitle[i]=title;
-  }
-  setTitles();
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -429,10 +395,10 @@ function init(){
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(220,Math.floor(ar.height-rb.height-gaH-4));
     simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    if(P.mode==='volta') geomVolta(simCanvas.width,simCanvas.height); else geomTherm(simCanvas.width,simCanvas.height);
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    if(P.mode==='volta') geomVolta(Math.floor(ar.width), h); else geomTherm(Math.floor(ar.width), h);
     if(P.mode==='volta' && !voltDots.length) initSim();
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -448,14 +414,14 @@ function init(){
     step(dt); draw(simCanvas); drawGraphs();
     if(P.mode==='volta'){
       const l=metals();
-      readout.set('pa', phiOf(P.matA).toFixed(2)+' eV'); readout.set('pb', phiOf(P.matB).toFixed(2)+' eV');
-      readout.set('pc', P.three? phiOf(P.matC).toFixed(2)+' eV' : '—');
-      readout.set('v', (Vtotal()>=0?'+':'')+Vtotal().toFixed(2)+' V');
+      readout.set('pa', Lab.fmt(phiOf(P.matA),2)+' eV'); readout.set('pb', Lab.fmt(phiOf(P.matB),2)+' eV');
+      readout.set('pc', P.three? Lab.fmt(phiOf(P.matC),2)+' eV' : '—');
+      readout.set('v', (Vtotal()>=0?'+':'')+Lab.fmt(Vtotal(),2)+' V');
       const lo = phiOf(l[0])<phiOf(l[l.length-1])? MAT[l[0]].name : MAT[l[l.length-1]].name;
       const hi = phiOf(l[0])<phiOf(l[l.length-1])? MAT[l[l.length-1]].name : MAT[l[0]].name;
       readout.set('lo', lo); readout.set('hi', hi);
     } else {
-      readout.set('phi', phiOf(P.matA).toFixed(2)+' eV'); readout.set('T', P.T+' K'); readout.set('V', (P.V>=0?'+':'')+P.V.toFixed(2)+' V');
+      readout.set('phi', Lab.fmt(phiOf(P.matA),2)+' eV'); readout.set('T', P.T+' K'); readout.set('V', (P.V>=0?'+':'')+Lab.fmt(P.V,2)+' V');
       readout.set('J', fmtJ(Jemit())); readout.set('I', fmtJ(diodeI(P.V)));
       readout.set('note', Jemit()<1e-3?'emissione trascurabile':(P.V<0?'frenante':'conduzione'));
     }

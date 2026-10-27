@@ -59,6 +59,7 @@ const P = {
   timbre: 'piano',   // 'piano' | 'organ' | 'sine'
   volume: 0.7,
   latch: false,      // pedale: le note restano finché non si ripremono
+  freqLog: false,    // grafico note–frequenza: asse verticale logaritmico
 };
 
 // ── Frequenze ────────────────────────────────────────────────────────────────
@@ -170,7 +171,7 @@ function resize() {
   const area = canvas.parentElement;
   // l'area dei grafici cresce con la finestra, ma lascia sempre spazio alla tastiera
   const avail = area.clientHeight - (readoutEl.offsetHeight || 56);
-  const gh = Math.round(Math.max(150, Math.min(300, avail * 0.45, avail - 340)));
+  const gh = Math.round(Math.max(170, Math.min(280, avail * 0.4, avail - 340)));
   if (graphArea.offsetHeight !== gh) { graphArea.style.height = gh + 'px'; graphArea.style.minHeight = '0'; }
   SW = area.clientWidth;
   SH = Math.max(0, area.clientHeight - gh - (readoutEl.offsetHeight || 0));
@@ -483,78 +484,154 @@ function drawWave(x0, w) {
   }
 }
 
-// In basso, a tutta larghezza: dove cadono le note su una scala logaritmica delle frequenze
-// (ogni ottava ha la stessa larghezza, come i tasti) e, sotto, sulla scala lineare in Hz.
-function drawLogAxis(x0, y0, w, h) {
-  card(gctx, x0, y0, w, h, '');
-  const narrow = w < 520, L = x0 + (narrow ? 56 : 80), R = x0 + w - 14;
-  const fLo = noteInfo(firstMidi()).f, fHi = noteInfo(lastMidi()).f;
-  const lo = fLo / Math.pow(2, 1 / 24), hi = fHi * Math.pow(2, 1 / 24);   // mezzo semitono di margine
-  const xLog = f => L + Math.log2(f / lo) / Math.log2(hi / lo) * (R - L);
-  const xLin = f => L + (f - lo) / (hi - lo) * (R - L);
-  const rowLog = y0 + 30, rowLin = y0 + h - 22;
-  text(gctx, narrow ? 'log' : 'scala log', x0 + 12, rowLog, { size: 10.5, color: C.text, align: 'left', bold: true });
-  text(gctx, narrow ? 'lineare' : 'scala lineare', x0 + 12, rowLin, { size: 10.5, color: C.text, align: 'left', bold: true });
-  if (rowLin - rowLog > 64 && R - L > 520) {
-    text(gctx, 'in scala logaritmica ogni ottava (rapporto 2) ha la stessa larghezza, come sulla tastiera; in scala lineare le note acute si allontanano',
-      (L + R) / 2, (rowLog + rowLin) / 2, { size: 9.5, color: C.muted });
+// Interruttore «Lineare | Log» nell'intestazione del grafico (cliccabile)
+let scaleSwitch = [];
+function drawScaleSwitch(right, cy) {
+  const opts = [['lin', 'Lineare'], ['log', 'Log']];
+  gctx.font = '600 10px DM Sans, sans-serif';
+  const ws = opts.map(([, t]) => gctx.measureText(t).width + 16);
+  let x = right - ws.reduce((a, b) => a + b, 0);
+  scaleSwitch = [];
+  gctx.beginPath(); gctx.roundRect(x - 0.5, cy - 9.5, ws[0] + ws[1] + 1, 19, 6);
+  gctx.strokeStyle = C.grid; gctx.lineWidth = 1; gctx.stroke();
+  opts.forEach(([key, t], i) => {
+    const on = (key === 'log') === P.freqLog;
+    if (on) {
+      gctx.fillStyle = C.accent; gctx.globalAlpha = 0.22;
+      gctx.beginPath(); gctx.roundRect(x, cy - 9, ws[i], 18, 5); gctx.fill(); gctx.globalAlpha = 1;
+    }
+    text(gctx, t, x + ws[i] / 2, cy, { size: 10, bold: on, color: on ? C.accent : C.muted });
+    scaleSwitch.push({ key, x, y: cy - 9, w: ws[i], h: 18 });
+    x += ws[i];
+  });
+}
+function setFreqLog(v) {
+  P.freqLog = v;
+  if (freqLogToggle) freqLogToggle.setValue(v);
+}
+let freqLogToggle = null;
+gCanvas.addEventListener('click', e => {
+  const r = gCanvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  const hit = scaleSwitch.find(b => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
+  if (hit) setFreqLog(hit.key === 'log');
+});
+gCanvas.addEventListener('mousemove', e => {
+  const r = gCanvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  gCanvas.style.cursor = scaleSwitch.some(b => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) ? 'pointer' : 'default';
+});
+
+// Note (asse orizzontale, un passo per semitono) e frequenze (asse verticale). In scala lineare
+// i punti salgono lungo una curva esponenziale: ogni ottava la frequenza raddoppia. In scala
+// logaritmica la stessa curva diventa una retta, perché i semitoni equabili hanno tutti lo stesso
+// rapporto. Le note del temperamento scelto sono i punti; la linea è il temperamento equabile.
+function drawNoteFreq(x0, y0, w, h) {
+  card(gctx, x0, y0, w, h, w > 330 ? 'Frequenza delle note' : 'Frequenze');
+  drawScaleSwitch(x0 + w - 12, y0 + 14);
+  const L = x0 + 48, R = x0 + w - 14, T = y0 + 30, B = y0 + h - 30;
+  const m0 = firstMidi(), m1 = lastMidi();
+  const fLo = noteInfo(m0).f, fHi = noteInfo(m1).f;
+  const yMin = P.freqLog ? fLo / 1.12 : 0, yMax = fHi * (P.freqLog ? 1.12 : 1.06);
+  const X = m => L + (m - m0 + 0.5) / (m1 - m0 + 1) * (R - L);
+  const Y = f => P.freqLog
+    ? B - Math.log(f / yMin) / Math.log(yMax / yMin) * (B - T)
+    : B - (f - yMin) / (yMax - yMin) * (B - T);
+
+  // griglia delle frequenze
+  const ticks = [];
+  if (P.freqLog) {
+    for (let d = 10; d <= 10000; d *= 10) for (const k of [1, 2, 5]) { const f = d * k; if (f >= yMin && f <= yMax) ticks.push(f); }
+  } else {
+    const raw = (yMax - yMin) / 5, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 5, 10].map(k => k * mag).find(v => v >= raw);
+    for (let f = 0; f <= yMax; f += step) ticks.push(f);
+  }
+  gctx.strokeStyle = C.grid; gctx.lineWidth = 1;
+  for (const f of ticks) {
+    const ty = Y(f);
+    gctx.beginPath(); gctx.moveTo(L, ty); gctx.lineTo(R, ty); gctx.stroke();
+    text(gctx, f >= 1000 ? fmt(f / 1000, f % 1000 ? 1 : 0) + 'k' : String(Math.round(f)), L - 5, ty, { size: 9, color: C.muted, align: 'right', mono: true });
+  }
+  text(gctx, 'Hz', L - 5, T - 12, { size: 9, color: C.muted, align: 'right' });
+
+  // note sull'asse orizzontale: i Do sempre, gli altri tasti bianchi se c'è spazio
+  const step = (R - L) / (m1 - m0 + 1);
+  for (let m = m0; m <= m1; m++) {
+    const isC = m % 12 === 0, white = !IS_BLACK[m % 12];
+    if (isC) { gctx.strokeStyle = C.grid; gctx.beginPath(); gctx.moveTo(X(m), T); gctx.lineTo(X(m), B); gctx.stroke(); }
+    if (isC || (white && step > 13)) {
+      text(gctx, isC ? noteName(m) : (P.english ? NAMES_EN : NAMES_IT)[m % 12], X(m), B + 10,
+        { size: isC ? 9.5 : 8, bold: isC, color: isC ? C.text : C.muted });
+    }
   }
 
-  for (const [row, xf, isLog] of [[rowLog, xLog, true], [rowLin, xLin, false]]) {
-    gctx.strokeStyle = C.grid; gctx.lineWidth = 1;
-    gctx.beginPath(); gctx.moveTo(L, row); gctx.lineTo(R, row); gctx.stroke();
-    // le ottave (tutti i Do) come riferimento, con la frequenza sotto la linea
-    for (let m = firstMidi(); m <= lastMidi(); m += 12) {
-      const f = noteInfo(m).f, x = xf(f);
-      gctx.strokeStyle = C.muted; gctx.globalAlpha = 0.5;
-      gctx.beginPath(); gctx.moveTo(x, row - 12); gctx.lineTo(x, row + 12); gctx.stroke();
-      gctx.globalAlpha = 1;
-      // etichetta lunga se c'è posto fino al Do successivo, altrimenti solo i Hz
-      const nextX = m + 12 <= lastMidi() ? xf(noteInfo(m + 12).f) : R + 200;
-      const prevX = m - 12 >= firstMidi() ? xf(noteInfo(m - 12).f) : L - 200;
-      const room = Math.min(nextX - x, x - prevX);
-      const lbl = isLog && room > 110 ? `${noteName(m)} · ${fmt(f, 1)} Hz` : room > 34 ? `${fmt(f, 0)} Hz` : '';
-      if (lbl) text(gctx, lbl, x, row + 17, { size: 9, color: C.muted, align: x < L + 40 ? 'left' : x > R - 60 ? 'right' : 'center' });
-    }
-    // tutte le note della tastiera: in grigio il riferimento equabile, in colore la nota accordata
-    for (let m = firstMidi(); m <= lastMidi(); m++) {
-      const info = noteInfo(m), x = xf(info.f), black = IS_BLACK[m % 12], down = held.has(m);
-      const len = black ? 5 : 9;
-      if (P.temp !== 'equal') {
-        const xe = xf(etFreq(m));
-        gctx.strokeStyle = C.grid; gctx.lineWidth = 1;
-        gctx.beginPath(); gctx.moveTo(xe, row - len); gctx.lineTo(xe, row + len); gctx.stroke();
-      }
-      gctx.strokeStyle = down ? C.accent : black ? C.muted : C.text;
-      gctx.lineWidth = down ? 2.5 : 1.3;
-      gctx.beginPath(); gctx.moveTo(x, row - len); gctx.lineTo(x, row + len); gctx.stroke();
-      if (down) {
-        gctx.beginPath(); gctx.arc(x, row, 4, 0, 2 * Math.PI); gctx.fillStyle = C.accent; gctx.fill();
-        if (isLog) text(gctx, noteName(m), x, row - 17, { size: 9.5, bold: true, color: C.accent });
-      }
+  // temperamento equabile come curva continua
+  gctx.strokeStyle = C.muted; gctx.lineWidth = 1.2; gctx.setLineDash([4, 3]);
+  gctx.beginPath();
+  for (let i = 0; i <= 160; i++) {
+    const m = m0 + (m1 - m0) * i / 160;
+    const px = X(m), py = Y(etFreq(m));
+    i ? gctx.lineTo(px, py) : gctx.moveTo(px, py);
+  }
+  gctx.stroke(); gctx.setLineDash([]);
+
+  // ×2 fra un Do e il successivo: l'ottava raddoppia la frequenza
+  for (let m = m0; m + 12 <= m1; m += 12) {
+    if (m % 12) continue;
+    const xa = X(m), xb = X(m + 12), ya = Y(noteInfo(m).f), yb = Y(noteInfo(m + 12).f);
+    gctx.strokeStyle = C.accent; gctx.globalAlpha = 0.5; gctx.lineWidth = 1;
+    gctx.beginPath(); gctx.moveTo(xa, ya); gctx.lineTo(xb, ya); gctx.lineTo(xb, yb); gctx.stroke();
+    gctx.globalAlpha = 1;
+    text(gctx, '×2', xb + 4, (ya + yb) / 2, { size: 9.5, bold: true, color: C.accent, align: 'left' });
+  }
+
+  // le note del temperamento scelto
+  const r = Math.max(2, Math.min(4, step * 0.28));
+  for (let m = m0; m <= m1; m++) {
+    const info = noteInfo(m), px = X(m), py = Y(info.f), down = held.has(m), black = IS_BLACK[m % 12];
+    gctx.beginPath(); gctx.arc(px, py, down ? r + 2 : r, 0, 2 * Math.PI);
+    gctx.fillStyle = down ? C.accent : black ? C.panel : C.text; gctx.fill();
+    gctx.strokeStyle = down ? C.accent : C.text; gctx.lineWidth = 1.2; gctx.stroke();
+  }
+  // etichette delle note premute
+  const boxes = [];
+  for (const m of [...held.keys()].sort((a, b) => a - b)) {
+    if (m < m0 || m > m1) continue;
+    const info = noteInfo(m), px = X(m), py = Y(info.f);
+    // con molte note premute basta il nome: le frequenze sono già sui tasti
+    const lbl = held.size > 2 ? noteName(m) : `${noteName(m)} · ${fmt(info.f, 1)} Hz`;
+    gctx.font = '700 9.5px DM Sans, sans-serif';
+    const tw = gctx.measureText(lbl).width;
+    const align = px > R - 60 ? 'right' : px < L + 60 ? 'left' : 'center';
+    const bx = align === 'left' ? px : align === 'right' ? px - tw : px - tw / 2;
+    let ly = py - 12;
+    const hits = y => boxes.some(b => bx < b.x + b.w + 4 && bx + tw + 4 > b.x && Math.abs(y - b.y) < 12);
+    if (hits(ly)) ly = py + 13;
+    if (hits(ly)) continue;
+    boxes.push({ x: bx, y: ly, w: tw });
+    text(gctx, lbl, px, ly, { size: 9.5, bold: true, color: C.accent, align });
+  }
+  // legenda
+  const lx = L + 10, ly = T + 8;
+  if (w > 380) {
+    gctx.strokeStyle = C.muted; gctx.setLineDash([4, 3]); gctx.beginPath(); gctx.moveTo(lx, ly); gctx.lineTo(lx + 16, ly); gctx.stroke(); gctx.setLineDash([]);
+    text(gctx, 'equabile', lx + 20, ly, { size: 9, color: C.muted });
+    if (P.temp !== 'equal') {
+      gctx.beginPath(); gctx.arc(lx + 78, ly, 3, 0, 2 * Math.PI); gctx.fillStyle = C.text; gctx.fill();
+      text(gctx, TEMPERAMENTS[P.temp].name.split(' ')[0].toLowerCase(), lx + 85, ly, { size: 9, color: C.muted });
     }
   }
 }
 
-let PH = 0;   // altezza della riga superiore dei grafici
+let PH = 0;   // altezza dei pannelli
 function drawBottom() {
   gctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   gctx.fillStyle = C.panel; gctx.fillRect(0, 0, GW, GH);
-  if (GH >= 230) {
-    const logH = Math.max(92, Math.min(112, GH * 0.38));
-    PH = GH - logH;
-    const half = Math.floor((GW - 18) / 2);
-    drawDeviation(6, half);
-    drawWave(12 + half, GW - half - 18);
-    drawLogAxis(6, PH, GW - 12, logH - 6);
-  } else {
-    // poco spazio in altezza: i tre grafici affiancati
-    PH = GH;
-    const w1 = Math.floor((GW - 24) * 0.3), w2 = w1;
-    drawDeviation(6, w1);
-    drawWave(12 + w1, w2);
-    drawLogAxis(18 + w1 + w2, 6, GW - 24 - w1 - w2, GH - 12);
-  }
+  // tre pannelli affiancati: note–frequenza (il più largo), scostamento in cent, inviluppo
+  PH = GH;
+  const inner = GW - 24, w1 = Math.floor(inner * 0.42), w2 = Math.floor(inner * 0.3), w3 = inner - w1 - w2;
+  drawNoteFreq(6, 6, w1, GH - 12);
+  drawDeviation(12 + w1, w2);
+  drawWave(18 + w1 + w2, w3);
 }
 
 // ── Readout ───────────────────────────────────────────────────────────────────
@@ -662,6 +739,8 @@ function buildControls() {
     onChange(v) { P.octaves = v; kbBase = Math.min(kbBase, P.octaves - 1); releaseAll(); } }));
   secK.add(Lab.Toggle({ label: 'Nomi anglosassoni (C, D, E…)', value: P.english, onChange(v) { P.english = v; } }));
   secK.add(Lab.Toggle({ label: 'Mostra i tasti del computer', value: P.showKeys, onChange(v) { P.showKeys = v; } }));
+  freqLogToggle = Lab.Toggle({ label: 'Grafico note–frequenza in scala log', value: P.freqLog, onChange(v) { P.freqLog = v; } });
+  secK.add(freqLogToggle);
   const tip = document.createElement('div');
   tip.style.cssText = boxCss;
   tip.innerHTML = 'Suona con il mouse (trascina per un glissando) o con la tastiera del computer: A S D F G H J K per i tasti bianchi, W E T Y U O P per i neri. Z e X spostano i tasti del computer di un\'ottava.<br>Su ogni tasto: nome, frequenza in Hz, rapporto con la tonica (frazione esatta quando esiste) e scostamento in cent dal temperamento equabile. 100 cent = un semitono equabile.';
@@ -723,7 +802,7 @@ window.addEventListener('blur', () => { for (const m of [...held.keys()]) for (c
 document.getElementById('btnPlay').addEventListener('click', releaseAll);
 document.getElementById('btnReset').addEventListener('click', () => {
   releaseAll();
-  Object.assign(P, { temp: 'equal', tonic: 0, refA: 440, startOct: 3, octaves: 2, english: false, showKeys: true, timbre: 'piano', volume: 0.7, latch: false });
+  Object.assign(P, { temp: 'equal', tonic: 0, refA: 440, startOct: 3, octaves: 2, english: false, showKeys: true, timbre: 'piano', volume: 0.7, latch: false, freqLog: false });
   kbBase = 0; lastNote = 60;
   buildControls();
 });

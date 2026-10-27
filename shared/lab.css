@@ -737,3 +737,20 @@ body {
     border-top: 1px solid var(--border-idle);
   }
 }
+
+/* Riga di grafici affiancati (Lab.graphPanels) */
+.graph-area.g-row { display: flex; gap: 6px; padding: 6px; box-sizing: border-box; }
+.g-panel { flex: 1; min-width: 0; position: relative; background: var(--bg2); border: 1px solid var(--border-idle); border-radius: 8px; overflow: hidden; }
+.g-panel canvas { position: absolute; inset: 0; display: block; }
+
+/* Nota esplicativa nel pannello dei controlli */
+.lab-note { font-size: 11px; line-height: 1.5; color: var(--text-secondary); margin-top: 4px; }
+.lab-note b { color: var(--text-primary); font-weight: 600; }
+
+/* Lab.ItemList */
+.item-list { display: flex; flex-direction: column; gap: 6px; }
+.item-row { display: flex; align-items: center; gap: 8px; font: 11px 'Space Mono', monospace; }
+.item-label { flex: 1; }
+.item-add { display: grid; grid-template-columns: repeat(auto-fit, minmax(56px, 1fr)); gap: 5px; margin-top: 4px; }
+.item-add .ctrl-btn { text-align: center; padding: 6px 4px; }
+.ctrl-btn-row { display: flex; flex-direction: column; gap: 5px; }

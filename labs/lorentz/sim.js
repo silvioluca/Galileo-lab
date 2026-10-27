@@ -2,27 +2,39 @@
 
 /* ── Canvas ──────────────────────────────────────────────────────────────── */
 const sc   = document.getElementById('simCanvas');
-const gc   = document.getElementById('graphCanvas');
 const ctx  = sc.getContext('2d');
-const gctx = gc.getContext('2d');
-const DPR  = window.devicePixelRatio || 1;
-let SW = 0, SH = 0, GW = 0, GH = 0;
+let DPR  = window.devicePixelRatio || 1;
+let SW = 0, SH = 0;
+let gCanvas = [];
 
 Lab.initTheme('themeToggle');
 const dk = () => document.documentElement.dataset.theme !== 'light';
 
-/* ── Parameters ──────────────────────────────────────────────────────────── */
-// Physics in right-hand coords: x right, y up, z out of screen.
-// Bz > 0 → B along +z; v_⊥ creates circular orbit in XY; vz creates helix along z.
-const P = {
-  Bz:        1.5,
-  v0:        120,   // in-plane speed (starts along +x)
-  vz:        0,     // initial z velocity (along B field)
-  q:         1.0,
-  m:         1.0,
-  showTrail: true,
-  showForce: false,
+/* ── Parametri ────────────────────────────────────────────────────────────── */
+// Coordinate destrorse: x a destra, y in alto, z verso chi guarda. B = (0, 0, B), E = (0, E, 0).
+// Fisica in unità SI con particelle vere. Le scale di lunghezza e di tempo dipendono solo dal tipo
+// di particella (non da B o da v), così cambiando i parametri si vede davvero il raggio cambiare.
+const QE = 1.602e-19;
+const PT = {
+  e: { name: 'Elettrone',     m: 9.109e-31, q: -QE,   Bmax: 2e-3, Bdef: 1e-3, Bu: [1e-3, 'mT'], vmax: 5e6, vdef: 2e6, vu: [1e6, '10⁶ m/s'], Emax: 3000, Eu: [1, 'V/m'], L: [1e-3, 'mm'], ppu: 8, col: '#4d9fff' },
+  p: { name: 'Protone',       m: 1.673e-27, q: QE,    Bmax: 0.2,  Bdef: 0.1,  Bu: [1e-3, 'mT'], vmax: 3e5, vdef: 1e5, vu: [1e3, 'km/s'],    Emax: 2e4,  Eu: [1e3, 'kV/m'], L: [1e-2, 'cm'], ppu: 40, col: '#ff5757' },
+  a: { name: 'Particella α',  m: 6.645e-27, q: 2 * QE, Bmax: 0.2, Bdef: 0.1,  Bu: [1e-3, 'mT'], vmax: 3e5, vdef: 1e5, vu: [1e3, 'km/s'],    Emax: 2e4,  Eu: [1e3, 'kV/m'], L: [1e-2, 'cm'], ppu: 20, col: '#ffb400' },
 };
+const P = {
+  pt:        'p',
+  Bz:        0.1,     // T  (+ = uscente)
+  E:         0,       // V/m lungo +y
+  v0:        1e5,     // m/s nel piano (parte lungo +x)
+  vz:        0,       // m/s lungo B
+  showTrail: true,
+  showForce: true,
+  follow:    true,
+};
+const pt = () => PT[P.pt];
+const k = () => pt().ppu / pt().L[0];                       // pixel di scena per metro
+// tempo: un giro di ciclotrone con il campo predefinito dura ~3 s sullo schermo
+const timeScale = () => 2 * Math.PI * pt().m / (Math.abs(pt().q) * pt().Bdef) / 3;
+const omegaC = () => Math.abs(pt().q * P.Bz) / pt().m;
 
 /* ── Camera ──────────────────────────────────────────────────────────────── */
 let camTheta = 0.45;   // azimuth (rad)
@@ -36,72 +48,63 @@ let particle = null;
 let paused   = false;
 
 const TRAIL_LEN = 1500;
-const SUBSTEPS  = 4;
+const SUBSTEPS  = 8;
 const DT        = 1 / 60;
+let simT = 0;            // tempo vero (s)
+let hist = [];           // [t, |v|, v_∥, energia cinetica in eV]
+let follow = { x: 0, y: 0, z: 0 };   // centro della vista che insegue la particella (pixel di scena)
 
-const NBUF  = 500;
-const vpHist = new Float32Array(NBUF).fill(NaN); // v_perp history
-const rHist  = new Float32Array(NBUF).fill(NaN); // r_L history
-let histHead  = 0;
-let histCount = 0;
-
-/* ── Particle init ───────────────────────────────────────────────────────── */
+/* ── Particella ───────────────────────────────────────────────────────────── */
 function initParticle() {
-  vpHist.fill(NaN); rHist.fill(NaN);
-  histHead = 0; histCount = 0;
-  particle = {
-    x: 0, y: 0, z: 0,
-    vx: P.v0, vy: 0, vz: P.vz,
-    trail: [],
-    color: '#00d4ff',
-  };
+  hist = []; simT = 0; follow = { x: 0, y: 0, z: 0 };
+  particle = { X: 0, Y: 0, Z: 0, vx: P.v0, vy: 0, vz: P.vz, x: 0, y: 0, z: 0, trail: [], color: pt().col };
 }
 
-/* ── Physics: F = q(v×B) in right-hand coords ───────────────────────────── */
-// B = (0, 0, Bz); v×B = (vy·Bz, −vx·Bz, 0)
+/* ── Fisica: F = q(E + v×B) ──────────────────────────────────────────────── */
+// v×B con B = (0,0,B): (vy·B, −vx·B, 0)
 function accel(vx, vy, vz) {
-  const qm = P.q / P.m;
-  return [qm * vy * P.Bz, -qm * vx * P.Bz, 0];
+  const qm = pt().q / pt().m;
+  return [qm * vy * P.Bz, qm * (P.E - vx * P.Bz), 0];
 }
 
-/* ── RK4 step (6D state) ─────────────────────────────────────────────────── */
+/* ── Passo RK4 (stato a 6 componenti, SI) ─────────────────────────────────── */
 function rk4Step(p, dt) {
   const [c1,d1,e1] = accel(p.vx,           p.vy,           p.vz          );
   const [c2,d2,e2] = accel(p.vx+.5*dt*c1, p.vy+.5*dt*d1, p.vz+.5*dt*e1);
   const [c3,d3,e3] = accel(p.vx+.5*dt*c2, p.vy+.5*dt*d2, p.vz+.5*dt*e2);
   const [c4,d4,e4] = accel(p.vx+dt*c3,    p.vy+dt*d3,    p.vz+dt*e3   );
-
   const a1=p.vx, b1=p.vy, f1=p.vz;
   const a2=p.vx+.5*dt*c1, b2=p.vy+.5*dt*d1, f2=p.vz+.5*dt*e1;
   const a3=p.vx+.5*dt*c2, b3=p.vy+.5*dt*d2, f3=p.vz+.5*dt*e2;
   const a4=p.vx+dt*c3,    b4=p.vy+dt*d3,    f4=p.vz+dt*e3;
-
-  p.x  += dt*(a1+2*a2+2*a3+a4)/6;
-  p.y  += dt*(b1+2*b2+2*b3+b4)/6;
-  p.z  += dt*(f1+2*f2+2*f3+f4)/6;
+  p.X  += dt*(a1+2*a2+2*a3+a4)/6;
+  p.Y  += dt*(b1+2*b2+2*b3+b4)/6;
+  p.Z  += dt*(f1+2*f2+2*f3+f4)/6;
   p.vx += dt*(c1+2*c2+2*c3+c4)/6;
   p.vy += dt*(d1+2*d2+2*d3+d4)/6;
   p.vz += dt*(e1+2*e2+2*e3+e4)/6;
-
-  p.trail.push({ x: p.x, y: p.y, z: p.z });
-  if (p.trail.length > TRAIL_LEN) p.trail.shift();
 }
 
-/* ── Simulation step ─────────────────────────────────────────────────────── */
+/* ── Passo di simulazione ─────────────────────────────────────────────────── */
 function step() {
-  const dt = DT / SUBSTEPS;
+  const dt = DT * timeScale() / SUBSTEPS;
   for (let s = 0; s < SUBSTEPS; s++) rk4Step(particle, dt);
-
-  const vp = Math.hypot(particle.vx, particle.vy);
-  const wc = Math.abs(P.q * P.Bz / P.m);
-  vpHist[histHead]  = vp;
-  rHist[histHead]   = wc > 0.01 ? vp / wc : NaN;
-  histHead  = (histHead + 1) % NBUF;
-  histCount = Math.min(histCount + 1, NBUF);
+  simT += DT * timeScale();
+  const p = particle, K = k();
+  p.x = p.X * K; p.y = p.Y * K; p.z = p.Z * K;
+  p.trail.push({ x: p.x, y: p.y, z: p.z });
+  if (p.trail.length > TRAIL_LEN) p.trail.shift();
+  // la vista segue lentamente la particella (utile con la deriva E×B)
+  const a = P.follow ? 0.03 : 0;
+  follow.x += (p.x - follow.x) * a; follow.y += (p.y - follow.y) * a; follow.z += (p.z - follow.z) * a;
+  const v2 = p.vx * p.vx + p.vy * p.vy + p.vz * p.vz;
+  hist.push([simT, Math.sqrt(v2), p.vz, 0.5 * pt().m * v2 / QE]);
+  if (hist.length > 600) hist.shift();
 }
 
 /* ── 3D projection (orthographic orbit camera) ───────────────────────────── */
 function proj(wx, wy, wz) {
+  wx -= follow.x; wy -= follow.y; wz -= follow.z;
   // Rotate around Y (azimuth)
   const ct = Math.cos(camTheta), st = Math.sin(camTheta);
   const x1 = wx*ct - wz*st;
@@ -142,36 +145,55 @@ function drawSim() {
 }
 
 function drawBField(dark) {
-  if (Math.abs(P.Bz) < 0.01) return;
-  const a   = Math.min(0.28, Math.abs(P.Bz) / 3 * 0.28);
-  const col = dark ? `rgba(0,212,255,${a})` : `rgba(0,100,180,${a * 0.85})`;
-  const L   = 45;
-  const S   = 75;
-  const sgn = Math.sign(P.Bz);
-
+  const S = 75, L = 45;
+  const gx0 = Math.round(follow.x / S) * S, gy0 = Math.round(follow.y / S) * S;
   ctx.save();
-  ctx.strokeStyle = ctx.fillStyle = col;
-  ctx.lineWidth = 1;
-
-  for (let gx = -225; gx <= 225; gx += S) {
-    for (let gy = -225; gy <= 225; gy += S) {
-      const tail = proj(gx, gy, -sgn * L);
-      const head = proj(gx, gy,  sgn * L);
+  if (Math.abs(P.Bz) > 1e-9) {
+    const a = 0.08 + 0.2 * Math.min(1, Math.abs(P.Bz) / pt().Bmax);
+    const col = dark ? `rgba(0,212,255,${a})` : `rgba(0,100,180,${a * 0.85})`;
+    const sgn = Math.sign(P.Bz);
+    ctx.strokeStyle = ctx.fillStyle = col; ctx.lineWidth = 1;
+    for (let gx = gx0 - 225; gx <= gx0 + 225; gx += S) for (let gy = gy0 - 225; gy <= gy0 + 225; gy += S) {
+      const tail = proj(gx, gy, follow.z - sgn * L), head = proj(gx, gy, follow.z + sgn * L);
       const ang = Math.atan2(head.sy - tail.sy, head.sx - tail.sx);
       ctx.beginPath(); ctx.moveTo(tail.sx, tail.sy); ctx.lineTo(head.sx, head.sy); ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(head.sx, head.sy);
+      ctx.beginPath(); ctx.moveTo(head.sx, head.sy);
       ctx.lineTo(head.sx - 5*Math.cos(ang-0.5), head.sy - 5*Math.sin(ang-0.5));
       ctx.lineTo(head.sx - 5*Math.cos(ang+0.5), head.sy - 5*Math.sin(ang+0.5));
       ctx.closePath(); ctx.fill();
     }
   }
-
-  // B field label (top-right)
-  ctx.fillStyle = dark ? 'rgba(0,212,255,0.72)' : 'rgba(0,100,180,0.72)';
+  if (Math.abs(P.E) > 1e-9) {
+    // E lungo y: frecce ambra nel piano z = 0
+    const a = 0.12 + 0.3 * Math.min(1, Math.abs(P.E) / pt().Emax);
+    const col = dark ? `rgba(255,180,0,${a})` : `rgba(180,110,0,${a})`;
+    const sgn = Math.sign(P.E);
+    ctx.strokeStyle = ctx.fillStyle = col; ctx.lineWidth = 1.2;
+    for (let gx = gx0 - 225 + S / 2; gx <= gx0 + 225; gx += S) for (let gy = gy0 - 225 + S / 2; gy <= gy0 + 225; gy += S) {
+      const tail = proj(gx, gy - sgn * 22, follow.z), head = proj(gx, gy + sgn * 22, follow.z);
+      const ang = Math.atan2(head.sy - tail.sy, head.sx - tail.sx);
+      ctx.beginPath(); ctx.moveTo(tail.sx, tail.sy); ctx.lineTo(head.sx, head.sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(head.sx, head.sy);
+      ctx.lineTo(head.sx - 5*Math.cos(ang-0.5), head.sy - 5*Math.sin(ang-0.5));
+      ctx.lineTo(head.sx - 5*Math.cos(ang+0.5), head.sy - 5*Math.sin(ang+0.5));
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  // etichette dei campi (in alto a destra)
   ctx.font = 'bold 11px "Space Mono", monospace';
   ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-  ctx.fillText(`B = ${Math.abs(P.Bz).toFixed(2)} ${P.Bz >= 0 ? '⊙' : '⊗'} ẑ`, SW - 10, 10);
+  ctx.fillStyle = dark ? 'rgba(0,212,255,0.8)' : 'rgba(0,100,180,0.85)';
+  ctx.fillText(`B = ${Lab.fmt(Math.abs(P.Bz) / pt().Bu[0], 2)} ${pt().Bu[1]} ${P.Bz >= 0 ? '⊙ (+z)' : '⊗ (−z)'}`, SW - 10, 10);
+  ctx.fillStyle = dark ? 'rgba(255,180,0,0.85)' : 'rgba(170,100,0,0.9)';
+  ctx.fillText(`E = ${Lab.fmt(Math.abs(P.E) / pt().Eu[0], 2)} ${pt().Eu[1]} ${P.E >= 0 ? '↑ (+y)' : '↓ (−y)'}`, SW - 10, 26);
+  // scala delle lunghezze
+  const bar = 5 * pt().ppu * zoom;
+  ctx.strokeStyle = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(SW - 20 - bar, SH - 22); ctx.lineTo(SW - 20, SH - 22);
+  ctx.moveTo(SW - 20 - bar, SH - 26); ctx.lineTo(SW - 20 - bar, SH - 18); ctx.moveTo(SW - 20, SH - 26); ctx.lineTo(SW - 20, SH - 18); ctx.stroke();
+  ctx.fillStyle = dark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)';
+  ctx.font = '10px "Space Mono", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(`5 ${pt().L[1]}`, SW - 20 - bar / 2, SH - 28);
   ctx.restore();
 }
 
@@ -219,10 +241,10 @@ function drawAxesGizmo(dark) {
 }
 
 function drawForceVector(p, dark) {
-  const Fx = P.q * p.vy * P.Bz;
-  const Fy = -P.q * p.vx * P.Bz;
+  const [ax, ay] = accel(p.vx, p.vy, p.vz);
+  const Fx = ax, Fy = ay;
   const Fmag = Math.hypot(Fx, Fy);
-  if (Fmag < 0.5) return;
+  if (Fmag < 1e-12) return;
 
   // Fixed arrow length in world units (stays proportional to zoom)
   const ARROW = 55;
@@ -309,7 +331,7 @@ function drawParticle(p, dark) {
   ctx.fillStyle = '#000';
   ctx.font = 'bold 9px sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(P.q >= 0 ? '+' : '−', sx, sy + 0.5);
+  ctx.fillText(pt().q >= 0 ? '+' : '−', sx, sy + 0.5);
 
   // Shadow dot + dashed stem at z=0
   const { sx: shx, sy: shy } = proj(p.x, p.y, 0);
@@ -325,121 +347,49 @@ function drawParticle(p, dark) {
 }
 
 function drawHint(dark) {
-  ctx.fillStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)';
-  ctx.font = '8px "Space Mono", monospace';
+  ctx.fillStyle = dark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.45)';
   ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-  ctx.fillText('drag: ruota · scroll: zoom · ctrl+drag: pan · dbl: reset vista', 8, SH - 6);
+  ctx.font = '10px "DM Sans", sans-serif';
+  ctx.fillText('trascina: ruota · rotella: zoom · Ctrl+trascina: sposta · doppio clic: vista iniziale', 10, SH - 8);
 }
 
-/* ── Graphs ──────────────────────────────────────────────────────────────── */
+/* ── Grafici ─────────────────────────────────────────────────────────────── */
+// 1: modulo della velocità e componente lungo B; 2: energia cinetica. Il campo magnetico curva la
+// traiettoria ma non compie lavoro (|v| costante); il campo elettrico invece cambia l'energia.
 function drawGraphs() {
-  if (!GW || !GH) return;
-  const dark   = dk();
-  const amber  = dark ? '#ffb830' : '#c07000';
-  const axCol  = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)';
-  const lblCol = dark ? 'rgba(255,255,255,0.50)' : 'rgba(0,0,0,0.45)';
-
-  gctx.clearRect(0, 0, gc.width, gc.height);
-
-  const PAD  = { t: 22, b: 28, l: 44, r: 10 };
-  const panW = Math.floor(GW / 2);
-  const n    = histCount;
-  const start = (histHead - n + NBUF) % NBUF;
-  const vps = new Array(n), rs = new Array(n);
-  for (let i = 0; i < n; i++) {
-    vps[i] = vpHist[(start + i) % NBUF];
-    rs[i]  = rHist[(start + i)  % NBUF];
+  if (!hist.length) return;
+  const C = Lab.graphColors(), T = pt();
+  const tu = simT < 2e-6 ? [1e-9, 'ns'] : simT < 2e-3 ? [1e-6, 'µs'] : [1e-3, 'ms'];
+  const t1 = hist[hist.length - 1][0] / tu[0], t0 = hist[0][0] / tu[0];
+  const vM = Lab.niceMax(Math.max(T.vmax, ...hist.map(h => h[1])) / T.vu[0]);
+  let g = Lab.panel(gCanvas[0], { title: `Velocità (${T.vu[1]})`, xr: [t0, Math.max(t1, t0 + 1e-9)], yr: [-vM, vM], xLabel: `t (${tu[1]})` });
+  if (g) {
+    const [c, f] = g;
+    Lab.plotPts(c, f, hist.map(h => [h[0] / tu[0], h[1] / T.vu[0]]), C.accent, 2);
+    Lab.plotPts(c, f, hist.map(h => [h[0] / tu[0], h[2] / T.vu[0]]), C.violet, 1.6);
+    Lab.legend(c, f.L + 8, f.T + 8, [[C.accent, '|v|'], [C.violet, 'v_∥ (lungo B)']]);
   }
-
-  panelGraph(0,    panW, 'v_⊥  [px/s]', '#00d4ff', vps, PAD, axCol, lblCol);
-  panelGraph(panW, panW, 'r_L  [px]',   amber,     rs,  PAD, axCol, lblCol);
-}
-
-function panelGraph(ox, pw, ylabel, lineCol, data, PAD, axCol, lblCol) {
-  const iW   = pw  - PAD.l - PAD.r;
-  const iH   = GH  - PAD.t - PAD.b;
-  const dark = dk();
-
-  gctx.fillStyle = dark ? 'rgba(255,255,255,0.012)' : 'rgba(0,0,0,0.015)';
-  gctx.fillRect(ox * DPR, 0, pw * DPR, GH * DPR);
-
-  if (ox > 0) {
-    gctx.strokeStyle = axCol; gctx.lineWidth = DPR;
-    gctx.beginPath(); gctx.moveTo(ox*DPR, 0); gctx.lineTo(ox*DPR, GH*DPR); gctx.stroke();
-  }
-
-  const valid = data.filter(isFinite);
-  if (valid.length < 2) return;
-
-  const lo  = Math.min(...valid) * 0.85;
-  const hi  = Math.max(...valid) * 1.15;
-  const rng = hi - lo || 1;
-  const mY0 = (PAD.t + iH) * DPR;
-
-  const mX = i => (ox + PAD.l + (i / (data.length - 1)) * iW) * DPR;
-  const mY = v => (PAD.t + (1 - (v - lo) / rng) * iH) * DPR;
-
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)';
-  gctx.lineWidth = DPR;
-  for (let g = 0; g <= 4; g++) {
-    const y = (PAD.t + g*iH/4) * DPR;
-    gctx.beginPath(); gctx.moveTo((ox+PAD.l)*DPR, y); gctx.lineTo((ox+PAD.l+iW)*DPR, y); gctx.stroke();
-  }
-
-  gctx.strokeStyle = axCol; gctx.lineWidth = DPR;
-  gctx.beginPath();
-  gctx.moveTo((ox+PAD.l)*DPR, PAD.t*DPR); gctx.lineTo((ox+PAD.l)*DPR, mY0);
-  gctx.lineTo((ox+PAD.l+iW)*DPR, mY0); gctx.stroke();
-
-  gctx.fillStyle = lblCol;
-  gctx.font = `${9*DPR}px "Space Mono", monospace`;
-  gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-  for (let g = 0; g <= 4; g++) {
-    const v = hi - g*rng/4;
-    gctx.fillText(v < 10 ? v.toFixed(1) : v.toFixed(0), (ox+PAD.l-3)*DPR, (PAD.t+g*iH/4)*DPR);
-  }
-
-  gctx.font = `${8*DPR}px "Space Mono", monospace`;
-  gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-  gctx.fillText('t →', (ox+PAD.l+iW/2)*DPR, (PAD.t+iH+3)*DPR);
-
-  gctx.save();
-  gctx.translate((ox+10)*DPR, (PAD.t+iH/2)*DPR);
-  gctx.rotate(-Math.PI/2);
-  gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-  gctx.fillText(ylabel, 0, 0);
-  gctx.restore();
-
-  gctx.strokeStyle = lineCol; gctx.lineWidth = 1.5*DPR;
-  gctx.beginPath();
-  let first = true;
-  for (let i = 0; i < data.length; i++) {
-    if (!isFinite(data[i])) { first = true; continue; }
-    first ? gctx.moveTo(mX(i), mY(data[i])) : gctx.lineTo(mX(i), mY(data[i]));
-    first = false;
-  }
-  gctx.stroke();
+  const eM = Lab.niceMax(Math.max(0.5 * T.m * T.vmax * T.vmax / QE, ...hist.map(h => h[3])));
+  const eu = eM >= 2000 ? [1e3, 'keV'] : [1, 'eV'];
+  g = Lab.panel(gCanvas[1], { title: `Energia cinetica (${eu[1]})`, xr: [t0, Math.max(t1, t0 + 1e-9)], yr: [0, eM / eu[0]], xLabel: `t (${tu[1]})` });
+  if (g) { const [c, f] = g; Lab.plotPts(c, f, hist.map(h => [h[0] / tu[0], h[3] / eu[0]]), C.amber, 2); }
 }
 
 /* ── Readout ─────────────────────────────────────────────────────────────── */
 function updateReadout() {
   if (!particle) return;
-  const vp  = Math.hypot(particle.vx, particle.vy);
-  const vpa = Math.abs(particle.vz);
-  const wc  = Math.abs(P.q * P.Bz / P.m);
-  const rL  = wc > 0.01 ? (vp / wc).toFixed(1) : '∞';
-  const Tc  = wc > 0.01 ? (2 * Math.PI / wc).toFixed(3) : '∞';
-  const pitch = (wc > 0.01 && vp > 0.1)
-    ? ((2 * Math.PI * vp / wc) * (vpa / vp)).toFixed(1) + ' px'
-    : '—';
-
+  const T = pt(), p = particle;
+  const vp = Math.hypot(p.vx, p.vy), wc = omegaC();
+  const L = T.L;
+  const rL = wc > 0 ? Lab.fmt(T.m * vp / (Math.abs(T.q) * Math.abs(P.Bz)) / L[0], 2) + ' ' + L[1] : '∞';
+  const Tc = wc > 0 ? Lab.sci(2 * Math.PI / wc, 3) + ' s' : '∞';
+  const vd = Math.abs(P.Bz) > 0 ? Lab.sci(Math.abs(P.E / P.Bz), 3) + ' m/s' : '—';
   document.getElementById('readout').innerHTML = [
-    { label: 'v_⊥',   value: vp.toFixed(1) + ' px/s' },
-    { label: 'v_∥',   value: particle.vz.toFixed(1) + ' px/s' },
-    { label: 'ω_c',   value: wc.toFixed(3) + ' rad/s' },
-    { label: 'r_L',   value: rL + ' px' },
-    { label: 'T_c',   value: Tc + ' s' },
-    { label: 'passo', value: pitch },
+    { label: 'v_⊥',             value: Lab.sci(vp, 3) + ' m/s' },
+    { label: 'raggio r = mv/qB', value: rL },
+    { label: 'periodo T = 2πm/qB', value: Tc },
+    { label: 'deriva E/B',      value: vd },
+    { label: 'energia',         value: Lab.sci(0.5 * T.m * (p.vx * p.vx + p.vy * p.vy + p.vz * p.vz) / QE, 3) + ' eV' },
   ].map(it =>
     `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
@@ -501,84 +451,67 @@ sc.addEventListener('touchmove', e => {
 }, { passive: false });
 sc.addEventListener('touchend', () => { touch0 = null; pinch0 = null; });
 
-/* ── Controls ────────────────────────────────────────────────────────────── */
-let pauseBtn;
-
+/* ── Controlli ────────────────────────────────────────────────────────────── */
 function buildControls() {
   const ctrl = document.getElementById('controls');
   ctrl.innerHTML = '';
-
-  const magSec = Lab.Section('Campo Magnetico B');
-  magSec.add(Lab.Slider({ label: 'B_z  (+ = uscente)', min: -3, max: 3, step: 0.05, value: P.Bz,
-    onChange: v => { P.Bz = v; } }));
-  ctrl.appendChild(magSec.el);
+  const T = pt();
 
   const pSec = Lab.Section('Particella');
-  pSec.add(Lab.Slider({ label: 'Carica q', min: -2, max: 2, step: 0.1, value: P.q,
-    onChange: v => { P.q = v; } }));
-  pSec.add(Lab.Slider({ label: 'Massa m', min: 0.5, max: 5, step: 0.1, value: P.m,
-    onChange: v => { P.m = v; } }));
-  pSec.add(Lab.Slider({ label: 'v_⊥  (piano XY)  [px/s]', min: 0, max: 300, step: 5, value: P.v0,
-    onChange: v => { P.v0 = v; initParticle(); } }));
-  pSec.add(Lab.Slider({ label: 'v_∥  (lungo B)  [px/s]', min: -200, max: 200, step: 5, value: P.vz,
-    onChange: v => { P.vz = v; initParticle(); } }));
+  pSec.add(Lab.RadioGroup({
+    label: 'Tipo',
+    options: Object.entries(PT).map(([value, o]) => ({ value, label: o.name, hint: (o.q > 0 ? '+' : '−') + (Math.abs(o.q) > QE * 1.5 ? '2e' : 'e') })),
+    value: P.pt,
+    onChange: v => { P.pt = v; const o = PT[v]; P.Bz = o.Bdef; P.v0 = o.vdef; P.vz = 0; P.E = 0; initParticle(); buildControls(); },
+  }));
+  pSec.add(Lab.Slider({ label: 'Velocità nel piano v_⊥', min: 0, max: T.vmax / T.vu[0], step: T.vmax / T.vu[0] / 60, value: P.v0 / T.vu[0],
+    format: v => Lab.fmt(v, 2) + ' ' + T.vu[1], onChange: v => { P.v0 = v * T.vu[0]; initParticle(); } }));
+  pSec.add(Lab.Slider({ label: 'Velocità lungo B v_∥', min: -T.vmax / T.vu[0], max: T.vmax / T.vu[0], step: T.vmax / T.vu[0] / 60, value: P.vz / T.vu[0],
+    format: v => Lab.fmt(v, 2) + ' ' + T.vu[1], onChange: v => { P.vz = v * T.vu[0]; initParticle(); } }));
   ctrl.appendChild(pSec.el);
 
+  const fSec = Lab.Section('Campi');
+  fSec.add(Lab.Slider({ label: 'B_z (+ uscente)', min: -T.Bmax / T.Bu[0], max: T.Bmax / T.Bu[0], step: T.Bmax / T.Bu[0] / 80, value: P.Bz / T.Bu[0],
+    format: v => Lab.fmt(v, 2) + ' ' + T.Bu[1], onChange: v => { P.Bz = v * T.Bu[0]; } }));
+  fSec.add(Lab.Slider({ label: 'E_y (+ verso l’alto)', min: -T.Emax / T.Eu[0], max: T.Emax / T.Eu[0], step: T.Emax / T.Eu[0] / 40, value: P.E / T.Eu[0],
+    format: v => Lab.fmt(v, 2) + ' ' + T.Eu[1], onChange: v => { P.E = v * T.Eu[0]; } }));
+  const note = document.createElement('div');
+  note.className = 'lab-note';
+  note.innerHTML = 'Con solo B la particella gira con <b>r = mv/qB</b> e la velocità non cambia. Aggiungendo E perpendicolare a B il centro dell\'orbita <b>deriva</b> con velocità E/B, uguale per tutte le cariche.';
+  fSec.add(note);
+  ctrl.appendChild(fSec.el);
+
   const visSec = Lab.Section('Visualizzazione');
-  visSec.add(Lab.Toggle({ label: 'Traiettoria', value: P.showTrail,
-    onChange: v => { P.showTrail = v; } }));
-  visSec.add(Lab.Toggle({ label: 'Vettore forza F', value: P.showForce,
-    onChange: v => { P.showForce = v; } }));
+  visSec.add(Lab.Toggle({ label: 'Traiettoria', value: P.showTrail, onChange: v => { P.showTrail = v; } }));
+  visSec.add(Lab.Toggle({ label: 'Vettore forza F', value: P.showForce, onChange: v => { P.showForce = v; } }));
+  visSec.add(Lab.Toggle({ label: 'La vista segue la particella', value: P.follow, onChange: v => { P.follow = v; } }));
   ctrl.appendChild(visSec.el);
-
-  const cmdSec = Lab.Section('Comandi');
-  const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:8px;margin-top:4px;';
-
-  pauseBtn = document.createElement('button');
-  pauseBtn.className = 'btn-primary'; pauseBtn.style.flex = '1';
-  pauseBtn.textContent = '⏸  PAUSA';
-  pauseBtn.addEventListener('click', () => {
-    paused = !paused;
-    pauseBtn.textContent = paused ? '▶  RIPRENDI' : '⏸  PAUSA';
-  });
-
-  const resetBtn = document.createElement('button');
-  resetBtn.className = 'btn-secondary'; resetBtn.style.flex = '1';
-  resetBtn.textContent = '↺  RESET';
-  resetBtn.addEventListener('click', initParticle);
-
-  const camBtn = document.createElement('button');
-  camBtn.className = 'btn-secondary'; camBtn.style.cssText = 'flex:1;margin-top:6px;';
-  camBtn.textContent = '⊙  VISTA';
-  camBtn.addEventListener('click', () => {
-    camTheta = 0.45; camPhi = 0.35; zoom = 1.0; panX = 0; panY = 0;
-  });
-
-  row.append(pauseBtn, resetBtn);
-  cmdSec.el.appendChild(row);
-  cmdSec.el.appendChild(camBtn);
-  ctrl.appendChild(cmdSec.el);
 }
 
 /* ── Resize ──────────────────────────────────────────────────────────────── */
 function resizeCanvases() {
   const area = sc.parentElement;
   const ga   = document.getElementById('graphArea');
+  if (!gCanvas.length) gCanvas = Lab.graphPanels(ga, 2, 180);
   const rd   = area.querySelector('.readout-bar');
-  const rdH  = rd ? rd.clientHeight || 48 : 48;
-  const gaH  = ga.clientHeight || 200;
-
+  const rdH  = rd ? rd.offsetHeight || 48 : 48;
+  const gaH  = ga.offsetHeight || 180;
+  DPR = window.devicePixelRatio || 1;
   SW = area.clientWidth;
   SH = Math.max(80, area.clientHeight - gaH - rdH);
-
-  sc.width  = Math.round(SW * DPR); sc.height = Math.round(SH * DPR);
-  sc.style.width  = SW + 'px';      sc.style.height = SH + 'px';
-
-  GW = area.clientWidth; GH = gaH;
-  gc.width  = Math.round(GW * DPR); gc.height = Math.round(GH * DPR);
-  gc.style.width  = GW + 'px';      gc.style.height = GH + 'px';
+  Lab.hidpi(sc, SW, SH);
+  Lab.fitPanels(gCanvas);
 }
+new ResizeObserver(resizeCanvases).observe(sc.parentElement);
+
+// pausa, azzeramento e vista con i pulsanti in fondo al pannello
+document.getElementById('btnPlay').addEventListener('click', e => {
+  paused = !paused;
+  e.currentTarget.textContent = paused ? '▶  AVVIA' : '⏸  PAUSA';
+});
+document.getElementById('btnReset').addEventListener('click', () => {
+  initParticle(); camTheta = 0.45; camPhi = 0.35; zoom = 1.0; panX = 0; panY = 0;
+});
 
 /* ── Animation loop ──────────────────────────────────────────────────────── */
 function loop() {
@@ -599,5 +532,4 @@ function init() {
   requestAnimationFrame(loop);
 }
 
-window.addEventListener('resize', () => { resizeCanvases(); initParticle(); });
 init();

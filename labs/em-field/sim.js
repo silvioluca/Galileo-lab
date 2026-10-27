@@ -2,11 +2,9 @@
 
 /* ── Canvas refs ─────────────────────────────────────────────────────────── */
 const sc   = document.getElementById('simCanvas');
-const gc   = document.getElementById('graphCanvas');
 const ctx  = sc.getContext('2d');
-const gctx = gc.getContext('2d');
-const DPR  = window.devicePixelRatio || 1;
-let SW = 0, SH = 0, GW = 0, GH = 0;
+let DPR  = window.devicePixelRatio || 1;
+let SW = 0, SH = 0;
 
 /* ── Theme ───────────────────────────────────────────────────────────────── */
 Lab.initTheme('themeToggle');
@@ -335,235 +333,94 @@ function drawScene() {
 
   /* ── readout ── */
   document.getElementById('readout').innerHTML =
-    `<span class="readout-cell"><span class="readout-label">V</span><span class="readout-value">${Math.abs(tV) < 1e4 ? tV.toFixed(3) : '—'}</span></span>` +
-    `<span class="readout-cell"><span class="readout-label">|E|</span><span class="readout-value">${tEm.toFixed(3)}</span></span>` +
-    `<span class="readout-cell"><span class="readout-label">Ex</span><span class="readout-value">${tEx.toFixed(3)}</span></span>` +
-    `<span class="readout-cell"><span class="readout-label">Ey</span><span class="readout-value">${tEy.toFixed(3)}</span></span>`;
+    `<span class="readout-cell"><span class="readout-label">sonda in</span><span class="readout-value">(${Lab.fmt(testPt.x, 1)}; ${Lab.fmt(testPt.y, 1)}) cm</span></span>` +
+    `<span class="readout-cell"><span class="readout-label">potenziale V</span><span class="readout-value">${Math.abs(tV) < 1e4 ? Lab.sci(tV * V_UNIT, 3) + ' V' : '—'}</span></span>` +
+    `<span class="readout-cell"><span class="readout-label">|E|</span><span class="readout-value">${Lab.sci(tEm * E_UNIT, 3)} kV/m</span></span>` +
+    `<span class="readout-cell"><span class="readout-label">E_x</span><span class="readout-value">${Lab.sci(tEx * E_UNIT, 3)} kV/m</span></span>` +
+    `<span class="readout-cell"><span class="readout-label">E_y</span><span class="readout-value">${Lab.sci(tEy * E_UNIT, 3)} kV/m</span></span>`;
 }
 
-/* ── Graph panel ─────────────────────────────────────────────────────────── */
-function drawGraph(x0, panelW, mode) {
-  const dark = dk();
-  gctx.save(); gctx.scale(DPR, DPR);
-  gctx.fillStyle = dark ? '#040810' : '#f0f4f8';
-  gctx.fillRect(x0, 0, panelW, GH);
-
-  const pad = { l: 42, r: 10, t: 14, b: 26 };
-  const W = panelW - pad.l - pad.r, H = GH - pad.t - pad.b;
-
+/* ── Grafici ─────────────────────────────────────────────────────────────── */
+// Unità reali: le cariche valgono q nC e le coordinate sono in cm. Con k = 8,99·10⁹ N·m²/C²
+// il potenziale di 1 nC a 1 cm vale 899 V e il campo 89,9 kV/m: basta moltiplicare i valori
+// normalizzati per queste costanti.
+const V_UNIT = 899, E_UNIT = 89.9;     // V e kV/m
+// 1-2: profili lungo la retta orizzontale che passa per la sonda; 3: |E| lungo il raggio
+// dall'origine verso la sonda. Le linee tratteggiate segnano dove si trovano le cariche.
+function drawGraph(cv, mode) {
+  const C = Lab.graphColors();
+  const markers = (c, f, xs) => {
+    c.save(); c.setLineDash([3, 4]); c.lineWidth = 1;
+    for (const [x, q] of xs) {
+      if (x < f.X.inv0 || x > f.X.inv1) continue;
+      c.strokeStyle = q > 0 ? 'rgba(255,90,60,0.55)' : 'rgba(60,150,255,0.55)';
+      c.beginPath(); c.moveTo(f.X(x), f.T); c.lineTo(f.X(x), f.B); c.stroke();
+    }
+    c.restore();
+  };
+  const probe = (c, f, x, y) => {
+    c.save(); c.setLineDash([4, 3]); c.strokeStyle = 'rgba(0,220,170,0.75)';
+    c.beginPath(); c.moveTo(f.X(x), f.T); c.lineTo(f.X(x), f.B); c.stroke(); c.restore();
+    if (Number.isFinite(y)) Lab.dot(c, f, x, y, '#00d8a8', 4);
+  };
   if (mode === 'Er') {
     const rMax = VIEW * Math.SQRT2;
-    const angle = (testPt.x === 0 && testPt.y === 0) ? 0 : Math.atan2(testPt.y, testPt.x);
-    const cosA = Math.cos(angle), sinA = Math.sin(angle);
-    const N = 320;
-    const pts = Array.from({ length: N }, (_, i) => {
-      const r = rMax * (i + 0.5) / N;
-      const [ex, ey] = eField(r * cosA, r * sinA);
-      const em = Math.hypot(ex, ey);
-      return { r, val: em < 300 ? em : null };
-    });
-    const vals = pts.filter(p => p.val !== null).map(p => p.val);
-    const vMax = vals.length ? Math.max(...vals) : 1;
-    const xS = r => x0 + pad.l + (r / rMax) * W;
-    const yS = v => pad.t + H * (1 - Math.min(v, vMax) / vMax);
-
-    /* grid */
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'; gctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) {
-      const y = pad.t + H * i / 4;
-      gctx.beginPath(); gctx.moveTo(x0 + pad.l, y); gctx.lineTo(x0 + pad.l + W, y); gctx.stroke();
-    }
-
-    /* charge projections along the ray */
-    for (const c of charges) {
-      if (c.q === 0) continue;
-      const rDot = c.x * cosA + c.y * sinA;
-      if (rDot <= 0 || rDot >= rMax) continue;
-      const cs = xS(rDot);
-      const col = c.q > 0
-        ? (dark ? 'rgba(255,80,40,0.45)'  : 'rgba(200,60,0,0.45)')
-        : (dark ? 'rgba(40,150,255,0.45)' : 'rgba(0,90,200,0.45)');
-      gctx.strokeStyle = col; gctx.lineWidth = 1; gctx.setLineDash([3, 4]);
-      gctx.beginPath(); gctx.moveTo(cs, pad.t); gctx.lineTo(cs, pad.t + H); gctx.stroke();
-      gctx.setLineDash([]);
-    }
-
-    /* curve */
-    gctx.beginPath(); gctx.strokeStyle = dark ? '#00d4ff' : '#0060c0'; gctx.lineWidth = 2;
-    let on = false;
-    for (const p of pts) {
-      if (p.val === null) { if (on) { gctx.stroke(); gctx.beginPath(); on = false; } continue; }
-      const sx = xS(p.r), sy = yS(p.val);
-      on ? gctx.lineTo(sx, sy) : (gctx.moveTo(sx, sy), on = true);
-    }
-    if (on) gctx.stroke();
-
-    /* test particle marker at r = |testPt| */
-    const rTest = Math.hypot(testPt.x, testPt.y);
-    const txS = xS(rTest);
-    if (rTest <= rMax && txS >= x0 + pad.l && txS <= x0 + pad.l + W) {
-      gctx.strokeStyle = dark ? 'rgba(0,255,185,0.75)' : 'rgba(0,140,100,0.75)';
-      gctx.lineWidth = 1.2; gctx.setLineDash([4, 3]);
-      gctx.beginPath(); gctx.moveTo(txS, pad.t); gctx.lineTo(txS, pad.t + H); gctx.stroke();
-      gctx.setLineDash([]);
-      const emT = Math.hypot(...eField(testPt.x, testPt.y));
-      if (emT < 300) {
-        gctx.beginPath(); gctx.arc(txS, yS(emT), 4, 0, Math.PI * 2);
-        gctx.fillStyle = dark ? '#00ffb8' : '#00a080'; gctx.fill();
-      }
-    }
-
-    /* axes */
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)';
-    gctx.lineWidth = 1; gctx.setLineDash([]);
-    gctx.beginPath();
-    gctx.moveTo(x0 + pad.l, pad.t); gctx.lineTo(x0 + pad.l, pad.t + H);
-    gctx.lineTo(x0 + pad.l + W, pad.t + H); gctx.stroke();
-
-    gctx.font = '8px Space Mono'; gctx.fillStyle = dark ? '#80a0c0' : '#506080';
-    gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-    [0, 0.5, 1].forEach(t => gctx.fillText((vMax * (1 - t)).toFixed(1), x0 + pad.l - 3, pad.t + H * t));
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    [0, 2, 4].forEach(r => {
-      if (r <= rMax) gctx.fillText(r, xS(r), pad.t + H + 3);
-    });
-
-    const deg = Math.round(angle * 180 / Math.PI);
-    gctx.fillStyle = dark ? '#608090' : '#405060';
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    gctx.fillText(`|E|(r, ${deg}°)`, x0 + pad.l + W / 2, pad.t - 6);
-
-    gctx.restore();
+    const ang = (testPt.x === 0 && testPt.y === 0) ? 0 : Math.atan2(testPt.y, testPt.x);
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const Em = r => { const v = Math.hypot(...eField(r * ca, r * sa)) * E_UNIT; return v < 300 * E_UNIT ? v : NaN; };
+    let top = 0; for (let i = 1; i <= 200; i++) { const v = Em(rMax * i / 200); if (v < 40 * E_UNIT) top = Math.max(top, v); }
+    const yM = Lab.niceMax(top || 1);
+    const g = Lab.panel(cv, { title: `|E| lungo il raggio a ${Math.round(ang * 180 / Math.PI)}° (kV/m)`, xr: [0, rMax], yr: [0, yM], xLabel: 'r (cm)' });
+    if (!g) return; const [c, f] = g;
+    f.X.inv0 = 0; f.X.inv1 = rMax;
+    markers(c, f, charges.filter(q => q.q).map(q => [q.x * ca + q.y * sa, q.q]).filter(([r]) => r > 0));
+    Lab.plot(c, f, Em, [rMax / 400, rMax], C.accent, 2, [], 400);
+    const rT = Math.hypot(testPt.x, testPt.y);
+    probe(c, f, rT, Em(rT));
     return;
   }
-
-  const N = 300, xMin = -VIEW, xMax = VIEW, ySlice = testPt.y;
-
-  const pts = Array.from({ length: N }, (_, i) => {
-    const xp = xMin + (xMax - xMin) * i / (N - 1);
-    if (mode === 'V') {
-      const v = potential(xp, ySlice);
-      return { xp, val: Math.abs(v) < 20 ? v : null };
-    }
-    const [ex, ey] = eField(xp, ySlice);
-    const em = Math.hypot(ex, ey);
-    return { xp, val: em < 200 ? em : null };
+  const yS = testPt.y;
+  const fn = mode === 'V'
+    ? x => { const v = potential(x, yS); return Math.abs(v) < 20 ? v * V_UNIT : NaN; }
+    : x => { const e = Math.hypot(...eField(x, yS)); return e < 200 ? e * E_UNIT : NaN; };
+  let top = 0; for (let i = 0; i <= 300; i++) { const v = Math.abs(fn(-VIEW + 2 * VIEW * i / 300)); if (Number.isFinite(v) && v < (mode === 'V' ? 8 * V_UNIT : 40 * E_UNIT)) top = Math.max(top, v); }
+  const yM = Lab.niceMax(top || 1);
+  const g = Lab.panel(cv, {
+    title: mode === 'V' ? `Potenziale V lungo y = ${Lab.fmt(yS, 1)} cm (V)` : `|E| lungo y = ${Lab.fmt(yS, 1)} cm (kV/m)`,
+    xr: [-VIEW, VIEW], yr: mode === 'V' ? [-yM, yM] : [0, yM], xLabel: 'x (cm)', yFmt: v => Lab.sci(v, 2),
   });
-
-  const vals = pts.filter(p => p.val !== null).map(p => p.val);
-  if (vals.length < 2) { gctx.restore(); return; }
-
-  let vMin = Math.min(...vals), vMax = Math.max(...vals);
-  if (mode === 'V') { const va = Math.max(Math.abs(vMin), Math.abs(vMax)); vMin = -va; vMax = va; }
-  else vMin = 0;
-  const vRange = (vMax - vMin) || 1;
-  const xS = xp => x0 + pad.l + (xp - xMin) / (xMax - xMin) * W;
-  const yS = v  => pad.t + H * (1 - (Math.max(vMin, Math.min(vMax, v)) - vMin) / vRange);
-
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'; gctx.lineWidth = 1;
-  for (let i = 1; i < 4; i++) {
-    const y = pad.t + H * i / 4;
-    gctx.beginPath(); gctx.moveTo(x0 + pad.l, y); gctx.lineTo(x0 + pad.l + W, y); gctx.stroke();
-  }
-
-  if (mode === 'V') {
-    const y0l = yS(0);
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.16)';
-    gctx.lineWidth = 1; gctx.setLineDash([4, 4]);
-    gctx.beginPath(); gctx.moveTo(x0 + pad.l, y0l); gctx.lineTo(x0 + pad.l + W, y0l); gctx.stroke();
-    gctx.setLineDash([]);
-  }
-
-  for (const c of charges) {
-    const cs = xS(c.x);
-    if (cs < x0 + pad.l || cs > x0 + pad.l + W) continue;
-    const col = c.q > 0
-      ? (dark ? 'rgba(255,80,40,0.40)'  : 'rgba(200,60,0,0.40)')
-      : (dark ? 'rgba(40,150,255,0.40)' : 'rgba(0,90,200,0.40)');
-    gctx.strokeStyle = col; gctx.lineWidth = 1; gctx.setLineDash([3, 4]);
-    gctx.beginPath(); gctx.moveTo(cs, pad.t); gctx.lineTo(cs, pad.t + H); gctx.stroke();
-    gctx.setLineDash([]);
-  }
-
-  gctx.beginPath(); gctx.strokeStyle = dark ? '#00d4ff' : '#0060c0'; gctx.lineWidth = 2;
-  let on = false;
-  for (const p of pts) {
-    if (p.val === null) { if (on) { gctx.stroke(); gctx.beginPath(); on = false; } continue; }
-    const sx = xS(p.xp), sy = yS(p.val);
-    on ? gctx.lineTo(sx, sy) : (gctx.moveTo(sx, sy), on = true);
-  }
-  if (on) gctx.stroke();
-
-  const txS = xS(testPt.x);
-  if (txS >= x0 + pad.l && txS <= x0 + pad.l + W) {
-    gctx.strokeStyle = dark ? 'rgba(0,255,185,0.75)' : 'rgba(0,140,100,0.75)';
-    gctx.lineWidth = 1.2; gctx.setLineDash([4, 3]);
-    gctx.beginPath(); gctx.moveTo(txS, pad.t); gctx.lineTo(txS, pad.t + H); gctx.stroke();
-    gctx.setLineDash([]);
-    const tv = mode === 'V' ? potential(testPt.x, testPt.y) : Math.hypot(...eField(testPt.x, testPt.y));
-    if (Math.abs(tv) < (mode === 'V' ? 20 : 200)) {
-      gctx.beginPath(); gctx.arc(txS, yS(tv), 4, 0, Math.PI * 2);
-      gctx.fillStyle = dark ? '#00ffb8' : '#00a080'; gctx.fill();
-    }
-  }
-
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)';
-  gctx.lineWidth = 1; gctx.setLineDash([]);
-  gctx.beginPath();
-  gctx.moveTo(x0 + pad.l, pad.t); gctx.lineTo(x0 + pad.l, pad.t + H);
-  gctx.lineTo(x0 + pad.l + W, pad.t + H); gctx.stroke();
-
-  gctx.font = '8px Space Mono'; gctx.fillStyle = dark ? '#80a0c0' : '#506080';
-  gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-  [0, 0.5, 1].forEach(t => {
-    const v = vMin + vRange * (1 - t);
-    gctx.fillText(v.toFixed(1), x0 + pad.l - 3, pad.t + H * t);
-  });
-  gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-  [-3, 0, 3].forEach(xp => {
-    if (xp >= xMin && xp <= xMax) gctx.fillText(xp, xS(xp), pad.t + H + 3);
-  });
-
-  gctx.fillStyle = dark ? '#608090' : '#405060';
-  gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-  gctx.fillText(mode === 'V' ? 'V(x)  [u.a.]' : '|E|(x)  [u.a.]', x0 + pad.l + W / 2, pad.t - 6);
-
-  if (mode === 'V' || mode === 'E') {
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.09)'; gctx.lineWidth = 1;
-    gctx.beginPath(); gctx.moveTo(x0 + panelW - 0.5, 4); gctx.lineTo(x0 + panelW - 0.5, GH - 4); gctx.stroke();
-  }
-
-  gctx.restore();
+  if (!g) return; const [c, f] = g;
+  f.X.inv0 = -VIEW; f.X.inv1 = VIEW;
+  markers(c, f, charges.filter(q => q.q).map(q => [q.x, q.q]));
+  Lab.plot(c, f, fn, [-VIEW, VIEW], mode === 'V' ? C.amber : C.accent, 2, [], 500);
+  probe(c, f, testPt.x, fn(testPt.x));
 }
 
 /* ── Master draw ─────────────────────────────────────────────────────────── */
+let gCanvas = [];
 function draw() {
   drawScene();
-  const third = Math.floor(GW / 3);
-  drawGraph(0, third, 'V');
-  drawGraph(third, third, 'E');
-  drawGraph(2 * third, GW - 2 * third, 'Er');
+  drawGraph(gCanvas[0], 'V');
+  drawGraph(gCanvas[1], 'E');
+  drawGraph(gCanvas[2], 'Er');
 }
 
 /* ── Resize ──────────────────────────────────────────────────────────────── */
 function resizeCanvases() {
   const area = sc.parentElement;
+  const ga = document.getElementById('graphArea');
+  if (!gCanvas.length) gCanvas = Lab.graphPanels(ga, 3, 180);
   SW = area.clientWidth;
-  SH = sc.clientHeight || area.clientHeight * 0.60;
-  sc.width = SW * DPR; sc.height = SH * DPR;
-  sc.style.width = SW + 'px'; sc.style.height = SH + 'px';
+  SH = Math.max(80, area.clientHeight - ga.offsetHeight - (document.getElementById('readout').offsetHeight || 56));
+  Lab.hidpi(sc, SW, SH);
   /* keep the physics center invariant across resize */
   const cx = -panX / (baseScale || 1), cy = panY / (baseScale || 1);
   baseScale = Math.min(SW, SH) / (2 * VIEW);
   scale = baseScale * zoom;
   panX = -cx * baseScale; panY = cy * baseScale;
-
-  const ga = document.getElementById('graphArea');
-  GW = ga.clientWidth; GH = ga.clientHeight;
-  gc.width = GW * DPR; gc.height = GH * DPR;
-  gc.style.width = GW + 'px'; gc.style.height = GH + 'px';
+  Lab.fitPanels(gCanvas);
   invalidateMap();
-  if (SW > 0 && GW > 0) draw();
+  if (SW > 0) draw();
 }
 new ResizeObserver(resizeCanvases).observe(sc.parentElement);
 
@@ -623,7 +480,7 @@ function buildControls() {
   const secQ = Lab.Section('Cariche');
   charges.forEach((c, i) => {
     secQ.add(Lab.Slider({
-      label: `q${SUBS[i] || i + 1}`, min: -3, max: 3, step: 1, value: c.q, unit: '',
+      label: `q${SUBS[i] || i + 1}`, min: -3, max: 3, step: 1, value: c.q, unit: ' nC',
       onChange: v => {
         charges[i].q = v;
         invalidateAll();
@@ -742,3 +599,6 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 
 buildControls();
 resizeCanvases();
+
+// i caratteri web arrivano dopo il primo disegno: senza ridisegnare, i grafici restano con il font di ripiego
+if (document.fonts) document.fonts.ready.then(() => draw());

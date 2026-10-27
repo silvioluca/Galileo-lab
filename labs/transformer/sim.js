@@ -2,11 +2,10 @@
 
 /* ── Canvas ──────────────────────────────────────────────────────────────── */
 const sc   = document.getElementById('simCanvas');
-const gc   = document.getElementById('graphCanvas');
 const ctx  = sc.getContext('2d');
-const gctx = gc.getContext('2d');
-const DPR  = window.devicePixelRatio || 1;
-let SW = 0, SH = 0, GW = 0, GH = 0;
+let DPR  = window.devicePixelRatio || 1;
+let SW = 0, SH = 0;
+let gCanvas = [];
 
 Lab.initTheme('themeToggle');
 const dk = () => document.documentElement.dataset.theme !== 'light';
@@ -26,7 +25,8 @@ const P = {
   f:     50,
   core:  1,
   ac:    true,
-  speed: 0.10,   // time scale (0.1 = 10× slower than real time)
+  speed: 0.10,   // rallentatore (0,1 = dieci volte più lento del vero)
+  RL:    100,    // resistenza di carico sul secondario (Ω)
 };
 
 const ratio   = () => P.N2 / P.N1;
@@ -39,6 +39,12 @@ const v2at    = t  => P.ac ? V2peak() * Math.sin(2 * Math.PI * P.f * t) : 0;
 // Φ(t) = -V₁/(N₁·ω) · cos(ωt)  from Faraday V₁ = N₁·dΦ/dt; Φ=0 for DC (dΦ/dt=0 → V₂=0)
 const phiPeak = () => P.ac ? P.V1 / (P.N1 * 2 * Math.PI * P.f) : 0;
 const phiAt   = t  => P.ac ? -phiPeak() * Math.cos(2 * Math.PI * P.f * t) : 0;
+// correnti con il carico R_L: I₂ = V₂/R_L; nel trasformatore ideale la potenza si conserva,
+// quindi I₁ ≈ (N₂/N₁)·I₂ (si trascura la piccola corrente di magnetizzazione)
+const I2peak  = () => V2peak() / P.RL;
+const I1peak  = () => kc() * ratio() * I2peak();
+const i2at    = t  => v2at(t) / P.RL;
+const i1at    = t  => P.ac ? I1peak() * Math.sin(2 * Math.PI * P.f * t) : 0;
 
 /* ── Time ────────────────────────────────────────────────────────────────── */
 let simT = 0;
@@ -191,10 +197,10 @@ function drawTransformer(dark) {
   ctx.fillStyle = CYAN(dark);
   ctx.font = 'bold 10px "Space Mono",monospace';
   ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-  ctx.fillText(`V₁ = ${P.V1.toFixed(0)} V pk`, leftLineX - 24, CY - 24);
+  ctx.fillText(`V₁ = ${Lab.fmt(P.V1, 0)} V di picco`, leftLineX - 24, CY - 24);
   ctx.font = '8px "Space Mono",monospace';
   ctx.fillStyle = CYAN(dark, 0.65);
-  ctx.fillText(`≈ ${V1rms().toFixed(1)} V rms`, leftLineX - 24, CY - 12);
+  ctx.fillText(`${Lab.fmt(V1rms(), 1)} V efficaci`, leftLineX - 24, CY - 12);
   // N₁ label
   ctx.fillStyle = CYAN(dark, 0.60);
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
@@ -204,10 +210,10 @@ function drawTransformer(dark) {
   ctx.fillStyle = ORNG(dark);
   ctx.font = 'bold 10px "Space Mono",monospace';
   ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-  ctx.fillText(`V₂ = ${V2peak().toFixed(1)} V pk`, rightLineX + 24, CY - 24);
+  ctx.fillText(`V₂ = ${Lab.fmt(V2peak(), 1)} V di picco`, rightLineX + 24, CY - 24);
   ctx.font = '8px "Space Mono",monospace';
   ctx.fillStyle = ORNG(dark, 0.65);
-  ctx.fillText(`≈ ${V2rms().toFixed(1)} V rms`, rightLineX + 24, CY - 12);
+  ctx.fillText(`${Lab.fmt(V2rms(), 1)} V efficaci`, rightLineX + 24, CY - 12);
   // N₂ label
   ctx.fillStyle = ORNG(dark, 0.60);
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
@@ -217,7 +223,7 @@ function drawTransformer(dark) {
   ctx.fillStyle = dark ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.28)';
   ctx.font = '8px "Space Mono",monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText(`n = ${ratio().toFixed(3)}   η = ${(kc() * 100).toFixed(1)} %`, CX, frameB + 10);
+  ctx.fillText(`N₂/N₁ = ${Lab.fmt(ratio(), 2)}   accoppiamento k = ${Lab.fmt(kc() * 100, 1)} %`, CX, frameB + 10);
 
   // AC/DC badge (inside window top)
   ctx.fillStyle = CYAN(dark, 0.40);
@@ -350,129 +356,45 @@ function drawLoad(x, y, dark) {
   ctx.restore();
 }
 
-/* ── Graph ───────────────────────────────────────────────────────────────── */
+/* ── Grafici ─────────────────────────────────────────────────────────────── */
+// Tre periodi della tensione di rete (tempo vero): tensioni, flusso nel nucleo, correnti.
 function drawGraphs() {
-  if (!GW || !GH) return;
-  const dark   = dk();
-  const axCol  = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)';
-  const lblCol = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.40)';
-  const PHICOL = dark ? 'rgba(160,110,255,1)' : 'rgba(100,40,200,1)';
-
-  gctx.clearRect(0, 0, gc.width, gc.height);
-
-  const PAD = { t: 22, b: 28, l: 50, r: 10 };
-  const iH  = GH - PAD.t - PAD.b;
-  const GAP = 10;
-  const p1W = Math.round(GW * 0.58) - GAP / 2;
-  const p2X = p1W + GAP;
-  const p2W = GW - p2X;
-  const win = P.ac ? 3 / P.f : 0.08;
-
-  function fmtTick(v, yMax) {
-    if (yMax >= 10)  return v.toFixed(0);
-    if (yMax >= 1)   return v.toFixed(1);
-    if (yMax >= 0.1) return v.toFixed(2);
-    return v.toExponential(1);
+  const C = Lab.graphColors(), PHICOL = C.violet;
+  const win = P.ac ? 3 / P.f : 0.08, tu = win < 0.02 ? [1e-3, 'ms'] : [1e-3, 'ms'];
+  const t1 = Math.max(simT, win), t0 = t1 - win;
+  const xr = [t0 / tu[0], t1 / tu[0]];
+  const ser = fn => { const out = []; for (let i = 0; i <= 300; i++) { const t = t0 + win * i / 300; out.push([t / tu[0], fn(t)]); } return out; };
+  const vM = Lab.niceMax(Math.max(P.V1, V2peak(), 1));
+  let g = Lab.panel(gCanvas[0], { title: 'Tensioni (V)', xr, yr: [-vM, vM], xLabel: `t (${tu[1]})` });
+  if (g) {
+    const [c, f] = g;
+    Lab.plotPts(c, f, ser(v1at), C.accent, 2);
+    Lab.plotPts(c, f, ser(v2at), C.amber, 2);
+    Lab.legend(c, f.L + 8, f.T + 8, [[C.accent, 'v₁ primario'], [C.amber, 'v₂ secondario']]);
   }
-
-  function panel(x0, pW, yMax, title, yLabel, curves) {
-    const iW = pW - PAD.l - PAD.r;
-    const gx = f => ((x0 + PAD.l) + f * iW) * DPR;
-    const gy = v => (PAD.t + (1 - (v + yMax) / (2 * yMax)) * iH) * DPR;
-
-    gctx.fillStyle = dark ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.03)';
-    gctx.fillRect(gx(0), PAD.t * DPR, iW * DPR, iH * DPR);
-
-    gctx.lineWidth = DPR;
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    for (let g = 0; g <= 4; g++) {
-      const yy = (PAD.t + g * iH / 4) * DPR;
-      gctx.beginPath(); gctx.moveTo(gx(0), yy); gctx.lineTo(gx(1), yy); gctx.stroke();
-    }
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.18)';
-    gctx.beginPath(); gctx.moveTo(gx(0), gy(0)); gctx.lineTo(gx(1), gy(0)); gctx.stroke();
-    gctx.strokeStyle = axCol;
-    gctx.beginPath();
-    gctx.moveTo(gx(0), PAD.t * DPR); gctx.lineTo(gx(0), (PAD.t + iH) * DPR);
-    gctx.lineTo(gx(1), (PAD.t + iH) * DPR); gctx.stroke();
-
-    const N = Math.round(iW);
-    curves.forEach(({ fn, col, dash }) => {
-      gctx.save();
-      gctx.strokeStyle = col; gctx.lineWidth = 1.8 * DPR;
-      if (dash) gctx.setLineDash([4 * DPR, 4 * DPR]);
-      gctx.beginPath();
-      for (let xi = 0; xi <= N; xi++) {
-        const t = simT - win + (xi / N) * win;
-        xi === 0 ? gctx.moveTo(gx(xi / N), gy(fn(t))) : gctx.lineTo(gx(xi / N), gy(fn(t)));
-      }
-      gctx.stroke(); gctx.restore();
-    });
-
-    gctx.fillStyle = lblCol;
-    gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-    gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-    for (let g = 0; g <= 4; g++) {
-      const v = yMax * (1 - 2 * g / 4);
-      gctx.fillText(fmtTick(v, yMax), (x0 + PAD.l - 3) * DPR, gy(v));
-    }
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    gctx.fillText('t  [s]', gx(0.5), (PAD.t + iH + 14) * DPR);
-    gctx.save();
-    gctx.translate((x0 + 10) * DPR, (PAD.t + iH / 2) * DPR); gctx.rotate(-Math.PI / 2);
-    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    gctx.fillText(yLabel, 0, 0);
-    gctx.restore();
-    gctx.fillStyle = dark ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.36)';
-    gctx.font = `bold ${9 * DPR}px "Space Mono",monospace`;
-    gctx.textAlign = 'left'; gctx.textBaseline = 'top';
-    gctx.fillText(title, gx(0), 5 * DPR);
-  }
-
-  // ── Panel 1: Tensione ─────────────────────────────────────────────────────
-  const vMax = Math.max(P.V1, Math.abs(V2peak()), 10) * 1.25;
-  panel(0, p1W, vMax, 'Tensione vs Tempo', 'V  [V]', [
-    { fn: v1at, col: CYAN(dark) },
-    { fn: v2at, col: ORNG(dark) },
-    ...(P.ac ? [
-      { fn: () => V1rms(), col: CYAN(dark, 0.35), dash: true },
-      { fn: () => V2rms(), col: ORNG(dark, 0.35), dash: true },
-    ] : []),
-  ]);
-  const lx1 = (p1W - PAD.r - 4) * DPR;
-  gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-  gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-  [[CYAN(dark), 'V₁', 9], [ORNG(dark), 'V₂', 19]].forEach(([col, lbl, ly]) => {
-    gctx.strokeStyle = col; gctx.lineWidth = 2 * DPR;
-    gctx.beginPath(); gctx.moveTo(lx1 - 28 * DPR, ly * DPR); gctx.lineTo(lx1 - 14 * DPR, ly * DPR); gctx.stroke();
-    gctx.fillStyle = lblCol; gctx.fillText(lbl, lx1 - 32 * DPR, ly * DPR);
-  });
-
-  // ── Panel 2: Flusso magnetico ─────────────────────────────────────────────
-  const phi_pk_mwb = Math.max(phiPeak() * 1000, 0.001);
-  panel(p2X, p2W, phi_pk_mwb * 1.25, 'Flusso Φ vs Tempo', 'Φ  [mWb]', [
-    { fn: t => phiAt(t) * 1000, col: PHICOL },
-  ]);
-  if (!P.ac) {
-    const iW2 = p2W - PAD.l - PAD.r;
-    gctx.fillStyle = dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.22)';
-    gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-    gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-    gctx.fillText('dΦ/dt = 0  →  V₂ = 0',
-      (p2X + PAD.l + iW2 / 2) * DPR, (PAD.t + iH / 2) * DPR);
+  const fM = Lab.niceMax(Math.max(phiPeak() * 1e3, 1e-3));
+  g = Lab.panel(gCanvas[1], { title: 'Flusso nel nucleo Φ (mWb)', xr, yr: [-fM, fM], xLabel: `t (${tu[1]})`, yFmt: v => Lab.sci(v, 2) });
+  if (g) { const [c, f] = g; Lab.plotPts(c, f, ser(t => phiAt(t) * 1e3), PHICOL, 2); }
+  const iM = Lab.niceMax(Math.max(I1peak(), I2peak(), 1e-3));
+  g = Lab.panel(gCanvas[2], { title: `Correnti (A) con carico ${P.RL} Ω`, xr, yr: [-iM, iM], xLabel: `t (${tu[1]})`, yFmt: v => Lab.sci(v, 2) });
+  if (g) {
+    const [c, f] = g;
+    Lab.plotPts(c, f, ser(i1at), C.accent, 2);
+    Lab.plotPts(c, f, ser(i2at), C.amber, 2);
+    Lab.legend(c, f.L + 8, f.T + 8, [[C.accent, 'i₁'], [C.amber, 'i₂']]);
   }
 }
 
 /* ── Readout ──────────────────────────────────────────────────────────────── */
 function updateReadout() {
   document.getElementById('readout').innerHTML = [
-    { label: 'V₁ pk',  value: `${P.V1.toFixed(0)} V` },
-    { label: 'V₁ rms', value: P.ac ? `${V1rms().toFixed(1)} V` : `${P.V1.toFixed(0)} V` },
-    { label: 'V₂ pk',  value: `${V2peak().toFixed(1)} V` },
-    { label: 'V₂ rms', value: P.ac ? `${V2rms().toFixed(1)} V` : '0.0 V' },
-    { label: 'Φ pk',    value: P.ac ? `${(phiPeak()*1000).toFixed(2)} mWb` : '0 mWb' },
-    { label: 'n',       value: ratio().toFixed(4) },
-    { label: P.ac ? 'f' : 'modo', value: P.ac ? `${P.f} Hz` : 'DC' },
+    { label: 'V₁ efficace', value: P.ac ? `${Lab.fmt(V1rms(),1)} V` : `${Lab.fmt(P.V1,0)} V` },
+    { label: 'V₂ efficace', value: P.ac ? `${Lab.fmt(V2rms(),1)} V` : '0 V' },
+    { label: 'rapporto N₂/N₁', value: Lab.fmt(ratio(),2) },
+    { label: 'I₂ efficace', value: Lab.sci(I2peak() / Math.SQRT2, 3) + ' A' },
+    { label: 'I₁ efficace', value: Lab.sci(I1peak() / Math.SQRT2, 3) + ' A' },
+    { label: 'potenza al carico', value: Lab.sci(V2rms() * I2peak() / Math.SQRT2, 3) + ' W' },
+    { label: 'Φ di picco', value: P.ac ? `${Lab.sci(phiPeak()*1000,3)} mWb` : '0 mWb' },
   ].map(r =>
     `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
@@ -496,21 +418,31 @@ function buildControls() {
   ctrl.innerHTML = '';
 
   const sSec = Lab.Section('Sorgente');
-  sSec.add(Lab.Slider({ label: 'V₁ picco  [V]', min: 10, max: 500, step: 5, value: P.V1,
+  sSec.add(Lab.RadioGroup({
+    label: 'Tensione al primario',
+    options: [{ value: 'ac', label: 'Alternata', hint: 'sinusoidale' }, { value: 'dc', label: 'Continua', hint: 'nessuna induzione' }],
+    value: P.ac ? 'ac' : 'dc',
+    onChange: v => { P.ac = v === 'ac'; simT = 0; },
+  }));
+  sSec.add(Lab.Slider({ label: 'V₁ di picco', min: 10, max: 500, step: 5, value: P.V1, unit: ' V',
     onChange: v => { P.V1 = v; } }));
-  sSec.add(Lab.Slider({ label: 'Frequenza  [Hz]', min: 1, max: 1000, step: 1, value: P.f,
+  sSec.add(Lab.Slider({ label: 'Frequenza', min: 1, max: 1000, step: 1, value: P.f, unit: ' Hz',
     onChange: v => { P.f = v; } }));
-  sSec.add(Lab.Slider({ label: 'Velocità sim.  [×]', min: 0.01, max: 2, step: 0.01, value: P.speed,
+  sSec.add(Lab.Slider({ label: 'Rallentatore', min: 0.01, max: 2, step: 0.01, value: P.speed, unit: '×',
     onChange: v => { P.speed = v; } }));
-  sSec.add(Lab.Toggle({ label: 'AC / DC', value: P.ac,
-    onChange: v => { P.ac = v; simT = 0; } }));
   ctrl.appendChild(sSec.el);
 
-  const nSec = Lab.Section('Avvolgimenti');
+  const nSec = Lab.Section('Avvolgimenti e carico');
   nSec.add(Lab.Slider({ label: 'Spire primario N₁', min: 1, max: 500, step: 1, value: P.N1,
     onChange: v => { P.N1 = v; } }));
   nSec.add(Lab.Slider({ label: 'Spire secondario N₂', min: 1, max: 500, step: 1, value: P.N2,
     onChange: v => { P.N2 = v; } }));
+  nSec.add(Lab.Slider({ label: 'Carico R_L', min: 10, max: 1000, step: 10, value: P.RL, unit: ' Ω',
+    onChange: v => { P.RL = v; } }));
+  const note = document.createElement('div');
+  note.className = 'lab-note';
+  note.innerHTML = 'V₂/V₁ = N₂/N₁ e, conservando la potenza, I₁/I₂ = N₂/N₁: chi alza la tensione abbassa la corrente. In continua il flusso non varia e al secondario non arriva nulla.';
+  nSec.add(note);
   ctrl.appendChild(nSec.el);
 
   const cSec = Lab.Section('Nucleo magnetico');
@@ -523,26 +455,22 @@ function buildControls() {
   ctrl.appendChild(cSec.el);
 }
 
-/* ── Resize ───────────────────────────────────────────────────────────────── */
+/* ── Resize ──────────────────────────────────────────────────────────────── */
 function resizeCanvases() {
   const area = sc.parentElement;
   const ga   = document.getElementById('graphArea');
+  if (!gCanvas.length) gCanvas = Lab.graphPanels(ga, 3, 180);
   const rd   = area.querySelector('.readout-bar');
-  const rdH  = rd ? rd.clientHeight || 48 : 48;
-  const gaH  = ga.clientHeight || 190;
-
+  const rdH  = rd ? rd.offsetHeight || 48 : 48;
+  const gaH  = ga.offsetHeight || 180;
+  DPR = window.devicePixelRatio || 1;
   SW = area.clientWidth;
   SH = Math.max(80, area.clientHeight - gaH - rdH);
-
-  sc.width  = Math.round(SW * DPR); sc.height = Math.round(SH * DPR);
-  sc.style.width  = SW + 'px';      sc.style.height = SH + 'px';
-
-  GW = area.clientWidth; GH = gaH;
-  gc.width  = Math.round(GW * DPR); gc.height = Math.round(GH * DPR);
-  gc.style.width  = GW + 'px';      gc.style.height = GH + 'px';
+  Lab.hidpi(sc, SW, SH);
+  Lab.fitPanels(gCanvas);
 }
 
-window.addEventListener('resize', () => { resizeCanvases(); computeLayout(); });
+new ResizeObserver(() => { resizeCanvases(); computeLayout(); }).observe(sc.parentElement);
 
 function init() {
   resizeCanvases();

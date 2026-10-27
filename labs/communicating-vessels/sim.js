@@ -248,7 +248,7 @@ function gCapillary(){
   if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const rmax=1.8, hmax=Math.max(0.01,capH(0.2)), pre=2*P.gamma*Math.cos(P.theta*Math.PI/180)/(P.rho*Gacc);
     const xOf=r=>PAD.l+r/rmax*gW, yOf=h=>PAD.t+gH-clamp(h/hmax,-0.2,1)*gH*0.85;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
     for(let r=0.15;r<=rmax;r+=0.03){ const x=xOf(r),y=yOf(pre/(r*1e-3)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
     TUBES.forEach((r,i)=>{ ctx.fillStyle=rgb(T.level); ctx.beginPath(); ctx.arc(xOf(r),yOf(hs[i]),3,0,Math.PI*2); ctx.fill(); });
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('h',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('r',PAD.l+gW-2,PAD.t+gH-3);
@@ -257,7 +257,7 @@ function gCapillary(){
   if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const rref=0.5e-3, gmax=0.5, hmax=2*gmax*1/(P.rho*Gacc*rref);
     const xOf=g=>PAD.l+g/gmax*gW, yOf=h=>PAD.t+gH-clamp(h/hmax,0,1)*gH*0.9;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath();
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath();
     ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(gmax),yOf(2*gmax*Math.cos(P.theta*Math.PI/180)/(P.rho*Gacc*rref))); ctx.stroke();
     ctx.fillStyle=rgb(T.level); ctx.beginPath(); ctx.arc(xOf(P.gamma),yOf(2*P.gamma*Math.cos(P.theta*Math.PI/180)/(P.rho*Gacc*rref)),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('h',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('γ',PAD.l+gW-2,PAD.t+gH-3);
@@ -277,7 +277,7 @@ function gVessels(){
   if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:30,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const pmax=liq.rho*Gacc*HMAX_M;
     const xOf=d=>PAD.l+d/HMAX_M*gW, yOf=p=>PAD.t+gH-p/Math.max(1,pmax)*gH*0.9;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(realH),yOf(liq.rho*Gacc*realH)); ctx.stroke();
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(realH),yOf(liq.rho*Gacc*realH)); ctx.stroke();
     ctx.fillStyle=rgb(T.level); ctx.beginPath(); ctx.arc(xOf(realH),yOf(liq.rho*Gacc*realH),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('p',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('h',PAD.l+gW-2,PAD.t+gH-3);
   }
@@ -292,7 +292,7 @@ function gVessels(){
   if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:20,l:14,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const yh=PAD.t+gH-(fillH/G.Htot)*gH*0.85;
     ctx.strokeStyle=rgb(T.level); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(PAD.l,yh); ctx.lineTo(PAD.l+gW,yh); ctx.stroke();
-    for(let i=0;i<VESSELS.length;i++){ const cx=PAD.l+gW*(i+0.5)/VESSELS.length; ctx.fillStyle=rgb(T.accent); ctx.beginPath(); ctx.arc(cx,yh,3,0,Math.PI*2); ctx.fill(); }
+    for(let i=0;i<VESSELS.length;i++){ const cx=PAD.l+gW*(i+0.5)/VESSELS.length; ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(cx,yh,3,0,Math.PI*2); ctx.fill(); }
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText('livello identico in tutti i vasi',PAD.l+gW/2,PAD.t+gH+10);
   }
 }
@@ -310,7 +310,7 @@ function gUtube(){
   if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const rmin=600,rmax=14000, hmax=A.rho*hA/rmin;
     const xOf=r=>PAD.l+(r-rmin)/(rmax-rmin)*gW, yOf=h=>PAD.t+gH-clamp(h/hmax,0,1)*gH*0.9;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
     for(let r=rmin;r<=rmax;r+=200){ const x=xOf(r),y=yOf(A.rho*hA/r); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
     ctx.fillStyle=rgb(B.col); ctx.beginPath(); ctx.arc(xOf(B.rho),yOf(hB),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('h_B',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('ρ_B',PAD.l+gW-2,PAD.t+gH-3);

@@ -1,28 +1,31 @@
 'use strict';
 
 const sc   = document.getElementById('simCanvas');
-const gc   = document.getElementById('graphCanvas');
 const ctx  = sc.getContext('2d');
-const gctx = gc.getContext('2d');
-const DPR  = window.devicePixelRatio || 1;
-let SW = 0, SH = 0, GW = 0, GH = 0;
+let DPR  = window.devicePixelRatio || 1;
+let SW = 0, SH = 0;
+let gCanvas = [];
 
 Lab.initTheme('themeToggle');
 const dk = () => document.documentElement.dataset.theme !== 'light';
 
-/* ── Physics (μ₀ = 1) ────────────────────────────────────────────────────── */
-// B from infinite wire: Bφ = I/(2πr)  →  ∮ B·dl = I_enc
+/* ── Fisica ──────────────────────────────────────────────────────────────── */
+// Filo infinito: B = μ₀I/(2πr). Le posizioni sono in pixel della scena, con 1 cm = PX_CM pixel;
+// le correnti in ampere. Il calcolo usa B/μ₀ = I/(2πr), così ∮B·dl/μ₀ esce direttamente in ampere
+// ed è uguale alla corrente concatenata: è questo che il lab fa vedere.
+const PX_CM = 13;
+const MU0 = 4e-7 * Math.PI;
 
 const P = {
   loop:       'circle',  // 'circle' | 'rect' | 'blob'
-  R:          130,
+  R:          130,       // pixel (10 cm)
   fieldLines: false,
 };
 
 /* ── State ───────────────────────────────────────────────────────────────── */
 let sources = [
-  { x:  50, y: -30, I:  1 },
-  { x: -60, y:  40, I: -1 },
+  { x:  50, y: -30, I:  5 },
+  { x: -195, y:  60, I: -3 },
 ];
 let loopX = 0, loopY = 0;
 
@@ -45,18 +48,21 @@ function computeField(x, y) {
     const dx = x - w.x, dy = y - w.y;
     const r2 = dx * dx + dy * dy;
     if (r2 < 0.01) continue;
+    // lo schermo ha y verso il basso: per I > 0 (⊙, verso chi guarda) il campo gira in senso
+    // antiorario come lo si vede, cioè (dy, −dx) in coordinate dello schermo
     const c = w.I / (2 * Math.PI * r2);
-    bx -= c * dy;
-    by += c * dx;
+    bx += c * dy;
+    by -= c * dx;
   }
   return [bx, by];
 }
 
 /* ── Loop geometry ───────────────────────────────────────────────────────── */
+// percorso in senso antiorario sullo schermo (y verso il basso, quindi −sin t)
 function loopPoint(t) {
   const R = P.R;
   if (P.loop === 'circle') {
-    return [loopX + R * Math.cos(t), loopY + R * Math.sin(t)];
+    return [loopX + R * Math.cos(t), loopY - R * Math.sin(t)];
   }
   if (P.loop === 'rect') {
     const s  = ((t / (2 * Math.PI) * 4 + 4) % 4);
@@ -64,11 +70,11 @@ function loopPoint(t) {
     const C  = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
     return [
       loopX + (C[si][0] + u * (C[(si + 1) % 4][0] - C[si][0])) * R,
-      loopY + (C[si][1] + u * (C[(si + 1) % 4][1] - C[si][1])) * R,
+      loopY - (C[si][1] + u * (C[(si + 1) % 4][1] - C[si][1])) * R,
     ];
   }
   const r = R * blobR2D(t);
-  return [loopX + r * Math.cos(t), loopY + r * Math.sin(t)];
+  return [loopX + r * Math.cos(t), loopY - r * Math.sin(t)];
 }
 
 function isInsideLoop(lx, ly) {
@@ -76,7 +82,7 @@ function isInsideLoop(lx, ly) {
   if (P.loop === 'circle') return lx * lx + ly * ly < R * R;
   if (P.loop === 'rect')   return Math.abs(lx) < R && Math.abs(ly) < R;
   const r = Math.sqrt(lx * lx + ly * ly + 1e-9);
-  return r < R * blobR2D(Math.atan2(ly, lx));
+  return r < R * blobR2D(Math.atan2(-ly, lx));
 }
 
 /* ── Circulation integral ────────────────────────────────────────────────── */
@@ -112,10 +118,11 @@ function circCol(t, dark) {
 function fmt(v) {
   if (!isFinite(v)) return '∞';
   const a = Math.abs(v);
-  if (a < 0.005) return '0.00';
-  if (a > 999)   return v.toExponential(1);
-  return v.toFixed(2);
+  if (a < 0.005) return '0,00 A';
+  return Lab.fmt(v, 2) + ' A';
 }
+// campo vero (µT) in un punto, a partire da B/μ₀ in A/pixel
+const toMicroT = b => b * MU0 * PX_CM * 100 * 1e6;
 
 /* ── drawSim ─────────────────────────────────────────────────────────────── */
 function drawSim() {
@@ -182,7 +189,7 @@ function drawLoop(dark) {
   }
   ctx.setLineDash([]);
 
-  // Direction arrow at t=0 (right side, pointing downward = CW traversal on screen)
+  // freccia del verso di percorrenza (antiorario) sul lato destro
   {
     const [ax1, ay1] = loopPoint(-0.13), [ax2, ay2] = loopPoint(0.13);
     const [sax1, say1] = toSc(ax1, ay1), [sax2, say2] = toSc(ax2, ay2);
@@ -194,10 +201,10 @@ function drawLoop(dark) {
   ctx.fillStyle = dark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.70)';
   ctx.font = 'bold 12px "Space Mono",monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(`∮ B·dl = ${fmt(cachedCirc)}`, scx, topY);
-  ctx.fillStyle = dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.30)';
-  ctx.font = '9px "Space Mono",monospace';
-  ctx.fillText(`μ₀·I_enc = ${fmt(exactCirc())}`, scx, topY + 14);
+  ctx.fillText(`∮ B·dl / μ₀ = ${fmt(cachedCirc)}`, scx, topY - 14);
+  ctx.fillStyle = dark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)';
+  ctx.font = '10px "Space Mono",monospace';
+  ctx.fillText(`corrente concatenata = ${fmt(exactCirc())}`, scx, topY);
 
   // Crosshair at loop centre
   ctx.strokeStyle = dark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
@@ -240,35 +247,55 @@ function drawArrow(x1, y1, x2, y2, col) {
 }
 
 /* ── Field lines ─────────────────────────────────────────────────────────── */
-function drawFieldLines(dark) {
-  const col = dark ? 'rgba(0,212,255,0.20)' : 'rgba(0,80,160,0.18)';
-  for (const w of sources) {
-    const dir = Math.sign(w.I) || 1;
-    for (const r0 of [20, 55, 110]) {
-      for (let i = 0; i < 8; i++) {
-        const a = 2 * Math.PI * i / 8;
-        traceFieldLine(w.x + r0 * Math.cos(a), w.y + r0 * Math.sin(a), dir, col);
-      }
+// Linee di campo esatte. Nel piano, il campo di fili rettilinei è B = ẑ × ∇ψ (a meno di μ₀/2π) con
+// ψ = Σ Iₖ·ln rₖ: le linee di B sono le curve di livello di ψ. Prendendo livelli equispaziati fra
+// due linee vicine passa sempre lo stesso flusso, quindi dove le linee sono fitte il campo è intenso.
+// Le curve si estraggono con il metodo dei "marching squares" e si ricalcolano solo se cambia qualcosa.
+let lineCache = { key: '', segs: [] };
+const PSI_STEP = 1.2;      // A: passo fra due livelli di ψ
+function psiAt(x, y) {
+  let s = 0;
+  for (const w of sources) s += w.I * Math.log(Math.max(0.3, Math.hypot(x - w.x, y - w.y) / PX_CM));
+  return s;
+}
+function buildFieldLines() {
+  const cell = 5 / viewZoom;                           // ~5 pixel di schermo per cella
+  const x0 = -CX / viewZoom - cell, y0 = -CY / viewZoom - cell;
+  const nx = Math.ceil(SW / viewZoom / cell) + 3, ny = Math.ceil(SH / viewZoom / cell) + 3;
+  const v = new Float64Array(nx * ny);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) v[j * nx + i] = psiAt(x0 + i * cell, y0 + j * cell);
+  const segs = [];
+  const near = (x, y) => sources.some(w => Math.hypot(x - w.x, y - w.y) < 0.45 * PX_CM);
+  for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    const a = v[j * nx + i], b = v[j * nx + i + 1], c = v[(j + 1) * nx + i + 1], d = v[(j + 1) * nx + i];
+    const lo = Math.min(a, b, c, d), hi = Math.max(a, b, c, d);
+    const X = x0 + i * cell, Y = y0 + j * cell;
+    if (near(X + cell / 2, Y + cell / 2)) continue;   // dentro il filo il logaritmo è troncato
+    for (let k = Math.ceil(lo / PSI_STEP); k * PSI_STEP <= hi; k++) {
+      const L = k * PSI_STEP, pts = [];
+      const edge = (p, q, x1, y1, x2, y2) => {
+        if ((p < L) !== (q < L)) { const t = (L - p) / (q - p); pts.push([x1 + (x2 - x1) * t, y1 + (y2 - y1) * t]); }
+      };
+      edge(a, b, X, Y, X + cell, Y);
+      edge(b, c, X + cell, Y, X + cell, Y + cell);
+      edge(c, d, X + cell, Y + cell, X, Y + cell);
+      edge(d, a, X, Y + cell, X, Y);
+      for (let m = 0; m + 1 < pts.length; m += 2) segs.push(pts[m][0], pts[m][1], pts[m + 1][0], pts[m + 1][1]);
     }
   }
+  return segs;
 }
-
-function traceFieldLine(startX, startY, dir, col) {
-  let x = startX, y = startY;
-  const maxR = Math.min(SW, SH) * 0.55;
-  ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(CX + x, CY + y);
-  for (let i = 0; i < 1500; i++) {
-    const [bx, by] = computeField(x, y);
-    const mag = Math.sqrt(bx * bx + by * by);
-    if (mag < 1e-10) break;
-    x += dir * bx / mag * 4;
-    y += dir * by / mag * 4;
-    ctx.lineTo(CX + x, CY + y);
-    if (i > 30 && Math.hypot(x - startX, y - startY) < 8) { ctx.closePath(); break; }
-    if (Math.hypot(x, y) > maxR) break;
-  }
-  ctx.stroke(); ctx.restore();
+function drawFieldLines(dark) {
+  const key = sources.map(w => `${w.x},${w.y},${w.I}`).join(';') + `|${SW}|${SH}|${viewZoom}`;
+  if (lineCache.key !== key) lineCache = { key, segs: buildFieldLines() };
+  const s = lineCache.segs;
+  ctx.save();
+  ctx.strokeStyle = dark ? 'rgba(0,212,255,0.45)' : 'rgba(0,80,160,0.45)';
+  ctx.lineWidth = 1.1 / viewZoom;
+  ctx.beginPath();
+  for (let i = 0; i < s.length; i += 4) { ctx.moveTo(CX + s[i], CY + s[i + 1]); ctx.lineTo(CX + s[i + 2], CY + s[i + 3]); }
+  ctx.stroke();
+  ctx.restore();
 }
 
 /* ── Wires ───────────────────────────────────────────────────────────────── */
@@ -298,95 +325,43 @@ function drawSources(dark) {
   }
 }
 
-/* ── Graph: cumulative line integral ─────────────────────────────────────── */
+/* ── Grafici ─────────────────────────────────────────────────────────────── */
+// 1: integrale ∫B·dl/μ₀ accumulato lungo il percorso; 2: componente tangente di B lungo il percorso.
+// Il campo cambia da punto a punto, ma l'integrale completo vale sempre la corrente concatenata.
 function drawGraphs() {
-  if (!GW || !GH || cachedCumul.length < 2) return;
-  const dark   = dk();
-  const axCol  = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)';
-  const lblCol = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.40)';
-  gctx.clearRect(0, 0, gc.width, gc.height);
-
-  const N   = cachedCumul.length - 1;
-  const ex  = exactCirc();
-  const vMax = Math.max(...cachedCumul.map(v => Math.abs(v)), Math.abs(ex), 0.5) * 1.3;
-
-  const PAD = { t: 22, b: 28, l: 52, r: 14 };
-  const iW  = GW - PAD.l - PAD.r, iH = GH - PAD.t - PAD.b;
-  const gx  = f => (PAD.l + f * iW) * DPR;
-  const gy  = v => (PAD.t + (1 - (v + vMax) / (2 * vMax)) * iH) * DPR;
-
-  gctx.fillStyle = dark ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.03)';
-  gctx.fillRect(gx(0), PAD.t * DPR, iW * DPR, iH * DPR);
-
-  gctx.lineWidth = DPR;
-  for (let g = 0; g <= 4; g++) {
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    const yy = (PAD.t + g * iH / 4) * DPR;
-    gctx.beginPath(); gctx.moveTo(gx(0), yy); gctx.lineTo(gx(1), yy); gctx.stroke();
+  if (cachedCumul.length < 2) return;
+  const C = Lab.graphColors(), N = cachedCumul.length - 1, ex = exactCirc();
+  const vMax = Lab.niceMax(Math.max(...cachedCumul.map(Math.abs), Math.abs(ex), 1));
+  let g = Lab.panel(gCanvas[0], { title: '∫B·dl / μ₀ accumulato lungo il percorso (A)', xr: [0, 360], xStep: 90, yr: [-vMax, vMax], xLabel: 'posizione sul percorso (°)' });
+  if (g) {
+    const [c, f] = g;
+    c.save(); c.setLineDash([5, 4]); c.strokeStyle = C.amber; c.beginPath(); c.moveTo(f.L, f.Y(ex)); c.lineTo(f.R, f.Y(ex)); c.stroke(); c.restore();
+    Lab.plotPts(c, f, cachedCumul.map((v, i) => [i / N * 360, v]), C.accent, 2);
+    Lab.legend(c, f.L + 8, f.T + 8, [[C.accent, '∫ da 0 a θ'], [C.amber, 'corrente concatenata', [5, 4]]]);
   }
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
-  gctx.beginPath(); gctx.moveTo(gx(0), gy(0)); gctx.lineTo(gx(1), gy(0)); gctx.stroke();
-
-  // Exact value dashed line
-  if (Math.abs(ex) > 0.001) {
-    gctx.strokeStyle = dark ? 'rgba(255,200,60,0.55)' : 'rgba(160,100,0,0.55)';
-    gctx.setLineDash([6 * DPR, 4 * DPR]);
-    gctx.beginPath(); gctx.moveTo(gx(0), gy(ex)); gctx.lineTo(gx(1), gy(ex)); gctx.stroke();
-    gctx.setLineDash([]);
+  // componente di B lungo il percorso, in µT
+  const Bt = [];
+  for (let i = 0; i < N; i++) {
+    const t1 = 2 * Math.PI * i / N, t2 = 2 * Math.PI * (i + 1) / N;
+    const [x1, y1] = loopPoint(t1), [x2, y2] = loopPoint(t2), dl = Math.hypot(x2 - x1, y2 - y1);
+    const [bx, by] = computeField((x1 + x2) / 2, (y1 + y2) / 2);
+    Bt.push([(i + 0.5) / N * 360, toMicroT((bx * (x2 - x1) + by * (y2 - y1)) / dl)]);
   }
-
-  gctx.strokeStyle = axCol;
-  gctx.beginPath();
-  gctx.moveTo(gx(0), PAD.t * DPR); gctx.lineTo(gx(0), (PAD.t + iH) * DPR);
-  gctx.lineTo(gx(1), (PAD.t + iH) * DPR); gctx.stroke();
-
-  // Cumulative curve
-  gctx.strokeStyle = dark ? 'rgba(0,212,255,0.90)' : 'rgba(0,100,200,0.90)';
-  gctx.lineWidth = 1.8 * DPR;
-  gctx.beginPath();
-  for (let i = 0; i <= N; i++) {
-    i === 0 ? gctx.moveTo(gx(i / N), gy(cachedCumul[i])) : gctx.lineTo(gx(i / N), gy(cachedCumul[i]));
-  }
-  gctx.stroke();
-
-  // Y ticks
-  gctx.fillStyle = lblCol;
-  gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-  gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-  for (let g = 0; g <= 4; g++) {
-    const v = vMax * (1 - 2 * g / 4);
-    gctx.fillText(Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1), (PAD.l - 3) * DPR, gy(v));
-  }
-
-  // X axis labels
-  gctx.fillStyle = lblCol; gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-  gctx.fillText('0',  gx(0),   (PAD.t + iH + 3) * DPR);
-  gctx.fillText('2π', gx(1), (PAD.t + iH + 3) * DPR);
-
-  // Title
-  gctx.fillStyle = dark ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.36)';
-  gctx.font = `bold ${9 * DPR}px "Space Mono",monospace`;
-  gctx.textAlign = 'left'; gctx.textBaseline = 'top';
-  gctx.fillText('∫₀^θ B·dl  vs  θ', gx(0), 4 * DPR);
-
-  // Legend: exact
-  if (Math.abs(ex) > 0.001) {
-    gctx.fillStyle = dark ? 'rgba(255,200,60,0.80)' : 'rgba(160,100,0,0.80)';
-    gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-    gctx.textAlign = 'right'; gctx.textBaseline = 'top';
-    gctx.fillText(`μ₀·I_enc = ${fmt(ex)}`, (PAD.l + iW - 2) * DPR, (PAD.t + 2) * DPR);
-  }
+  const bMax = Lab.niceMax(Math.max(...Bt.map(p => Math.abs(p[1])), 1));
+  g = Lab.panel(gCanvas[1], { title: 'Componente di B lungo il percorso (µT)', xr: [0, 360], xStep: 90, yr: [-bMax, bMax], xLabel: 'posizione sul percorso (°)' });
+  if (g) { const [c, f] = g; Lab.plotPts(c, f, Bt, C.blue, 2); }
 }
 
 /* ── Readout ─────────────────────────────────────────────────────────────── */
 function updateReadout() {
   const ex  = exactCirc();
   const enc = sources.filter(w => isInsideLoop(w.x - loopX, w.y - loopY)).length;
+  const Lcm = (() => { let L = 0; for (let i = 0; i < NI; i++) { const [a, b] = loopPoint(2 * Math.PI * i / NI), [c, d] = loopPoint(2 * Math.PI * (i + 1) / NI); L += Math.hypot(c - a, d - b); } return L / PX_CM; })();
   document.getElementById('readout').innerHTML = [
-    { label: '∮ B·dl',    value: fmt(cachedCirc) },
-    { label: 'μ₀·I_enc', value: fmt(ex)    },
-    { label: 'fili interni',         value: `${enc}`       },
-    { label: 'fili totali',          value: `${sources.length}` },
+    { label: '∮ B·dl / μ₀',           value: fmt(cachedCirc) },
+    { label: 'corrente concatenata',  value: fmt(ex)    },
+    { label: 'lunghezza del percorso', value: Lab.fmt(Lcm, 1) + ' cm' },
+    { label: 'fili interni',          value: `${enc} su ${sources.length}` },
   ].map(r =>
     `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
@@ -468,75 +443,70 @@ function buildControls() {
     onChange: v => { P.loop = v; circDirty = true; },
   }));
   loopSec.add(Lab.Slider({
-    label: 'Raggio / semilato  [px]', min: 40, max: 220, step: 5, value: P.R,
-    onChange: v => { P.R = v; circDirty = true; },
+    label: 'Raggio / semilato', min: 3, max: 16, step: 0.5, value: P.R / PX_CM, unit: ' cm',
+    onChange: v => { P.R = v * PX_CM; circDirty = true; },
   }));
   ctrl.appendChild(loopSec.el);
 
   const wireSec = Lab.Section('Fili conduttori');
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
-
-  sources.forEach((w, i) => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:6px;font:11px "Space Mono",monospace;';
-    const lbl = document.createElement('span');
-    lbl.style.cssText = `flex:1;color:${w.I > 0 ? '#ff8080' : '#8099ff'};`;
-    lbl.textContent = `Filo ${i + 1}: I=${w.I > 0 ? '+' : ''}${w.I}`;
-    const rm = document.createElement('button');
-    rm.textContent = '\xd7';
-    rm.style.cssText = 'background:rgba(255,80,80,0.15);border:1px solid rgba(255,80,80,0.35);color:#ff8080;border-radius:3px;cursor:pointer;padding:1px 6px;font-size:12px;line-height:1.4;';
-    rm.onclick = () => { sources.splice(i, 1); circDirty = true; buildControls(); };
-    row.append(lbl, rm);
-    wrap.appendChild(row);
-  });
-
-  if (sources.length < 8) {
-    const addRow = document.createElement('div');
-    addRow.style.cssText = 'display:flex;gap:5px;margin-top:4px;';
-    [['I=+1', 1], ['I=+2', 2], ['I=−1', -1], ['I=−2', -2]].forEach(([lbl, I]) => {
-      const btn = document.createElement('button');
-      btn.textContent = lbl;
-      btn.style.cssText = `flex:1;padding:3px 0;font-size:10px;border-radius:3px;cursor:pointer;` +
-        `background:${I > 0 ? 'rgba(255,80,80,0.1)' : 'rgba(80,120,255,0.1)'};` +
-        `border:1px solid ${I > 0 ? 'rgba(255,80,80,0.3)' : 'rgba(80,120,255,0.3)'};` +
-        `color:${I > 0 ? '#ff8080' : '#8099ff'};`;
-      btn.onclick = () => {
+  wireSec.add(Lab.ItemList({
+    items: sources,
+    text: (w, i) => `Filo ${i + 1}: I = ${w.I > 0 ? '+' : '−'}${Math.abs(w.I)} A ${w.I > 0 ? '⊙' : '⊗'}`,
+    color: w => (w.I > 0 ? '#ff7070' : '#7090ff'),
+    onRemove: i => { sources.splice(i, 1); circDirty = true; buildControls(); },
+    max: 8,
+    add: [['+2 A', 2], ['+5 A', 5], ['−2 A', -2], ['−5 A', -5]].map(([label, I]) => ({
+      label, color: I > 0 ? '#ff7070' : '#7090ff',
+      onClick: () => {
         const a = Math.random() * 2 * Math.PI, r0 = P.R * 0.5 * Math.random();
         sources.push({ x: loopX + r0 * Math.cos(a), y: loopY + r0 * Math.sin(a), I });
         circDirty = true; buildControls();
-      };
-      addRow.appendChild(btn);
-    });
-    wrap.appendChild(addRow);
-  }
-
-  wireSec.add(wrap);
+      },
+    })),
+  }));
+  const note = document.createElement('div');
+  note.className = 'lab-note';
+  note.innerHTML = 'Trascina i fili e il centro del percorso. ⊙ corrente verso di te, ⊗ corrente che entra. Il percorso è percorso in senso antiorario.';
+  wireSec.add(note);
   ctrl.appendChild(wireSec.el);
+
+  // situazioni tipiche, per vedere subito il teorema all'opera
+  const exSec = Lab.Section('Esempi');
+  const ex = document.createElement('div');
+  ex.className = 'ctrl-btn-row';
+  const EXAMPLES = [
+    ['Un filo dentro il percorso', [{ x: 40, y: -20, I: 5 }]],
+    ['Un filo fuori: ∮ = 0', [{ x: -200, y: 40, I: 5 }]],
+    ['Due correnti opposte dentro', [{ x: 45, y: -25, I: 5 }, { x: -50, y: 35, I: -5 }]],
+    ['Tre fili, uno fuori', [{ x: 40, y: -30, I: 5 }, { x: -40, y: 45, I: 2 }, { x: 210, y: 20, I: -5 }]],
+  ];
+  for (const [label, src] of EXAMPLES) {
+    const b = document.createElement('button');
+    b.className = 'ctrl-btn'; b.textContent = label;
+    b.onclick = () => { sources = src.map(o => ({ ...o })); loopX = 0; loopY = 0; circDirty = true; buildControls(); };
+    ex.appendChild(b);
+  }
+  exSec.add(ex);
+  ctrl.appendChild(exSec.el);
 }
 
 /* ── Resize ──────────────────────────────────────────────────────────────── */
 function resizeCanvases() {
   const area = sc.parentElement;
   const ga   = document.getElementById('graphArea');
+  if (!gCanvas.length) gCanvas = Lab.graphPanels(ga, 2, 180);
   const rd   = area.querySelector('.readout-bar');
-  const rdH  = rd ? rd.clientHeight || 48 : 48;
-  const gaH  = ga.clientHeight || 190;
-
+  const rdH  = rd ? rd.offsetHeight || 48 : 48;
+  const gaH  = ga.offsetHeight || 180;
+  DPR = window.devicePixelRatio || 1;
   SW = area.clientWidth;
   SH = Math.max(80, area.clientHeight - gaH - rdH);
-
-  sc.width  = Math.round(SW * DPR); sc.height = Math.round(SH * DPR);
-  sc.style.width  = SW + 'px';      sc.style.height = SH + 'px';
-
-  GW = area.clientWidth; GH = gaH;
-  gc.width  = Math.round(GW * DPR); gc.height = Math.round(GH * DPR);
-  gc.style.width  = GW + 'px';      gc.style.height = GH + 'px';
-
+  Lab.hidpi(sc, SW, SH);
+  Lab.fitPanels(gCanvas);
   CX = SW / 2; CY = SH / 2;
 }
 
-window.addEventListener('resize', resizeCanvases);
+new ResizeObserver(resizeCanvases).observe(sc.parentElement);
 
 function init() {
   resizeCanvases();

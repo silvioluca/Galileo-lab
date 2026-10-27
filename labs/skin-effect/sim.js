@@ -17,6 +17,7 @@ const P = {
 const MU0 = 4*Math.PI*1e-7;
 
 let tAnim=0, last=0, acPhase=0;
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout;
 
@@ -45,18 +46,48 @@ const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 // ═══ Fisica (effetto pelle) ═══════════════════════════════════════════════════
 function freq(){ return Math.pow(10,P.fExp); }
 function Rm(){ return P.R*1e-3; }                       // raggio (m)
-function delta(){ const m=MAT[P.mat]; return Math.sqrt(1/(Math.PI*freq()*MU0*m.mur*m.sigma)); }  // profondità di penetrazione (m)
+function deltaOf(f,m){ return Math.sqrt(1/(Math.PI*f*MU0*m.mur*m.sigma)); }
+function delta(){ return deltaOf(freq(),MAT[P.mat]); }  // profondità di penetrazione (m)
 function dRatio(){ return clamp(delta()/Rm(), 1e-4, 50); }
-// densità di corrente normalizzata: J(s)=exp(-(1-s)/dRatio), s=r/R (0 centro, 1 superficie)
-function Jn(s){ return Math.exp(-(1-s)/dRatio()); }
-// area efficace (integrale di J sul disco) → Rac/Rdc = πR² / Aeff
-function aEffRatio(){ const dr=dRatio(); let sum=0; const N=140;
-  for(let i=0;i<N;i++){ const s=(i+0.5)/N; sum += s*Math.exp(-(1-s)/dr); }
-  const Aeff = 2*sum/N;        // ∫ 2 s J ds  (in unità di R²·π/π ... normalizzato a πR²=1 quando uniforme)
-  return clamp(1/Math.max(Aeff,1e-6), 1, 1e5);
+
+// ── Soluzione esatta per il filo cilindrico ─────────────────────────────────
+// Nel conduttore J soddisfa ∇²J = jωμσ·J: la soluzione regolare è J(r) ∝ J₀(k·r) con
+// k = (1−j)/δ. Si usano le serie di Bessel finché |k·R| ≤ 20 (lì sono precise); oltre, lo strato
+// è sottilissimo rispetto al raggio e vale lo sviluppo asintotico J ∝ √(R/r)·e^{−(R−r)/δ}.
+const cmul=(a,b)=>[a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]];
+const cdiv=(a,b)=>{ const d=b[0]*b[0]+b[1]*b[1]; return [(a[0]*b[0]+a[1]*b[1])/d, (a[1]*b[0]-a[0]*b[1])/d]; };
+function besselJ(n,z){            // J₀ o J₁ di argomento complesso, serie di potenze
+  const z2=cmul(z,z), q=[-z2[0]/4,-z2[1]/4];
+  let term = n===0 ? [1,0] : [z[0]/2,z[1]/2], sum=[...term];
+  for(let m=1;m<80;m++){
+    term=cmul(term,q); const d=m*(m+n); term=[term[0]/d,term[1]/d];
+    sum=[sum[0]+term[0],sum[1]+term[1]];
+    if(Math.hypot(...term)<1e-16*Math.hypot(...sum)) break;
+  }
+  return sum;
 }
-function fmtF(f){ if(f<1e3) return f.toFixed(0)+' Hz'; if(f<1e6) return (f/1e3).toFixed(1)+' kHz'; if(f<1e9) return (f/1e6).toFixed(2)+' MHz'; return (f/1e9).toFixed(2)+' GHz'; }
-function fmtL(m){ if(m>=1e-3) return (m*1e3).toFixed(2)+' mm'; if(m>=1e-6) return (m*1e6).toFixed(1)+' µm'; return (m*1e9).toFixed(0)+' nm'; }
+const SERIES_MAX=20;
+// |J(r)|/|J(R)| con s = r/R
+function Jprofile(s,dr){
+  const x=1/dr;                                   // R/δ
+  if(x<=SERIES_MAX){
+    const k=[x,-x];                               // k·R = (1−j)·R/δ
+    const a=besselJ(0,[k[0]*s,k[1]*s]), b=besselJ(0,k);
+    return Math.hypot(...a)/Math.hypot(...b);
+  }
+  return Math.sqrt(1/Math.max(s,1e-3))*Math.exp(-(1-s)*x);
+}
+function Jn(s){ return Jprofile(s,dRatio()); }
+// R_ac/R_dc = Re[ (kR/2)·J₀(kR)/J₁(kR) ];  per R ≫ δ tende a R/(2δ) + 1/4
+function racRdc(dr){
+  const x=1/dr;
+  if(x>SERIES_MAX) return x/2+0.25;
+  const k=[x,-x], r=cdiv(cmul([k[0]/2,k[1]/2],besselJ(0,k)),besselJ(1,k));
+  return Math.max(1,r[0]);
+}
+function aEffRatio(){ return racRdc(dRatio()); }
+function fmtF(f){ if(f<1e3) return Lab.fmt(f,0)+' Hz'; if(f<1e6) return Lab.fmt((f/1e3),1)+' kHz'; if(f<1e9) return Lab.fmt((f/1e6),2)+' MHz'; return Lab.fmt((f/1e9),2)+' GHz'; }
+function fmtL(m){ if(m>=1e-3) return Lab.fmt((m*1e3),2)+' mm'; if(m>=1e-6) return Lab.fmt((m*1e6),1)+' µm'; return Lab.fmt((m*1e9),0)+' nm'; }
 function jcol(t){ t=clamp(t,0,1);
   return [clamp(Math.round(38+t*255),0,255), clamp(Math.round(28+t*210),0,255), clamp(Math.round(55+(t>0.7?(t-0.7)*560:0)),0,255)]; }
 
@@ -71,8 +102,7 @@ function geom(W,H){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   geom(W,H);
@@ -109,8 +139,8 @@ function drawCross(ctx,dr,amp,into){
   // anello di δ
   if(dr<1){ const rs=R*(1-dr);
     ctx.strokeStyle=rgba([255,255,255],0.7); ctx.setLineDash([4,3]); ctx.lineWidth=1.4; ctx.beginPath(); ctx.arc(cx,cy,rs,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(cx+R,cy); ctx.lineTo(cx+rs,cy); ctx.stroke();
-    ctx.fillStyle=rgb(T.accent); ctx.font='bold 11px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText('δ', cx+(R+rs)/2, cy-6); }
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(cx+R,cy); ctx.lineTo(cx+rs,cy); ctx.stroke();
+    ctx.fillStyle=T.accent; ctx.font='bold 11px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText('δ', cx+(R+rs)/2, cy-6); }
   // simboli di corrente (⊗/⊙ alternati, densità ∝ J)
   ctx.strokeStyle=rgba([255,255,255],0.55); ctx.lineWidth=1;
   for(let k=0;k<60;k++){ const a=k*2.39996, r=R*Math.sqrt((k+0.5)/60), x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
@@ -177,38 +207,34 @@ function gBase(ctx,W,H,PAD){
   return {gW,gH};
 }
 function drawGraphs(){
-  const dr=dRatio();
-  // 1: profilo J(r) lungo il diametro (−R..R)
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:22,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD);
-    const xOf=x=>PAD.l+(x+1)/2*gW, yOf=j=>PAD.t+gH-j*gH*0.9;
-    ctx.strokeStyle=rgb(T.skin); ctx.lineWidth=1.7; ctx.beginPath(); let f=true;
-    for(let i=0;i<=100;i++){ const x=-1+2*i/100, s=Math.abs(x), J=Math.exp(-(1-s)/dr); const px=xOf(x),py=yOf(J); f?(ctx.moveTo(px,py),f=false):ctx.lineTo(px,py);} ctx.stroke();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('J',PAD.l+2,PAD.t+7);
-    ctx.textAlign='center'; ctx.fillText('centro',PAD.l+gW/2,PAD.t+gH+10); ctx.textAlign='right'; ctx.fillText('superf.',PAD.l+gW-2,PAD.t+gH+10);
+  const m=MAT[P.mat], dr=dRatio(), C=Lab.graphColors();
+  const fAx=[1,10**9.3], fFmt=v=>Lab.eng(v).replace(' ','');
+  // 1: profilo J(r)/J(R) lungo il diametro
+  let g=Lab.panel(gCanvas[0],{ title:'Densità di corrente J/J_superficie', xr:[-P.R,P.R], yr:[0,1.05], yStep:0.25, xLabel:'r (mm)', yFmt:v=>Lab.fmt(v,2) });
+  if(g){ const [ctx,f]=g;
+    ctx.save(); ctx.strokeStyle=C.text; ctx.setLineDash([3,3]);
+    // profondità δ misurata dalla superficie
+    const dmm=delta()*1e3;
+    if(dmm<P.R) for(const sgn of [-1,1]){ const x=f.X(sgn*(P.R-dmm)); ctx.beginPath(); ctx.moveTo(x,f.T); ctx.lineTo(x,f.B); ctx.stroke(); }
+    ctx.restore();
+    Lab.plot(ctx,f,x=>Jprofile(Math.abs(x)/P.R,dr),[-P.R,P.R],rgb(T.skin),2,[],400);
+    Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.skin),'J(r) esatta (Bessel)'],[C.text,'R − δ',[3,3]]]);
   }
-  // 2: δ(f) log-log
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const m=MAT[P.mat];
-    const dOf=f=>Math.sqrt(1/(Math.PI*f*MU0*m.mur*m.sigma));
-    const fmin=0,fmax=9.3, dmin=-7,dmax=0;   // log10
-    const xOf=fe=>PAD.l+fe/fmax*gW, yOf=d=>PAD.t+gH-(clamp(Math.log10(d),dmin,dmax)-dmin)/(dmax-dmin)*gH;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let fe=fmin;fe<=fmax;fe+=0.15){ const x=xOf(fe),y=yOf(dOf(Math.pow(10,fe))); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=rgb(T.skin); ctx.beginPath(); ctx.arc(xOf(P.fExp),yOf(delta()),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('δ(log)',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('f(log)',PAD.l+gW-2,PAD.t+gH-3);
+  // 2: δ(f) in scala log-log, retta di pendenza −1/2
+  g=Lab.panel(gCanvas[1],{ title:'Profondità di penetrazione δ', xr:fAx, xLog:true, yr:[1e-7,1], yLog:true, xLabel:'f (Hz)', xFmt:fFmt, yFmt:v=>Lab.eng(v,'m') });
+  if(g){ const [ctx,f]=g;
+    ctx.save(); ctx.strokeStyle=C.text; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(f.L,f.Y(Rm())); ctx.lineTo(f.R,f.Y(Rm())); ctx.stroke(); ctx.restore();
+    const pts=[]; for(let e=0;e<=9.3;e+=0.1) pts.push([10**e,deltaOf(10**e,m)]);
+    Lab.plotPts(ctx,f,pts,C.accent,2);
+    Lab.dot(ctx,f,freq(),delta(),rgb(T.skin),4);
+    Lab.legend(ctx,f.L+8,f.T+8,[[C.accent,'δ = 1/√(πfμσ)'],[C.text,'raggio R',[3,3]]]);
   }
-  // 3: Rac/Rdc vs f
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const m=MAT[P.mat];
-    function ratioAt(fe){ const f=Math.pow(10,fe), d=Math.sqrt(1/(Math.PI*f*MU0*m.mur*m.sigma)), dr=clamp(d/Rm(),1e-4,50);
-      let sum=0,N=80; for(let i=0;i<N;i++){ const s=(i+0.5)/N; sum+=s*Math.exp(-(1-s)/dr);} return clamp(1/Math.max(2*sum/N,1e-6),1,1e5); }
-    const fmax=9.3, rmax=20;
-    const xOf=fe=>PAD.l+fe/fmax*gW, yOf=r=>PAD.t+gH-clamp(Math.log10(r)/Math.log10(rmax),0,1)*gH*0.92;
-    ctx.strokeStyle=rgb(T.skin); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let fe=0;fe<=fmax;fe+=0.15){ const x=xOf(fe),y=yOf(ratioAt(fe)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=rgb(T.accent); ctx.beginPath(); ctx.arc(xOf(P.fExp),yOf(aEffRatio()),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('Rac/Rdc',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('f(log)',PAD.l+gW-2,PAD.t+gH-3);
+  // 3: R_ac/R_dc(f): 1 finché δ ≫ R, poi cresce come R/2δ
+  g=Lab.panel(gCanvas[2],{ title:'Resistenza in alternata R_ac/R_dc', xr:fAx, xLog:true, yr:[1,1e4], yLog:true, xLabel:'f (Hz)', xFmt:fFmt, yFmt:v=>Lab.eng(v).replace(' ','') });
+  if(g){ const [ctx,f]=g;
+    const pts=[]; for(let e=0;e<=9.3;e+=0.05){ const d=clamp(deltaOf(10**e,m)/Rm(),1e-4,50); pts.push([10**e,racRdc(d)]); }
+    Lab.plotPts(ctx,f,pts,rgb(T.skin),2);
+    Lab.dot(ctx,f,freq(),aEffRatio(),C.accent,4);
   }
 }
 
@@ -216,24 +242,16 @@ function drawGraphs(){
 function buildControls(){
   const cont=document.getElementById('controls'); cont.innerHTML='';
   const secF=Lab.Section('Corrente alternata'); cont.appendChild(secF.el);
-  secF.add(Lab.Slider({ label:'Frequenza (10^x)', min:0, max:9.3, step:0.1, value:P.fExp, unit:'', onChange(v){P.fExp=v;} }));
+  secF.add(Lab.Slider({ label:'Frequenza f (scala logaritmica)', min:0, max:9.3, step:0.1, value:P.fExp, format:v=>fmtF(10**v), onChange(v){P.fExp=v;} }));
   const secM=Lab.Section('Conduttore'); cont.appendChild(secM.el);
   secM.add(Lab.RadioGroup({ label:'Materiale', options:Object.keys(MAT).map(k=>({value:k,label:MAT[k].name, hint:MAT[k].mur>1?('µr='+MAT[k].mur):''})), value:P.mat, onChange(v){P.mat=v;} }));
   secM.add(Lab.Slider({ label:'Raggio del filo', min:0.5, max:10, step:0.5, value:P.R, unit:' mm', onChange(v){P.R=v;} }));
 }
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Densità di corrente J(r)','Profondità δ in funzione di f','Rac/Rdc in funzione di f'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -260,8 +278,8 @@ function init(){
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(220,Math.floor(ar.height-rb.height-gaH-4));
     simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -277,9 +295,9 @@ function init(){
       draw(simCanvas); drawGraphs();
       readout.set('f', fmtF(freq()));
       readout.set('d', fmtL(delta()));
-      readout.set('dr', dRatio().toFixed(3));
-      readout.set('rac', aEffRatio().toFixed(2)+'×');
-      readout.set('jc', dRatio()>=8? '≈ 1 (uniforme)' : Jn(0).toExponential(1));
+      readout.set('dr', Lab.fmt(dRatio(),3));
+      readout.set('rac', Lab.fmt(aEffRatio(),2)+'×');
+      readout.set('jc', dRatio()>=8? '≈ 1 (uniforme)' : Lab.sci(Jn(0),2));
       readout.set('reg', dRatio()>=1.2?'quasi uniforme':(dRatio()<0.15?'forte effetto pelle':'effetto pelle'));
     }catch(err){ console.error(err); }
     requestAnimationFrame(frame);

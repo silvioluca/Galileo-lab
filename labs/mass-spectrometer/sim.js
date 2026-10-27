@@ -2,11 +2,10 @@
 
 /* ── Canvas ──────────────────────────────────────────────────────────────── */
 const sc   = document.getElementById('simCanvas');
-const gc   = document.getElementById('graphCanvas');
 const ctx  = sc.getContext('2d');
-const gctx = gc.getContext('2d');
-const DPR  = window.devicePixelRatio || 1;
-let SW = 0, SH = 0, GW = 0, GH = 0;
+let DPR  = window.devicePixelRatio || 1;
+let SW = 0, SH = 0;
+let gCanvas = [];
 
 Lab.initTheme('themeToggle');
 const dk = () => document.documentElement.dataset.theme !== 'light';
@@ -228,9 +227,9 @@ function drawScreenMarkers(dark) {
     ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(xL, y + 3); ctx.lineTo(xL, y + 9); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(xR, y + 3); ctx.lineTo(xR, y + 9); ctx.stroke();
-    ctx.font = '8px "Space Mono", monospace';
+    ctx.font = '10px "Space Mono", monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillText(`Δx = ${(Math.abs(r2 - r1) * 2e2).toFixed(1)} cm`, (xL + xR) / 2, y + 11);
+    ctx.fillText(`Δx = ${Lab.fmt(Math.abs(r2 - r1) * 2e2, 1)} cm`, (xL + xR) / 2, y + 16);
     ctx.restore();
   }
 }
@@ -242,17 +241,19 @@ function drawTick(r_m, col, label, dark, pos) {
   ctx.strokeStyle = col; ctx.fillStyle = col;
   ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.moveTo(hx, y - 9); ctx.lineTo(hx, y + 9); ctx.stroke();
-  ctx.font = 'bold 9px "Space Mono", monospace';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(label, hx, y - 11);
+  ctx.font = 'bold 10px "Space Mono", monospace';
+  // le due etichette si spostano ai lati se i punti d'arrivo sono vicini
+  const other = r_m === r1 ? hitX(r2) : hitX(r1), close = Math.abs(other - hx) < 70;
+  ctx.textAlign = close ? (hx < other ? 'right' : 'left') : 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(label, hx + (close ? (hx < other ? 4 : -4) : 0), y - 11);
   ctx.restore();
 }
 
 /* ── Dimension lines (2r₁, 2r₂) under arcs ──────────────────────────────── */
 function drawDimLines(dark) {
   const yBase = DIV_Y + Math.min(Math.max(rPx(r1), rPx(r2)) * 0.95, SH - DIV_Y - 60);
-  drawDimLine(r1, yBase + 10,  `2r₁ = ${(2 * r1 * 100).toFixed(1)} cm`, '#00d4ff', dark);
-  drawDimLine(r2, yBase + 28, `2r₂ = ${(2 * r2 * 100).toFixed(1)} cm`, '#ff9944', dark);
+  drawDimLine(r1, yBase + 10,  `2r₁ = ${Lab.fmt(2 * r1 * 100, 1)} cm`, '#00d4ff', dark);
+  drawDimLine(r2, yBase + 28, `2r₂ = ${Lab.fmt(2 * r2 * 100, 1)} cm`, '#ff9944', dark);
 }
 
 function drawDimLine(r_m, y, label, col, dark) {
@@ -266,7 +267,7 @@ function drawDimLine(r_m, y, label, col, dark) {
   ctx.beginPath(); ctx.moveTo(x0, y - 3); ctx.lineTo(x0, y + 3); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x1, y - 3); ctx.lineTo(x1, y + 3); ctx.stroke();
   ctx.globalAlpha = 0.72;
-  ctx.font = '8px "Space Mono", monospace';
+  ctx.font = '10px "Space Mono", monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   ctx.fillText(label, (x0 + x1) / 2, y - 2);
   ctx.restore();
@@ -277,171 +278,31 @@ function drawFieldLabel(dark) {
   ctx.fillStyle = dark ? 'rgba(0,212,255,0.55)' : 'rgba(0,80,160,0.60)';
   ctx.font = 'bold 10px "Space Mono", monospace';
   ctx.textAlign = 'right'; ctx.textBaseline = 'top';
-  ctx.fillText(`B = ${P.B.toFixed(2)} T  ⊗`, SW - 10, DIV_Y + 10);
+  ctx.fillText(`B = ${Lab.fmt(P.B, 2)} T  ⊗ (entrante)`, SW - 10, DIV_Y + 10);
 }
 
-/* ── Graph: r vs m (linear) ──────────────────────────────────────────────── */
+/* ── Grafici ─────────────────────────────────────────────────────────────── */
+// 1: raggio in funzione della massa (retta: r ∝ m); 2: raggio in funzione di B (iperbole: r ∝ 1/B).
+// L'asse delle masse è fisso (1–200 u); quello dei raggi a gradini, con i valori scritti.
 function drawGraphs() {
-  if (!GW || !GH) return;
-  const dark   = dk();
-  const axCol  = dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.18)';
-  const lblCol = dark ? 'rgba(255,255,255,0.48)' : 'rgba(0,0,0,0.42)';
-
-  gctx.clearRect(0, 0, gc.width, gc.height);
-
-  const panW = Math.floor(GW / 2);
-  drawPanelRvsM(0, panW, dark, axCol, lblCol);
-  drawPanelRvsB(panW, panW, dark, axCol, lblCol);
-}
-
-function drawPanelRvsM(ox, pw, dark, axCol, lblCol) {
-  const PAD = { t: 22, b: 28, l: 50, r: 8 };
-  const iW = pw - PAD.l - PAD.r;
-  const iH = GH - PAD.t - PAD.b;
-
-  gctx.fillStyle = dark ? 'rgba(255,255,255,0.01)' : 'rgba(0,0,0,0.012)';
-  gctx.fillRect(ox * DPR, 0, pw * DPR, GH * DPR);
-
-  const mMax = Math.max(P.m1, P.m2, 1) * 1.55;
-  const rMax = larmor(mMax) * 100; // cm
-
-  function gx(m)    { return (ox + PAD.l + m / mMax * iW) * DPR; }
-  function gy(r_cm) { return (PAD.t + (1 - r_cm / rMax) * iH) * DPR; }
-
-  grid4(gctx, ox, pw, PAD, iW, iH, dark);
-  axes(gctx, ox, pw, PAD, iW, iH, axCol);
-
-  // r = m·v/(qB) line (grey)
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.20)';
-  gctx.lineWidth = 1.5 * DPR;
-  gctx.beginPath(); gctx.moveTo(gx(0), gy(0)); gctx.lineTo(gx(mMax), gy(rMax)); gctx.stroke();
-
-  // Isotope dots
-  dot(gctx, gx(P.m1), gy(r1 * 100), 5, '#00d4ff');
-  dot(gctx, gx(P.m2), gy(r2 * 100), 5, '#ff9944');
-
-  // Δr bracket
-  if (Math.abs(r2 - r1) > 1e-4) {
-    const y1 = gy(r1 * 100), y2 = gy(r2 * 100);
-    const xb = (ox + pw - PAD.r - 18) * DPR;
-    gctx.save();
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.30)';
-    gctx.lineWidth = DPR;
-    gctx.beginPath(); gctx.moveTo(xb, y1); gctx.lineTo(xb, y2); gctx.stroke();
-    gctx.beginPath(); gctx.moveTo(xb - 3*DPR, y1); gctx.lineTo(xb + 3*DPR, y1); gctx.stroke();
-    gctx.beginPath(); gctx.moveTo(xb - 3*DPR, y2); gctx.lineTo(xb + 3*DPR, y2); gctx.stroke();
-    gctx.fillStyle = dark ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.35)';
-    gctx.font = `${7.5 * DPR}px "Space Mono", monospace`;
-    gctx.textAlign = 'left'; gctx.textBaseline = 'middle';
-    gctx.fillText('Δr', xb + 4*DPR, (y1 + y2) / 2);
-    gctx.restore();
+  const C = Lab.graphColors(), c1 = '#00d4ff', c2 = '#ff9944';
+  const rOf = (m, B) => (m * U_M * vSI()) / (P.q * E_C * B) * 100;    // cm
+  let rm = Lab.niceMax(rOf(200, P.B));
+  let g = Lab.panel(gCanvas[0], { title: 'Raggio r = mv/(qB) in funzione della massa (cm)', xr: [0, 200], yr: [0, rm], xLabel: 'm (u)', yFmt: v => Lab.sci(v, 2) });
+  if (g) {
+    const [c, f] = g;
+    Lab.plot(c, f, m => rOf(m, P.B), [0, 200], C.text, 1.5);
+    Lab.dot(c, f, P.m1, r1 * 100, c1, 4.5); Lab.dot(c, f, P.m2, r2 * 100, c2, 4.5);
+    Lab.legend(c, f.L + 8, f.T + 8, [[c1, `m₁ = ${P.m1} u`], [c2, `m₂ = ${P.m2} u`]]);
   }
-
-  // Labels
-  axisLabels(gctx, ox, pw, PAD, iW, iH, lblCol, 'm  [u]', 'r  [cm]', rMax, 'cm');
-
-  gctx.fillStyle = dark ? 'rgba(255,255,255,0.42)' : 'rgba(0,0,0,0.38)';
-  gctx.font = `bold ${9 * DPR}px "Space Mono", monospace`;
-  gctx.textAlign = 'left'; gctx.textBaseline = 'top';
-  gctx.fillText('r = mv / (qB)', (ox + PAD.l) * DPR, 5 * DPR);
-}
-
-function drawPanelRvsB(ox, pw, dark, axCol, lblCol) {
-  const PAD = { t: 22, b: 28, l: 50, r: 8 };
-  const iW = pw - PAD.l - PAD.r;
-  const iH = GH - PAD.t - PAD.b;
-
-  // Separator
-  gctx.strokeStyle = axCol; gctx.lineWidth = DPR;
-  gctx.beginPath(); gctx.moveTo(ox * DPR, 0); gctx.lineTo(ox * DPR, GH * DPR); gctx.stroke();
-
-  gctx.fillStyle = dark ? 'rgba(255,255,255,0.005)' : 'rgba(0,0,0,0.008)';
-  gctx.fillRect(ox * DPR, 0, pw * DPR, GH * DPR);
-
-  const bMax  = 3.0;
-  const rMax1 = larmor_at(P.m1, 0.05) * 100; // at B_min
-  const rMaxPl = Math.max(larmor_at(P.m1, 0.05), larmor_at(P.m2, 0.05)) * 100 * 1.15;
-
-  function gx(b)    { return (ox + PAD.l + b / bMax * iW) * DPR; }
-  function gy(r_cm) { return (PAD.t + (1 - r_cm / rMaxPl) * iH) * DPR; }
-  function larmor_at(m, b) { return (m * U_M * vSI()) / (P.q * E_C * b); }
-
-  grid4(gctx, ox, pw, PAD, iW, iH, dark);
-  axes(gctx, ox, pw, PAD, iW, iH, axCol);
-
-  // r(B) hyperbolic curves for m1 and m2
-  drawHyperbola(gctx, gx, gy, P.m1, bMax, '#00d4ff');
-  drawHyperbola(gctx, gx, gy, P.m2, bMax, '#ff9944');
-
-  // Current B marker
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.28)';
-  gctx.lineWidth = DPR; gctx.setLineDash([3 * DPR, 3 * DPR]);
-  gctx.beginPath(); gctx.moveTo(gx(P.B), PAD.t * DPR); gctx.lineTo(gx(P.B), (PAD.t + iH) * DPR); gctx.stroke();
-  gctx.setLineDash([]);
-
-  // Dots at current B
-  dot(gctx, gx(P.B), gy(r1 * 100), 4.5, '#00d4ff');
-  dot(gctx, gx(P.B), gy(r2 * 100), 4.5, '#ff9944');
-
-  axisLabels(gctx, ox, pw, PAD, iW, iH, lblCol, 'B  [T]', 'r  [cm]', rMaxPl, 'cm');
-
-  gctx.fillStyle = dark ? 'rgba(255,255,255,0.42)' : 'rgba(0,0,0,0.38)';
-  gctx.font = `bold ${9 * DPR}px "Space Mono", monospace`;
-  gctx.textAlign = 'left'; gctx.textBaseline = 'top';
-  gctx.fillText('r = mv / (qB)', (ox + PAD.l) * DPR, 5 * DPR);
-}
-
-function drawHyperbola(c, gx, gy, m_u, bMax, col) {
-  c.save();
-  c.strokeStyle = col; c.lineWidth = 1.5 * DPR; c.globalAlpha = 0.65;
-  c.beginPath();
-  let first = true;
-  for (let bi = 1; bi <= 80; bi++) {
-    const b = 0.05 + (bi / 80) * (bMax - 0.05);
-    const r_cm = (m_u * U_M * vSI()) / (P.q * E_C * b) * 100;
-    const px = gx(b), py = gy(r_cm);
-    if (py < 0 || py > (GH + 10) * DPR) { first = true; continue; }
-    first ? c.moveTo(px, py) : c.lineTo(px, py);
-    first = false;
-  }
-  c.stroke(); c.restore();
-}
-
-/* ── Graph helpers ───────────────────────────────────────────────────────── */
-function grid4(c, ox, pw, PAD, iW, iH, dark) {
-  c.strokeStyle = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
-  c.lineWidth = DPR;
-  for (let g = 0; g <= 4; g++) {
-    const y = (PAD.t + g * iH / 4) * DPR;
-    c.beginPath(); c.moveTo((ox + PAD.l) * DPR, y); c.lineTo((ox + PAD.l + iW) * DPR, y); c.stroke();
-  }
-}
-function axes(c, ox, pw, PAD, iW, iH, axCol) {
-  c.strokeStyle = axCol; c.lineWidth = DPR;
-  c.beginPath();
-  c.moveTo((ox + PAD.l) * DPR, PAD.t * DPR);
-  c.lineTo((ox + PAD.l) * DPR, (PAD.t + iH) * DPR);
-  c.lineTo((ox + PAD.l + iW) * DPR, (PAD.t + iH) * DPR);
-  c.stroke();
-}
-function dot(c, px, py, r, col) {
-  c.beginPath(); c.arc(px, py, r * DPR, 0, 2 * Math.PI);
-  c.fillStyle = col; c.fill();
-}
-function axisLabels(c, ox, pw, PAD, iW, iH, lblCol, xLabel, yLabel, rMax, unit) {
-  c.fillStyle = lblCol;
-  c.font = `${8 * DPR}px "Space Mono", monospace`;
-  c.textAlign = 'center'; c.textBaseline = 'top';
-  c.fillText(xLabel, (ox + PAD.l + iW / 2) * DPR, (PAD.t + iH + 14) * DPR);
-  c.save();
-  c.translate((ox + 10) * DPR, (PAD.t + iH / 2) * DPR);
-  c.rotate(-Math.PI / 2); c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.fillText(yLabel, 0, 0);
-  c.restore();
-  c.textAlign = 'right'; c.textBaseline = 'middle';
-  for (let g = 0; g <= 4; g++) {
-    const v = rMax * (1 - g / 4);
-    c.fillText(v < 10 ? v.toFixed(2) : v.toFixed(1), (ox + PAD.l - 3) * DPR, (PAD.t + g * iH / 4) * DPR);
+  rm = Lab.niceMax(rOf(Math.max(P.m1, P.m2), 0.25));
+  g = Lab.panel(gCanvas[1], { title: 'Raggio in funzione del campo B (cm)', xr: [0, 3], yr: [0, rm], xLabel: 'B (T)', yFmt: v => Lab.sci(v, 2) });
+  if (g) {
+    const [c, f] = g;
+    Lab.plot(c, f, B => rOf(P.m1, B), [0.02, 3], c1, 2);
+    Lab.plot(c, f, B => rOf(P.m2, B), [0.02, 3], c2, 2);
+    c.save(); c.setLineDash([3, 3]); c.strokeStyle = C.text; c.beginPath(); c.moveTo(f.X(P.B), f.T); c.lineTo(f.X(P.B), f.B); c.stroke(); c.restore();
+    Lab.dot(c, f, P.B, r1 * 100, c1, 4.5); Lab.dot(c, f, P.B, r2 * 100, c2, 4.5);
   }
 }
 
@@ -449,10 +310,10 @@ function axisLabels(c, ox, pw, PAD, iW, iH, lblCol, xLabel, yLabel, rMax, unit) 
 function updateReadout() {
   const dr = Math.abs(r2 - r1);
   document.getElementById('readout').innerHTML = [
-    { label: 'r₁',  value: (r1 * 100).toFixed(2) + ' cm' },
-    { label: 'r₂',  value: (r2 * 100).toFixed(2) + ' cm' },
-    { label: 'Δr',  value: (dr * 100).toFixed(2) + ' cm' },
-    { label: 'Δx',  value: (dr * 200).toFixed(2) + ' cm' },
+    { label: 'r₁',  value: Lab.fmt((r1 * 100),2) + ' cm' },
+    { label: 'r₂',  value: Lab.fmt((r2 * 100),2) + ' cm' },
+    { label: 'Δr',  value: Lab.fmt((dr * 100),2) + ' cm' },
+    { label: 'Δx',  value: Lab.fmt((dr * 200),2) + ' cm' },
   ].map(r =>
     `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
@@ -473,24 +334,24 @@ function buildControls() {
   ctrl.innerHTML = '';
 
   const bSec = Lab.Section('Campo Magnetico');
-  bSec.add(Lab.Slider({ label: 'B  [T]  (nel piano, ⊗)', min: 0.05, max: 3, step: 0.01, value: P.B,
+  bSec.add(Lab.Slider({ label: 'Campo B (entrante ⊗)', min: 0.05, max: 3, step: 0.01, value: P.B, unit: ' T',
     onChange: v => { P.B = v; refresh(); } }));
   ctrl.appendChild(bSec.el);
 
   const vSec = Lab.Section('Velocità  (da selettore)');
-  vSec.add(Lab.Slider({ label: 'v₀  [×10⁵ m/s]', min: 1, max: 100, step: 1, value: P.v,
+  vSec.add(Lab.Slider({ label: 'Velocità v₀', min: 1, max: 100, step: 1, value: P.v, unit: '·10⁵ m/s',
     onChange: v => { P.v = v; refresh(); } }));
   ctrl.appendChild(vSec.el);
 
   const iSec = Lab.Section('Ione');
-  iSec.add(Lab.Slider({ label: 'Carica q  [e]', min: 1, max: 4, step: 1, value: P.q,
+  iSec.add(Lab.Slider({ label: 'Carica q', min: 1, max: 4, step: 1, value: P.q, unit: ' e',
     onChange: v => { P.q = v; refresh(); } }));
   ctrl.appendChild(iSec.el);
 
   const mSec = Lab.Section('Isotopi');
-  mSec.add(Lab.Slider({ label: 'Massa m₁  [u]', min: 1, max: 200, step: 1, value: P.m1,
+  mSec.add(Lab.Slider({ label: 'Massa m₁', min: 1, max: 200, step: 1, value: P.m1, unit: ' u',
     onChange: v => { P.m1 = v; refresh(); } }));
-  mSec.add(Lab.Slider({ label: 'Massa m₂  [u]', min: 1, max: 200, step: 1, value: P.m2,
+  mSec.add(Lab.Slider({ label: 'Massa m₂', min: 1, max: 200, step: 1, value: P.m2, unit: ' u',
     onChange: v => { P.m2 = v; refresh(); } }));
   ctrl.appendChild(mSec.el);
 }
@@ -501,22 +362,19 @@ function refresh() { compute(); }
 function resizeCanvases() {
   const area = sc.parentElement;
   const ga   = document.getElementById('graphArea');
+  if (!gCanvas.length) gCanvas = Lab.graphPanels(ga, 2, 180);
   const rd   = area.querySelector('.readout-bar');
-  const rdH  = rd ? rd.clientHeight || 48 : 48;
-  const gaH  = ga.clientHeight || 190;
-
+  const rdH  = rd ? rd.offsetHeight || 48 : 48;
+  const gaH  = ga.offsetHeight || 180;
+  DPR = window.devicePixelRatio || 1;
   SW = area.clientWidth;
   SH = Math.max(80, area.clientHeight - gaH - rdH);
-
-  sc.width  = Math.round(SW * DPR); sc.height = Math.round(SH * DPR);
-  sc.style.width  = SW + 'px';      sc.style.height = SH + 'px';
-
-  GW = area.clientWidth; GH = gaH;
-  gc.width  = Math.round(GW * DPR); gc.height = Math.round(GH * DPR);
-  gc.style.width  = GW + 'px';      gc.style.height = GH + 'px';
+  Lab.hidpi(sc, SW, SH);
+  Lab.fitPanels(gCanvas);
+  computeLayout();
 }
 
-window.addEventListener('resize', () => { resizeCanvases(); refresh(); });
+new ResizeObserver(() => { resizeCanvases(); refresh(); }).observe(sc.parentElement);
 
 function init() {
   resizeCanvases();

@@ -2,11 +2,9 @@
 
 /* ── Canvas refs ─────────────────────────────────────────────────────────── */
 const sc   = document.getElementById('simCanvas');
-const gc   = document.getElementById('graphCanvas');
 const ctx  = sc.getContext('2d');
-const gctx = gc.getContext('2d');
-const DPR  = window.devicePixelRatio || 1;
-let SW = 0, SH = 0, GW = 0, GH = 0;
+let DPR  = window.devicePixelRatio || 1;
+let SW = 0, SH = 0;
 
 /* ── Theme ───────────────────────────────────────────────────────────────── */
 Lab.initTheme('themeToggle');
@@ -43,22 +41,43 @@ let panDragging  = false, panStartX = 0, panStartY = 0, panOriginX = 0, panOrigi
 let rot3X = 0.42, rot3Y = 0.38;
 let rot3Dragging = false, rot3StartX = 0, rot3StartY = 0, rot3OrigX = 0, rot3OrigY = 0;
 
-/* ── Poles ───────────────────────────────────────────────────────────────── */
+/* ── Poli e sorgenti del campo ─────────────────────────────────────────────── */
+// Ogni magnete è una barra magnetizzata uniformemente (M lungo l'asse, da S a N). Fuori dalla barra
+// il campo è quello di due "facce cariche" di segno opposto: ogni polo è distribuito su una griglia
+// 3×3 di punti sulla faccia, così vicino ai poli il campo non diverge come per un polo puntiforme.
+// Dentro la barra B = μ₀(H + M): si aggiunge M, e le linee di B attraversano il magnete da S a N
+// chiudendosi su se stesse (non esistono monopoli). Unità normalizzate: H = Σ q·r̂/r².
+const MAG = 4 * PI / (2 * HW) ** 2;   // M tale che il flusso di M nella barra eguagli quello uscente dal polo (4π·q)
+let srcPts = [];
 function updatePoles() {
-  poles = [];
+  poles = []; srcPts = [];
+  const off = [-HW * 0.66, 0, HW * 0.66];
   for (const m of magnets) {
     const ca = Math.cos(m.angle), sa = Math.sin(m.angle);
     poles.push({ x: m.x + HL * ca, y: m.y + HL * sa, q:  1 });
     poles.push({ x: m.x - HL * ca, y: m.y - HL * sa, q: -1 });
+    for (const q of [1, -1]) for (const u of off) for (const w of off) {
+      srcPts.push({ x: m.x + q * HL * ca - u * sa, y: m.y + q * HL * sa + u * ca, z: w, q: q / 9 });
+    }
   }
+}
+// contributo della magnetizzazione: M dentro la barra, nulla fuori
+function magM(x, y, z = 0) {
+  let mx = 0, my = 0;
+  for (const m of magnets) {
+    const ca = Math.cos(m.angle), sa = Math.sin(m.angle);
+    const dx = x - m.x, dy = y - m.y, u = dx * ca + dy * sa, v = -dx * sa + dy * ca;
+    if (Math.abs(u) < HL && Math.abs(v) < HW && Math.abs(z) < HW) { mx += MAG * ca; my += MAG * sa; }
+  }
+  return [mx, my];
 }
 
 /* ── Physics ─────────────────────────────────────────────────────────────── */
 function bField(x, y) {
-  let bx = 0, by = 0;
-  for (const p of poles) {
-    const dx = x - p.x, dy = y - p.y;
-    const r2 = dx * dx + dy * dy;
+  let [bx, by] = magM(x, y);
+  for (const p of srcPts) {
+    const dx = x - p.x, dy = y - p.y, dz = p.z;
+    const r2 = dx * dx + dy * dy + dz * dz;
     if (r2 < 1e-4) continue;
     const r3 = r2 ** 1.5;
     bx += p.q * dx / r3;
@@ -68,9 +87,9 @@ function bField(x, y) {
 }
 
 function bField3D(x, y, z) {
-  let bx = 0, by = 0, bz = 0;
-  for (const p of poles) {
-    const dx = x - p.x, dy = y - p.y, dz = z;
+  let [bx, by] = magM(x, y, z), bz = 0;
+  for (const p of srcPts) {
+    const dx = x - p.x, dy = y - p.y, dz = z - p.z;
     const r2 = dx*dx + dy*dy + dz*dz;
     if (r2 < 1e-4) continue;
     const r3 = r2 ** 1.5;
@@ -81,7 +100,7 @@ function bField3D(x, y, z) {
   return [bx, by, bz];
 }
 
-/* ── Color map: dark-green palette (black → forest → teal → bright teal) ── */
+/* ── Mappa dei colori ─────────────────────────────────────────────────────── */
 function lerpStops(S, t) {
   for (let i = 1; i < S.length; i++) {
     if (t <= S[i][0] || i === S.length - 1) {
@@ -92,26 +111,25 @@ function lerpStops(S, t) {
   }
 }
 
+// stessa tavolozza della mappa |B| del lab "Campi da correnti": nero → blu → azzurro → bianco
 function bToRGB(bm, dark) {
-  /* Power-law mapping spreads mid-field values across more of the palette
-     so green is visible well into the background (far from poles). */
+  /* la potenza 0,28 allarga i valori intermedi: il campo resta visibile anche lontano dai poli */
   const t = Math.min(1, Math.pow(Math.max(0, bm) * 0.08, 0.28));
   if (dark) {
     return lerpStops([
-      [0.00, [  3,  6,  3]],
-      [0.12, [  5, 20,  9]],
-      [0.28, [ 10, 55, 26]],
-      [0.45, [  6,108, 58]],
-      [0.62, [  0,162,108]],
-      [0.80, [  0,210,160]],
-      [1.00, [ 45,255,202]],
+      [0.00, [  6, 10, 16]],
+      [0.30, [ 10, 36, 62]],
+      [0.60, [  0,110,150]],
+      [0.85, [  0,200,240]],
+      [1.00, [210,250,255]],
     ], t);
   }
   return lerpStops([
-    [0.00, [238,248,244]],
-    [0.35, [170,232,212]],
-    [0.65, [ 20,170,135]],
-    [1.00, [  0, 95, 72]],
+    [0.00, [244,247,250]],
+    [0.35, [196,228,242]],
+    [0.65, [ 84,176,216]],
+    [0.85, [  0,112,170]],
+    [1.00, [ 10, 52, 96]],
   ], t);
 }
 
@@ -538,11 +556,10 @@ function drawScene() {
   ctx.restore();
 
   document.getElementById('readout').innerHTML =
-    `<span class="readout-cell"><span class="readout-label">|B|</span><span class="readout-value">${tBm.toFixed(3)}</span></span>` +
-    `<span class="readout-cell"><span class="readout-label">Bx</span><span class="readout-value">${tBx.toFixed(3)}</span></span>` +
-    `<span class="readout-cell"><span class="readout-label">By</span><span class="readout-value">${tBy.toFixed(3)}</span></span>` +
-    `<span class="readout-cell"><span class="readout-label">x</span><span class="readout-value">${testPt.x.toFixed(2)}</span></span>` +
-    `<span class="readout-cell"><span class="readout-label">y</span><span class="readout-value">${testPt.y.toFixed(2)}</span></span>`;
+    `<span class="readout-cell"><span class="readout-label">sonda in</span><span class="readout-value">(${Lab.fmt(testPt.x, 1)}; ${Lab.fmt(testPt.y, 1)}) cm</span></span>` +
+    `<span class="readout-cell"><span class="readout-label">|B|</span><span class="readout-value">${Lab.sci(tBm * B_UNIT, 3)} mT</span></span>` +
+    `<span class="readout-cell"><span class="readout-label">B_x</span><span class="readout-value">${Lab.sci(tBx * B_UNIT, 3)} mT</span></span>` +
+    `<span class="readout-cell"><span class="readout-label">B_y</span><span class="readout-value">${Lab.sci(tBy * B_UNIT, 3)} mT</span></span>`;
 }
 
 /* ── Draw 3D scene ───────────────────────────────────────────────────────── */
@@ -650,197 +667,98 @@ function drawScene3D() {
   ctx.restore();
 
   document.getElementById('readout').innerHTML =
-    `<span class="readout-cell"><span class="readout-label">rotX</span><span class="readout-value">${(rot3X*180/PI).toFixed(0)}°</span></span>` +
-    `<span class="readout-cell"><span class="readout-label">rotY</span><span class="readout-value">${(rot3Y*180/PI).toFixed(0)}°</span></span>`;
+    `<span class="readout-cell"><span class="readout-label">rotazione X</span><span class="readout-value">${Lab.fmt(rot3X*180/PI,0)}°</span></span>` +
+    `<span class="readout-cell"><span class="readout-label">rotazione Y</span><span class="readout-value">${Lab.fmt(rot3Y*180/PI,0)}°</span></span>`;
 }
 
-/* ── Graph panels ────────────────────────────────────────────────────────── */
-function drawGraph(x0, panelW, mode) {
-  const dark = dk();
-  gctx.save(); gctx.scale(DPR, DPR);
-  gctx.fillStyle = dark ? '#040810' : '#f0f4f8';
-  gctx.fillRect(x0, 0, panelW, GH);
-
-  const pad = { l: 42, r: 10, t: 14, b: 26 };
-  const W = panelW - pad.l - pad.r, H = GH - pad.t - pad.b;
-
-  /* ── radial |B|(r) ── */
+/* ── Grafici ─────────────────────────────────────────────────────────────── */
+// Le coordinate sono in cm: ogni magnete è una barretta al neodimio lunga 1,8 cm. B_UNIT converte
+// il campo normalizzato in mT, scelto in modo che al centro della barra B ≈ 1,2 T (valore tipico).
+let B_UNIT = 1;
+function calibrateB() {
+  const keep = magnets; magnets = [{ x: 0, y: 0, angle: 0 }]; updatePoles();
+  B_UNIT = 1200 / Math.hypot(...bField(0, 0));
+  magnets = keep; updatePoles();
+}
+// 1: |B| e 2: B_x lungo la retta orizzontale per la sonda; 3: |B| lungo il raggio verso la sonda
+function drawGraph(cv, mode) {
+  const C = Lab.graphColors();
+  const probe = (c, f, x, y) => {
+    c.save(); c.setLineDash([4, 3]); c.strokeStyle = 'rgba(0,220,170,0.75)';
+    c.beginPath(); c.moveTo(f.X(x), f.T); c.lineTo(f.X(x), f.B); c.stroke(); c.restore();
+    if (Number.isFinite(y)) Lab.dot(c, f, x, y, '#00d8a8', 4);
+  };
+  const inMagnet = (x, y) => magnets.some(m => {
+    const ca = Math.cos(m.angle), sa = Math.sin(m.angle), dx = x - m.x, dy = y - m.y;
+    return Math.abs(dx * ca + dy * sa) < HL && Math.abs(-dx * sa + dy * ca) < HW;
+  });
+  const shadeMagnets = (c, f, along) => {
+    // fasce grigie dove la retta del grafico attraversa un magnete
+    c.save(); c.fillStyle = C.light ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+    let start = null;
+    for (let i = 0; i <= 400; i++) {
+      const s = f.X.a + (f.X.b - f.X.a) * i / 400, inside = inMagnet(...along(s));
+      if (inside && start === null) start = s;
+      if ((!inside || i === 400) && start !== null) { c.fillRect(f.X(start), f.T, f.X(s) - f.X(start), f.B - f.T); start = null; }
+    }
+    c.restore();
+  };
   if (mode === 'Br') {
     const rMax = VIEW * Math.SQRT2;
-    const angle = (testPt.x === 0 && testPt.y === 0) ? 0 : Math.atan2(testPt.y, testPt.x);
-    const cosA = Math.cos(angle), sinA = Math.sin(angle);
-    const N = 300;
-    const pts = Array.from({length: N}, (_, i) => {
-      const r = rMax * (i + 0.5) / N;
-      const [bx, by] = bField(r * cosA, r * sinA);
-      const bm = Math.hypot(bx, by);
-      return { r, val: bm < 300 ? bm : null };
-    });
-    const vals = pts.filter(p => p.val !== null).map(p => p.val);
-    const vMax = vals.length ? Math.max(...vals) : 1;
-    const xS = r => x0 + pad.l + (r / rMax) * W;
-    const yS = v => pad.t + H * (1 - Math.min(v, vMax) / vMax);
-
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'; gctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) { const y = pad.t + H*i/4; gctx.beginPath(); gctx.moveTo(x0+pad.l,y); gctx.lineTo(x0+pad.l+W,y); gctx.stroke(); }
-
-    for (const p of poles) {
-      const rDot = p.x * cosA + p.y * sinA;
-      if (rDot <= 0 || rDot >= rMax) continue;
-      const cs = xS(rDot);
-      const col = p.q > 0 ? (dark ? 'rgba(255,80,40,0.45)' : 'rgba(200,60,0,0.45)')
-                           : (dark ? 'rgba(40,150,255,0.45)' : 'rgba(0,90,200,0.45)');
-      gctx.strokeStyle = col; gctx.lineWidth = 1; gctx.setLineDash([3,4]);
-      gctx.beginPath(); gctx.moveTo(cs,pad.t); gctx.lineTo(cs,pad.t+H); gctx.stroke();
-      gctx.setLineDash([]);
-    }
-
-    gctx.beginPath(); gctx.strokeStyle = dark ? '#00d4ff' : '#0060c0'; gctx.lineWidth = 2;
-    let on = false;
-    for (const p of pts) {
-      if (p.val === null) { if (on) { gctx.stroke(); gctx.beginPath(); on = false; } continue; }
-      const sx = xS(p.r), sy = yS(p.val);
-      on ? gctx.lineTo(sx,sy) : (gctx.moveTo(sx,sy), on = true);
-    }
-    if (on) gctx.stroke();
-
-    const rTest = Math.hypot(testPt.x, testPt.y);
-    const txS = xS(rTest);
-    if (rTest <= rMax && txS >= x0+pad.l && txS <= x0+pad.l+W) {
-      gctx.strokeStyle = dark ? 'rgba(0,255,185,0.75)' : 'rgba(0,140,100,0.75)';
-      gctx.lineWidth = 1.2; gctx.setLineDash([4,3]);
-      gctx.beginPath(); gctx.moveTo(txS,pad.t); gctx.lineTo(txS,pad.t+H); gctx.stroke();
-      gctx.setLineDash([]);
-      const emT = Math.hypot(...bField(testPt.x, testPt.y));
-      if (emT < 300) { gctx.beginPath(); gctx.arc(txS,yS(emT),4,0,PI*2); gctx.fillStyle = dark?'#00ffb8':'#00a080'; gctx.fill(); }
-    }
-
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)'; gctx.lineWidth=1; gctx.setLineDash([]);
-    gctx.beginPath(); gctx.moveTo(x0+pad.l,pad.t); gctx.lineTo(x0+pad.l,pad.t+H); gctx.lineTo(x0+pad.l+W,pad.t+H); gctx.stroke();
-    gctx.font = '8px Space Mono'; gctx.fillStyle = dark?'#80a0c0':'#506080';
-    gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-    [0,0.5,1].forEach(t => gctx.fillText((vMax*(1-t)).toFixed(1), x0+pad.l-3, pad.t+H*t));
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    [0,2,4].filter(r => r <= rMax).forEach(r => gctx.fillText(r, xS(r), pad.t+H+3));
-    gctx.fillStyle = dark?'#608090':'#405060';
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    const deg = Math.round(angle * 180 / PI);
-    gctx.fillText(`|B|(r, ${deg}°)`, x0+pad.l+W/2, pad.t-6);
-    gctx.restore();
+    const ang = (testPt.x === 0 && testPt.y === 0) ? 0 : Math.atan2(testPt.y, testPt.x);
+    const ca = Math.cos(ang), sa = Math.sin(ang);
+    const Bm = r => Math.hypot(...bField(r * ca, r * sa)) * B_UNIT;
+    let top = 0; for (let i = 1; i <= 200; i++) top = Math.max(top, Bm(rMax * i / 200));
+    const yM = Lab.niceMax(Math.min(top, 1500) || 1);
+    const g = Lab.panel(cv, { title: `|B| lungo il raggio a ${Math.round(ang * 180 / PI)}° (mT)`, xr: [0, rMax], yr: [0, yM], xLabel: 'r (cm)' });
+    if (!g) return; const [c, f] = g;
+    f.X.a = 0; f.X.b = rMax; shadeMagnets(c, f, r => [r * ca, r * sa]);
+    Lab.plot(c, f, Bm, [0, rMax], C.accent, 2, [], 400);
+    const rT = Math.hypot(testPt.x, testPt.y);
+    probe(c, f, rT, Bm(rT));
     return;
   }
-
-  /* ── horizontal slice (Babs or Bx) ── */
-  const signed = (mode === 'Bx');
-  const N = 300, xMin = -VIEW, xMax = VIEW, ySlice = testPt.y;
-  const pts = Array.from({length: N}, (_, i) => {
-    const xp = xMin + (xMax - xMin) * i / (N - 1);
-    const [bx, by] = bField(xp, ySlice);
-    const val = mode === 'Bx' ? bx : Math.hypot(bx, by);
-    return { xp, val: Math.abs(val) < 200 ? val : null };
+  const yS = testPt.y;
+  const fn = mode === 'Bx' ? x => bField(x, yS)[0] * B_UNIT : x => Math.hypot(...bField(x, yS)) * B_UNIT;
+  let top = 0; for (let i = 0; i <= 300; i++) top = Math.max(top, Math.abs(fn(-VIEW + 2 * VIEW * i / 300)));
+  const yM = Lab.niceMax(Math.min(top, 1500) || 1);
+  const g = Lab.panel(cv, {
+    title: mode === 'Bx' ? `Componente B_x lungo y = ${Lab.fmt(yS, 1)} cm (mT)` : `|B| lungo y = ${Lab.fmt(yS, 1)} cm (mT)`,
+    xr: [-VIEW, VIEW], yr: mode === 'Bx' ? [-yM, yM] : [0, yM], xLabel: 'x (cm)',
   });
-  const vals = pts.filter(p => p.val !== null).map(p => p.val);
-  if (vals.length < 2) { gctx.restore(); return; }
-  let vMin = Math.min(...vals), vMax = Math.max(...vals);
-  if (signed) { const va = Math.max(Math.abs(vMin), Math.abs(vMax)); vMin = -va; vMax = va; }
-  else vMin = 0;
-  const vRange = (vMax - vMin) || 1;
-  const xS = xp => x0 + pad.l + (xp - xMin) / (xMax - xMin) * W;
-  const yS = v  => pad.t + H * (1 - (Math.max(vMin, Math.min(vMax, v)) - vMin) / vRange);
-
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.07)'; gctx.lineWidth = 1;
-  for (let i = 1; i < 4; i++) { const y = pad.t+H*i/4; gctx.beginPath(); gctx.moveTo(x0+pad.l,y); gctx.lineTo(x0+pad.l+W,y); gctx.stroke(); }
-
-  if (signed) {
-    const y0l = yS(0);
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.16)';
-    gctx.lineWidth = 1; gctx.setLineDash([4,4]);
-    gctx.beginPath(); gctx.moveTo(x0+pad.l,y0l); gctx.lineTo(x0+pad.l+W,y0l); gctx.stroke();
-    gctx.setLineDash([]);
-  }
-
-  for (const p of poles) {
-    const cs = xS(p.x);
-    if (cs < x0+pad.l || cs > x0+pad.l+W) continue;
-    const col = p.q > 0 ? (dark?'rgba(255,80,40,0.40)':'rgba(200,60,0,0.40)')
-                        : (dark?'rgba(40,150,255,0.40)':'rgba(0,90,200,0.40)');
-    gctx.strokeStyle = col; gctx.lineWidth = 1; gctx.setLineDash([3,4]);
-    gctx.beginPath(); gctx.moveTo(cs,pad.t); gctx.lineTo(cs,pad.t+H); gctx.stroke();
-    gctx.setLineDash([]);
-  }
-
-  gctx.beginPath(); gctx.strokeStyle = dark?'#00d4ff':'#0060c0'; gctx.lineWidth = 2;
-  let on = false;
-  for (const p of pts) {
-    if (p.val === null) { if (on) { gctx.stroke(); gctx.beginPath(); on=false; } continue; }
-    const sx = xS(p.xp), sy = yS(p.val);
-    on ? gctx.lineTo(sx,sy) : (gctx.moveTo(sx,sy), on=true);
-  }
-  if (on) gctx.stroke();
-
-  const txS = xS(testPt.x);
-  if (txS >= x0+pad.l && txS <= x0+pad.l+W) {
-    gctx.strokeStyle = dark?'rgba(0,255,185,0.75)':'rgba(0,140,100,0.75)';
-    gctx.lineWidth = 1.2; gctx.setLineDash([4,3]);
-    gctx.beginPath(); gctx.moveTo(txS,pad.t); gctx.lineTo(txS,pad.t+H); gctx.stroke();
-    gctx.setLineDash([]);
-    const [bx, by] = bField(testPt.x, testPt.y);
-    const tv = mode === 'Bx' ? bx : Math.hypot(bx, by);
-    if (Math.abs(tv) < 200) { gctx.beginPath(); gctx.arc(txS,yS(tv),4,0,PI*2); gctx.fillStyle=dark?'#00ffb8':'#00a080'; gctx.fill(); }
-  }
-
-  gctx.strokeStyle = dark?'rgba(255,255,255,0.18)':'rgba(0,0,0,0.18)'; gctx.lineWidth=1; gctx.setLineDash([]);
-  gctx.beginPath(); gctx.moveTo(x0+pad.l,pad.t); gctx.lineTo(x0+pad.l,pad.t+H); gctx.lineTo(x0+pad.l+W,pad.t+H); gctx.stroke();
-  gctx.font = '8px Space Mono'; gctx.fillStyle = dark?'#80a0c0':'#506080';
-  gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-  [0,0.5,1].forEach(t => { const v = vMin+vRange*(1-t); gctx.fillText(v.toFixed(1), x0+pad.l-3, pad.t+H*t); });
-  gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-  [-3,0,3].forEach(xp => { if (xp>=xMin && xp<=xMax) gctx.fillText(xp, xS(xp), pad.t+H+3); });
-  gctx.fillStyle = dark?'#608090':'#405060'; gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-  gctx.fillText(mode==='Bx' ? 'Bx(x)  [u.a.]' : '|B|(x)  [u.a.]', x0+pad.l+W/2, pad.t-6);
-
-  if (mode !== 'Br') {
-    gctx.strokeStyle = dark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.09)'; gctx.lineWidth=1;
-    gctx.beginPath(); gctx.moveTo(x0+panelW-0.5,4); gctx.lineTo(x0+panelW-0.5,GH-4); gctx.stroke();
-  }
-  gctx.restore();
+  if (!g) return; const [c, f] = g;
+  f.X.a = -VIEW; f.X.b = VIEW; shadeMagnets(c, f, x => [x, yS]);
+  Lab.plot(c, f, fn, [-VIEW, VIEW], mode === 'Bx' ? C.amber : C.accent, 2, [], 500);
+  probe(c, f, testPt.x, fn(testPt.x));
 }
 
 /* ── Master draw ─────────────────────────────────────────────────────────── */
+let gCanvas = [];
 function draw() {
-  if (OP.view3D) {
-    drawScene3D();
-  } else {
-    drawScene();
-  }
-  if (GW > 0 && GH > 0) {
-    const third = Math.floor(GW / 3);
-    drawGraph(0,           third,          'Babs');
-    drawGraph(third,       third,          'Bx');
-    drawGraph(2 * third,   GW - 2 * third, 'Br');
-  }
+  if (OP.view3D) drawScene3D(); else drawScene();
+  drawGraph(gCanvas[0], 'Babs');
+  drawGraph(gCanvas[1], 'Bx');
+  drawGraph(gCanvas[2], 'Br');
 }
 
 /* ── Resize ──────────────────────────────────────────────────────────────── */
 function resizeCanvases() {
   const area = sc.parentElement;
   const ga   = document.getElementById('graphArea');
+  if (!gCanvas.length) gCanvas = Lab.graphPanels(ga, 3, 180);
   const rd   = area.querySelector('.readout-bar');
   SW = area.clientWidth;
-  const gaH = ga.clientHeight  || 200;
-  const rdH = rd ? (rd.clientHeight || 56) : 56;
+  const gaH = ga.offsetHeight || 180;
+  const rdH = rd ? (rd.offsetHeight || 56) : 56;
   SH = Math.max(120, area.clientHeight - gaH - rdH);
-  sc.width = SW * DPR; sc.height = SH * DPR;
-  sc.style.width = SW + 'px'; sc.style.height = SH + 'px';
+  Lab.hidpi(sc, SW, SH);
   const cx = -panX / (baseScale || 1), cy = panY / (baseScale || 1);
   baseScale = Math.min(SW, SH) / (2 * VIEW);
   scale = baseScale * zoom;
   panX = -cx * baseScale; panY = cy * baseScale;
-  GW = ga.clientWidth; GH = gaH;
-  gc.width = GW * DPR; gc.height = GH * DPR;
-  gc.style.width = GW + 'px'; gc.style.height = GH + 'px';
+  Lab.fitPanels(gCanvas);
   invalidateMap();
-  if (SW > 0 && GW > 0) draw();
+  if (SW > 0) draw();
 }
 new ResizeObserver(resizeCanvases).observe(sc.parentElement);
 
@@ -942,6 +860,11 @@ function buildControls() {
     'Trascina l\'area: sposta. Doppio click: reimposta.<br>' +
     '<b>3D:</b> Trascina per ruotare. Doppio click: reimposta.';
   panel.appendChild(info);
+  const phys = document.createElement('div');
+  phys.className = 'lab-note';
+  phys.style.marginTop = '10px';
+  phys.innerHTML = 'Le linee di B escono dal polo N, rientrano nel polo S e <b>dentro la barra</b> tornano da S a N: sono sempre chiuse, perché non esistono poli magnetici isolati. Il grafico di |B| lungo il raggio mostra il campo intenso dentro la barra (zona grigia).';
+  panel.appendChild(phys);
 }
 
 /* ── nearestObj ──────────────────────────────────────────────────────────── */
@@ -1025,5 +948,9 @@ document.getElementById('themeToggle').addEventListener('click', () => {
 });
 
 updatePoles();
+calibrateB();
 buildControls();
 resizeCanvases();
+
+// i caratteri web arrivano dopo il primo disegno: senza ridisegnare, i grafici restano con il font di ripiego
+if (document.fonts) document.fonts.ready.then(() => draw());

@@ -15,6 +15,7 @@ let I=0;           // corrente (mA)
 let simT=0;        // tempo simulato (s)
 let flow=0;        // fase animazione corrente
 let hist=[];       // {t,Vc,I}
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout, t=0;
 
@@ -59,8 +60,7 @@ function step(dt){
 
 // ═══ Rendering circuito ═══════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   drawCircuit(ctx,W,H);
@@ -116,15 +116,17 @@ function drawCircuit(ctx,W,H){
   ctx.fillStyle=T.txt; ctx.font='12px "Space Mono",monospace'; ctx.textAlign='center';
   ctx.fillText(`R = ${P.R} kΩ`, (x0+x1)/2, y0-26);
   ctx.fillStyle=T.accent;
-  ctx.fillText(`C = ${P.C} µF`, x1+54, capY-4);
-  ctx.fillText(`V_C = ${Vc.toFixed(2)} V`, x1+54, capY+14);
+  ctx.textAlign='left';     // a destra delle armature, senza sovrapporsi
+  ctx.fillText(`C = ${P.C} µF`, x1+30, capY-4);
+  ctx.fillText(`V_C = ${Lab.fmt(Vc,2)} V`, x1+30, capY+14);
+  ctx.textAlign='center';
   ctx.fillStyle=T.sub;
   ctx.fillText(`${P.V0} V`, x0-40, capY+4);
 
   // stato + τ
   ctx.textAlign='left'; ctx.fillStyle=T.sub; ctx.font='11px "Space Mono",monospace';
   const modeLbl={charge:'CARICA',discharge:'SCARICA',open:'CIRCUITO APERTO'}[P.mode];
-  ctx.fillText(`${modeLbl} · τ = RC = ${tau().toFixed(3)} s · I = ${I.toFixed(2)} mA`, 14, H-16);
+  ctx.fillText(`${modeLbl} · τ = RC = ${Lab.sci(tau(),3)} s · I = ${Lab.fmt(I,2)} mA`, 14, H-16);
 }
 
 function drawCurrentFlow(ctx,x0,x1,y0,y1,capY,capGap){
@@ -203,63 +205,42 @@ function drawBattery(ctx,x,cy){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
+// Asse dei tempi: finestra di 6τ che scorre. Tensione ed energia hanno fondo scala fisso
+// (V₀ massima 12 V, energia ½·C·V₀²); la corrente ha fondo scala V₀/R a gradini "tondi".
 function tWindow(){ return Math.max(6*tau(),0.5); }
+const V_MAX=12;
 
-// 1: V_C(t)
 function drawVc(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:24,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const win=tWindow(), t1=simT, t0=t1-win;
-  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4; ctx.beginPath(); let first=true;
-  for(const h of hist){ const x=PAD.l+(h.t-t0)/win*gW, y=PAD.t+gH-(h.Vc/P.V0)*gH; first?(ctx.moveTo(x,y),first=false):ctx.lineTo(x,y); }
-  ctx.stroke();
-  // marker τ (63%) e 5τ
-  ctx.strokeStyle='rgba(255,210,90,0.4)'; ctx.lineWidth=0.6; ctx.setLineDash([2,3]);
-  const y63=PAD.t+gH-0.632*gH; ctx.beginPath(); ctx.moveTo(PAD.l,y63); ctx.lineTo(PAD.l+gW,y63); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('V₀',PAD.l-2,PAD.t+6); ctx.fillText('63%',PAD.l+2,y63-2); ctx.fillText('V_C',PAD.l+gW-20,PAD.t+8);
+  const win=tWindow(), t1=Math.max(simT,win), t0=t1-win;
+  const g=Lab.panel(gCanvas[0],{ title:'Tensione sul condensatore V_C (V)', xr:[t0,t1], yr:[0,V_MAX], yStep:3, xLabel:'t (s)' });
+  if(!g) return; const [ctx,f]=g;
+  // V₀ e il 63% di V₀ (t = τ in carica)
+  ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=f.C.amber; ctx.lineWidth=1;
+  for(const v of [P.V0, 0.632*P.V0]){ ctx.beginPath(); ctx.moveTo(f.L,f.Y(v)); ctx.lineTo(f.R,f.Y(v)); ctx.stroke(); }
+  ctx.restore();
+  Lab.plotPts(ctx,f,hist.map(h=>[h.t,h.Vc]),f.C.accent,2);
+  Lab.legend(ctx,f.L+8,f.T+8,[[f.C.accent,'V_C'],[f.C.amber,'V₀ e 63% V₀',[3,3]]]);
 }
 
-// 2: I(t)
 function drawI(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:24,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const win=tWindow(), t1=simT, t0=t1-win;
-  const Imax=Math.max(0.01, P.V0/(P.R*1e3)*1000);  // mA
-  const zero=PAD.t+gH/2;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4; ctx.beginPath(); ctx.moveTo(PAD.l,zero); ctx.lineTo(PAD.l+gW,zero); ctx.stroke();
-  ctx.strokeStyle=T.cur; ctx.lineWidth=1.4; ctx.beginPath(); let first=true;
-  for(const h of hist){ const x=PAD.l+(h.t-t0)/win*gW, y=zero-(h.I/Imax)*(gH*0.46); first?(ctx.moveTo(x,y),first=false):ctx.lineTo(x,y); }
-  ctx.stroke();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('I (mA)',PAD.l+2,PAD.t+7);
+  const win=tWindow(), t1=Math.max(simT,win), t0=t1-win;
+  const Im=Lab.niceMax(P.V0/P.R);            // mA (R in kΩ)
+  const g=Lab.panel(gCanvas[1],{ title:'Corrente I (mA)', xr:[t0,t1], yr:[-Im,Im], xLabel:'t (s)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plotPts(ctx,f,hist.map(h=>[h.t,h.I]),f.C.amber,2);
+  Lab.legend(ctx,f.L+8,f.T+8,[[f.C.amber,'+ in carica, − in scarica']]);
 }
 
-// 3: energia immagazzinata E=½CV²
 function drawEnergy(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:28,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const win=tWindow(), t1=simT, t0=t1-win;
-  const Emax=Math.max(1e-9, 0.5*P.C*1e-6*P.V0*P.V0);  // J
-  ctx.strokeStyle='rgba(120,255,180,0.9)'; ctx.lineWidth=1.4; ctx.beginPath(); let first=true;
-  for(const h of hist){ const E=0.5*P.C*1e-6*h.Vc*h.Vc; const x=PAD.l+(h.t-t0)/win*gW, y=PAD.t+gH-(E/Emax)*gH; first?(ctx.moveTo(x,y),first=false):ctx.lineTo(x,y); }
-  ctx.stroke();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('E=½CV²',PAD.l+2,PAD.t+7);
-  ctx.fillText(`${(Emax*1e3).toFixed(2)} mJ`,PAD.l+gW-40,PAD.t+8);
+  const win=tWindow(), t1=Math.max(simT,win), t0=t1-win;
+  const Emax=0.5*P.C*1e-6*P.V0*P.V0*1e3;    // mJ
+  const Em=Lab.niceMax(Emax);
+  const g=Lab.panel(gCanvas[2],{ title:'Energia nel condensatore ½CV² (mJ)', xr:[t0,t1], yr:[0,Em], xLabel:'t (s)' });
+  if(!g) return; const [ctx,f]=g;
+  ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=f.C.muted||f.C.text; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(f.L,f.Y(Emax)); ctx.lineTo(f.R,f.Y(Emax)); ctx.stroke(); ctx.restore();
+  Lab.plotPts(ctx,f,hist.map(h=>[h.t,0.5*P.C*1e-6*h.Vc*h.Vc*1e3]),f.C.green,2);
+  Lab.legend(ctx,f.L+8,f.T+8,[[f.C.green,'E(t)'],[f.C.text,'½CV₀²',[3,3]]]);
 }
 
 function drawGraphs(){ drawVc(); drawI(); drawEnergy(); }
@@ -290,21 +271,10 @@ function buildControls(){
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Tensione V_C(t)','Corrente I(t)','Energia E(t)'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -338,9 +308,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea');
     const gaH=ga?ga.offsetHeight:0;
-    simCanvas.width=Math.floor(ar.width);
-    simCanvas.height=Math.max(160,Math.floor(ar.height-rb.height-gaH-4));
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(160,Math.floor(ar.height-rb.height-gaH-4)));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -352,9 +321,9 @@ function init(){
     step(dt);
     draw(simCanvas);
     drawGraphs();
-    readout.set('vc', Vc.toFixed(2)+' V');
-    readout.set('i', I.toFixed(3)+' mA');
-    readout.set('tau', tau().toFixed(3)+' s');
+    readout.set('vc', Lab.fmt(Vc,2)+' V');
+    readout.set('i', Lab.fmt(I,3)+' mA');
+    readout.set('tau', Lab.sci(tau(),3)+' s');
     readout.set('pct', (P.V0>0?(Vc/P.V0*100):0).toFixed(0)+' %');
     requestAnimationFrame(frame);
   }

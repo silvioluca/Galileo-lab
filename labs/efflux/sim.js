@@ -224,7 +224,7 @@ function drawGraphs(){
   if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const hmax=Hcont, vmax=Math.sqrt(2*GR*hmax);
     const xOf=h=>PAD.l+h/hmax*gW, yOf2=v=>PAD.t+gH-clamp(v/vmax,0,1)*gH*0.92;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
     for(let h=0;h<=hmax+1e-6;h+=hmax/60){ const x=xOf(h),y=yOf2(Math.sqrt(2*GR*h)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
     const hA=Math.max(0,waterLevel-P.holeA.y);
     ctx.fillStyle=rgb(T.jetA); ctx.beginPath(); ctx.arc(xOf(hA),yOf2(vEff(P.holeA)),3.2,0,7); ctx.fill();
@@ -235,7 +235,7 @@ function drawGraphs(){
   if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const rmax=lv;   // gittata max = L (a y=L/2)
     const xOf=y=>PAD.l+y/Hcont*gW, yOf2=r=>PAD.t+gH-clamp(r/Math.max(rmax,1e-3),0,1)*gH*0.92;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
     for(let y=0;y<=lv+1e-6;y+=lv/60){ const r=2*Math.sqrt(Math.max(0,y*(lv-y))); const x=xOf(y),yy=yOf2(r); f?(ctx.moveTo(x,yy),f=false):ctx.lineTo(x,yy);} ctx.stroke();
     // linea verticale a y=L/2 (gittata massima)
     ctx.strokeStyle=rgba([150,205,225],0.35); ctx.setLineDash([3,3]); ctx.lineWidth=1;

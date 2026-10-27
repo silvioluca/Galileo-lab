@@ -18,6 +18,7 @@ const P = {
 let x1=-2, x2=+2, v1=0, v2=0;
 let zoom=1;
 let rotX=-0.35, rotY=0.6, dragging=false, lastX=0, lastY=0;
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout, t=0;
 
@@ -43,31 +44,34 @@ function pal(){
 let T=pal();
 
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
-function dNow(){ return Math.abs(x2-x1)/100; }            // distanza attuale (m)
-function forcePerLen(){ return MU0*P.I1*P.I2/(2*Math.PI*Math.max(0.002,dNow())); } // N/m (con segno)
+// La forza si calcola alla distanza a riposo: lo spostamento vero dei fili è di pochi micrometri
+function forcePerLen(){ return MU0*P.I1*P.I2/(2*Math.PI*P.dist/100); } // N/m (con segno)
 function attracting(){ return P.I1*P.I2>0; }              // correnti concordi → attrazione
 
 // riporta i fili dritti (a riposo) → l'animazione riparte
 function resetWires(){ x1=-P.dist/2; x2=P.dist/2; v1=0; v2=0; }
 
 // ═══ Dinamica (molla = tensione) ──────────────────────────────────────────────
+// Freccia di un filo lungo 1 m teso con tensione T sotto il carico F/L: f = (F/L)·L²/(8T).
+// È dell'ordine del micrometro, quindi la si mostra amplificata e limitata a una frazione della
+// distanza: cresce con la forza e cala con la tensione, ma i fili non si toccano mai.
+function sagShown(){
+  const sag = Math.abs(forcePerLen())/(8*P.tension);          // m
+  return (P.dist/2)*0.6*Math.tanh(sag/2e-6);                  // cm sullo schermo
+}
 function physics(dt){
-  const F = forcePerLen();                       // N/m
-  const Fmag = Math.min(3.2, Math.abs(F)*4e5);   // modulo scalato (sempre ≥0)
-  const k = P.tension*0.015;                     // rigidità ∝ tensione
   const r1=-P.dist/2, r2=+P.dist/2;
   const dir = attracting()?1:-1;                 // +1 attrae, −1 respinge
-  // attrazione: filo1 (sin) →+ verso centro, filo2 (dx) →− verso centro
-  const a1 =  dir*Fmag - k*(x1-r1) - v1*0.8;
-  const a2 = -dir*Fmag - k*(x2-r2) - v2*0.8;
+  const d = sagShown();
+  // i fili si portano (con un'oscillazione smorzata) alla freccia di equilibrio
+  const a1 = 30*(r1+dir*d-x1) - 8*v1;
+  const a2 = 30*(r2-dir*d-x2) - 8*v2;
   v1+=a1*dt; v2+=a2*dt; x1+=v1*dt; x2+=v2*dt;
-  if(x2-x1<0.6){ const m=(x1+x2)/2; x1=m-0.3; x2=m+0.3; v1=v2=0; }
 }
 
 // ═══ Rendering ════════════════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   if(P.view==='2d') draw2D(ctx,W,H); else draw3D(ctx,W,H);
@@ -122,7 +126,7 @@ function draw2D(ctx,W,H){
   ctx.strokeStyle=T.sub; ctx.lineWidth=1; ctx.setLineDash([3,3]);
   ctx.beginPath(); ctx.moveTo(wx1,cy+54); ctx.lineTo(wx2,cy+54); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
-  ctx.fillText(`d = ${P.dist.toFixed(1)} cm`, (wx1+wx2)/2, cy+68);
+  ctx.fillText(`d = ${Lab.fmt(P.dist,1)} cm`, (wx1+wx2)/2, cy+68);
 
   ctx.textAlign='left'; ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
   ctx.fillText('sezione trasversale · ⊙ corrente uscente · ⊗ corrente entrante', 14, H-16);
@@ -275,67 +279,39 @@ function draw3D(ctx,W,H){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
+function gBase(){}   // (sostituita da Lab.axes)
 
-// 1: F/L vs distanza (1/d)
+// 1: F/L in funzione della distanza, scala log-log fissa: la legge 1/d è una retta di pendenza −1
 function drawFvsD(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:26,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const dmin=0.5,dmax=10;
-  const Fat=d=>MU0*Math.abs(P.I1*P.I2)/(2*Math.PI*d/100);
-  const Fmax=Fat(dmin);
-  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let i=0;i<=60;i++){ const d=dmin+(dmax-dmin)*i/60; const x=PAD.l+(d-dmin)/(dmax-dmin)*gW, y=PAD.t+gH-Fat(d)/Fmax*gH; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
-  ctx.stroke();
-  const dc=dNow()*100;
-  if(dc>=dmin&&dc<=dmax){ const x=PAD.l+(dc-dmin)/(dmax-dmin)*gW, y=PAD.t+gH-Fat(dc)/Fmax*gH; ctx.fillStyle=T.force; ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fill(); }
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('F/L',PAD.l+2,PAD.t+7); ctx.fillText('d (cm)',PAD.l+gW-26,PAD.t+gH+11);
+  const II=Math.abs(P.I1*P.I2);
+  const g=Lab.panel(gCanvas[0],{ title:'F/L (N/m) in funzione della distanza', xr:[0.5,10], xLog:true, yr:[1e-6,1e-1], yLog:true, xLabel:'d (cm)', xFmt:v=>String(v), yFmt:v=>Lab.sci(v,1) });
+  if(!g) return; const [ctx,f]=g;
+  if(II>0){
+    Lab.plot(ctx,f,d=>MU0*II/(2*Math.PI*d/100),[0.5,10],T.accent,2);
+    Lab.dot(ctx,f,P.dist,Math.abs(forcePerLen()),T.force,4);
+  }
+  Lab.legend(ctx,f.L+8,f.T+8,[[T.accent,'μ₀I₁I₂/(2πd)']]);
 }
-
-// 2: F/L vs I (prodotto correnti)
+// 2: F/L in funzione del prodotto delle correnti, alla distanza scelta
 function drawFvsI(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:26,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const d=dNow();
-  const Imax=400;  // I1*I2 max
-  const Fat=II=>MU0*II/(2*Math.PI*Math.max(0.002,d));
-  const Fmax=Fat(Imax);
-  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let i=0;i<=60;i++){ const II=Imax*i/60; const x=PAD.l+II/Imax*gW, y=PAD.t+gH-Fat(II)/Fmax*gH; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
-  ctx.stroke();
-  const IIc=Math.abs(P.I1*P.I2);
-  if(IIc<=Imax){ const x=PAD.l+IIc/Imax*gW, y=PAD.t+gH-Fat(IIc)/Fmax*gH; ctx.fillStyle=T.force; ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fill(); }
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('F/L',PAD.l+2,PAD.t+7); ctx.fillText('I₁·I₂',PAD.l+gW-26,PAD.t+gH+11);
+  const d=P.dist/100, Fm=Lab.niceMax(MU0*400/(2*Math.PI*d)*1e3);
+  const g=Lab.panel(gCanvas[1],{ title:`F/L (mN/m) a d = ${Lab.fmt(P.dist,1)} cm`, xr:[0,400], yr:[0,Fm], xLabel:'|I₁·I₂| (A²)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,II=>MU0*II/(2*Math.PI*d)*1e3,[0,400],T.accent,2);
+  Lab.dot(ctx,f,Math.abs(P.I1*P.I2),Math.abs(forcePerLen())*1e3,T.force,4);
+  Lab.legend(ctx,f.L+8,f.T+8,[[T.accent,'proporzionale a I₁·I₂']]);
 }
-
-// 3: B(r) attorno al filo (1/r)
+// 3: campo del filo 1, B = μ₀I/(2πr), anch'esso in log-log
 function drawBvsR(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:26,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const rmin=0.2,rmax=8;
-  const Bat=r=>MU0*Math.abs(P.I1)/(2*Math.PI*r/100);
-  const Bmax=Bat(rmin);
-  ctx.strokeStyle=T.bfield; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let i=0;i<=60;i++){ const r=rmin+(rmax-rmin)*i/60; const x=PAD.l+(r-rmin)/(rmax-rmin)*gW, y=PAD.t+gH-Bat(r)/Bmax*gH; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
-  ctx.stroke();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('B',PAD.l+2,PAD.t+7); ctx.fillText('r (cm)',PAD.l+gW-26,PAD.t+gH+11);
+  const g=Lab.panel(gCanvas[2],{ title:'B (µT) attorno al filo 1', xr:[0.2,10], xLog:true, yr:[1,1e4], yLog:true, xLabel:'r (cm)', xFmt:v=>String(v), yFmt:v=>v>=1000?(v/1000)+'k':String(v) });
+  if(!g) return; const [ctx,f]=g;
+  if(P.I1!==0){
+    Lab.plot(ctx,f,r=>MU0*Math.abs(P.I1)/(2*Math.PI*r/100)*1e6,[0.2,10],f.C.blue,2);
+    // il filo 2 si trova a distanza d: lì il campo del filo 1 genera la forza
+    Lab.dot(ctx,f,P.dist,MU0*Math.abs(P.I1)/(2*Math.PI*P.dist/100)*1e6,T.force,4);
+  }
+  Lab.legend(ctx,f.L+8,f.T+8,[[f.C.blue,'B = μ₀I₁/(2πr)'],[T.force,'sul filo 2']]);
 }
-
 function drawGraphs(){ drawFvsD(); drawFvsI(); drawBvsR(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -376,21 +352,10 @@ function initDrag(canvas){
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:140px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['F/L vs distanza','F/L vs I₁·I₂','B(r) attorno al filo'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -404,10 +369,11 @@ function init(){
     {key:'force', label:'F/L'},
     {key:'type',  label:'Interazione'},
     {key:'dist',  label:'Distanza'},
-    {key:'hint',  label:''},
+    {key:'hint',  label:'Vista'},
   ]);
 
-  document.getElementById('btnView').addEventListener('click',()=>{ P.view=P.view==='2d'?'3d':'2d'; buildControls(); });
+  // il pulsante principale inverte il verso di I₂: si passa da attrazione a repulsione
+  document.getElementById('btnView').addEventListener('click',()=>{ P.I2=-P.I2; resetWires(); buildControls(); });
   document.getElementById('btnReset').addEventListener('click',()=>{
     // mantiene la vista corrente, riavvia la simulazione
     P.I1=10; P.I2=10; P.dist=4; P.tension=50; P.showB=true; P.showForce=true;
@@ -423,9 +389,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea');
     const gaH=ga?ga.offsetHeight:0;
-    simCanvas.width=Math.floor(ar.width);
-    simCanvas.height=Math.max(140,Math.floor(ar.height-rb.height-gaH-4));
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(140,Math.floor(ar.height-rb.height-gaH-4)));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -438,10 +403,10 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     const F=Math.abs(forcePerLen());
-    readout.set('force', F.toExponential(2)+' N/m');
+    readout.set('force', Lab.sci(F,3)+' N/m');
     readout.set('type', attracting()?'attrazione':'repulsione');
-    readout.set('dist', (dNow()*100).toFixed(2)+' cm');
-    readout.set('hint', P.view==='3d'?'vista 3D':'sezione trasversale');
+    readout.set('dist', Lab.fmt(P.dist,1)+' cm');
+    readout.set('hint', P.view==='3d'?'3D (flessione amplificata)':'sezione trasversale');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

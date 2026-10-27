@@ -224,7 +224,7 @@ function drawGraphs(){
     // riferimenti
     [[0,[120,140,170]],[1.12,[120,140,170]],[5.47,[120,140,170]]].forEach(r=>{ ctx.strokeStyle=rgba(r[1],0.3); ctx.lineWidth=1; ctx.beginPath(); let f=true;
       for(let t=60;t<=Tmax;t+=20){ const x=xOf(t),y=yOf(sigmaOf(t,r[0])); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke(); });
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.7; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.7; ctx.beginPath(); let f=true;
     for(let t=60;t<=Tmax;t+=15){ const x=xOf(t),y=yOf(sigmaOf(t,P.Eg)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
     ctx.fillStyle=rgb(T.fermi); ctx.beginPath(); ctx.arc(xOf(P.T),yOf(sigmaOf(P.T,P.Eg)),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('σ(log)',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('T',PAD.l+gW-2,PAD.t+gH-3);
@@ -237,7 +237,7 @@ function drawGraphs(){
     ctx.fillStyle=rgba(T.val,0.18); ctx.fillRect(xOf(Emin),PAD.t,xOf(0)-xOf(Emin),gH);
     ctx.fillStyle=rgba(T.cond,0.16); ctx.fillRect(xOf(P.Eg),PAD.t,xOf(Emax)-xOf(P.Eg),gH);
     // f(E)
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
     for(let i=0;i<=120;i++){ const E=Emin+(Emax-Emin)*i/120, fv=1/(1+Math.exp((E-Ef)/kT)); const x=xOf(E),y=yOf(fv); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('f(E)',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('E',PAD.l+gW-2,PAD.t+gH-3);
     ctx.fillStyle=rgb(T.val); ctx.textAlign='center'; ctx.fillText('val',xOf(-0.6),PAD.t+gH-3); ctx.fillStyle=rgb(T.cond); ctx.fillText('cond',xOf(P.Eg+0.6),PAD.t+gH-3);
@@ -248,7 +248,7 @@ function drawGraphs(){
     const ys=[Math.log(sigmaOf(600,P.Eg)), Math.log(sigmaOf(100,P.Eg))];
     let ymin=Math.min(ys[0],ys[1]), ymax=Math.max(ys[0],ys[1]); if(ymax-ymin<1){ymax+=1;ymin-=1;}
     const xOf=it=>PAD.l+(it-xs[0])/(xs[1]-xs[0])*gW, yOf=y=>PAD.t+gH-(y-ymin)/(ymax-ymin)*gH*0.92;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
     for(let t=600;t>=100;t-=10){ const x=xOf(1/t),y=yOf(Math.log(sigmaOf(t,P.Eg))); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
     ctx.fillStyle=rgb(T.fermi); ctx.beginPath(); ctx.arc(xOf(1/P.T),yOf(Math.log(sigmaOf(P.T,P.Eg))),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('ln σ',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('1/T',PAD.l+gW-2,PAD.t+gH-3);

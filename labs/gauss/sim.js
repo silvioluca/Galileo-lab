@@ -1,23 +1,26 @@
 'use strict';
 
 const sc   = document.getElementById('simCanvas');
-const gc   = document.getElementById('graphCanvas');
 const ctx  = sc.getContext('2d');
-const gctx = gc.getContext('2d');
-const DPR  = window.devicePixelRatio || 1;
-let SW = 0, SH = 0, GW = 0, GH = 0;
+let DPR  = window.devicePixelRatio || 1;
+let SW = 0, SH = 0;
+let gCanvas = [];
 
 Lab.initTheme('themeToggle');
 const dk = () => document.documentElement.dataset.theme !== 'light';
 
 /* ── Parameters ──────────────────────────────────────────────────────────── */
-// Normalized units: k_e = 1  →  Gauss: ∮ E·dA = 4π · Q_enc
+// Il calcolo usa k = 1 (∮ E·dA = 4π·q); le posizioni sono in pixel con 1 cm = PX_CM pixel e le
+// cariche in nC. Il flusso vero in V·m si ottiene moltiplicando per k·1 nC = 8,988 V·m:
+// così ∮ E·dA = Q/ε₀ con Q in coulomb.
 const K4PI = 4 * Math.PI;
+const PX_CM = 13;
+const PHI_SI = 8.98755;            // V·m per unità di flusso normalizzato (1 nC, k = 1/4πε₀)
 
 const P = {
   mode:       'E',      // 'E' | 'B'
   surface:    'sphere', // 'sphere' | 'cube' | 'blob'
-  R:          130,      // surface radius / half-side [CSS px]
+  R:          130,      // raggio / semilato della superficie (pixel; 10 cm)
   view3D:     false,
   fieldLines: false,
 };
@@ -25,8 +28,8 @@ const P = {
 /* ── State ───────────────────────────────────────────────────────────────── */
 // E mode: { x, y, q }         B mode: { x, y, q≥0, angle }
 let sources = [
-  { x:  40, y: -20, q:  1 },
-  { x: -50, y:  35, q: -1 },
+  { x:  40, y: -20, q:  2 },
+  { x: -190, y:  50, q: -1 },
 ];
 let surfX = 0, surfY = 0;   // Gaussian surface centre [physics px]
 
@@ -158,12 +161,13 @@ function fluxCol(t, dark) { // t ∈ [-1,1]: cyan=outward, magenta=inward
   return dark ? 'rgba(200,200,200,0.18)' : 'rgba(100,100,100,0.18)';
 }
 
+// flusso normalizzato → testo in V·m (campo E) o unità arbitrarie (campo B, sempre ≈ 0)
 function fmt(v) {
   if (!isFinite(v)) return '∞';
-  const a = Math.abs(v);
-  if (a < 0.05) return '0.0';
-  if (a > 9999) return v.toExponential(1);
-  return v.toFixed(1);
+  if (P.mode === 'B') return Math.abs(v) < 0.05 ? '0,0' : Lab.fmt(v, 1);
+  const a = Math.abs(v * PHI_SI);
+  if (a < 0.5) return '0 V·m';
+  return Lab.fmt(v * PHI_SI, 0) + ' V·m';
 }
 
 /* ── Draw simulation ─────────────────────────────────────────────────────── */
@@ -272,11 +276,11 @@ function drawSurface(dark) {
   ctx.fillStyle = dark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.70)';
   ctx.font = 'bold 12px "Space Mono",monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(`Φ = ${fmt(cachedFlux)}`, scx, topY);
+  ctx.fillText(`Φ = ∮ E·dA = ${fmt(cachedFlux)}`, scx, topY);
   ctx.fillStyle = dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.30)';
   ctx.font = '9px "Space Mono",monospace';
   ctx.fillText(
-    P.mode === 'E' ? `Q_enc · 4π = ${fmt(exactFlux())}` : '∮ B·dA = 0  (no monopoli)',
+    P.mode === 'E' ? `Q_int/ε₀ = ${fmt(exactFlux())}` : '∮ B·dA = 0  (non esistono monopoli)',
     scx, topY + 14
   );
 
@@ -433,11 +437,11 @@ function draw3DSurface(dark) {
   ctx.fillStyle = dark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.70)';
   ctx.font = 'bold 12px "Space Mono",monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(`Φ = ${fmt(cachedFlux)}`, scx, scy - R - 12);
+  ctx.fillText(`Φ = ∮ E·dA = ${fmt(cachedFlux)}`, scx, scy - R - 12);
   ctx.fillStyle = dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.30)';
   ctx.font = '9px "Space Mono",monospace';
   ctx.fillText(
-    P.mode === 'E' ? `Q_enc · 4π = ${fmt(exactFlux())}` : '∮ B·dA = 0  (no monopoli)',
+    P.mode === 'E' ? `Q_int/ε₀ = ${fmt(exactFlux())}` : '∮ B·dA = 0  (non esistono monopoli)',
     scx, scy - R + 2
   );
   ctx.strokeStyle = dark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
@@ -531,82 +535,51 @@ function drawSources(dark) {
   }
 }
 
-/* ── Graph: flux bar chart ───────────────────────────────────────────────── */
+/* ── Grafici ─────────────────────────────────────────────────────────────── */
+// 1: flusso calcolato sulla superficie e valore previsto Q_int/ε₀ (in V·m);
+// 2: flusso in funzione della dimensione della superficie: a gradini, salta solo quando una carica
+//    entra o esce. Con il campo B il flusso è nullo per qualunque superficie.
+function fluxForR(R) {
+  const keep = P.R; P.R = R;
+  const v = exactFlux(); P.R = keep;
+  return v;
+}
 function drawGraphs() {
-  if (!GW || !GH) return;
-  const dark   = dk();
-  const axCol  = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.16)';
-  const lblCol = dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.40)';
-  gctx.clearRect(0, 0, gc.width, gc.height);
-
-  const PAD = { t: 24, b: 32, l: 60, r: 20 };
-  const iW  = GW - PAD.l - PAD.r, iH = GH - PAD.t - PAD.b;
-  const ex   = exactFlux(), comp = cachedFlux;
-  const vMax = Math.max(Math.abs(ex), Math.abs(comp), 1) * 1.45;
-
-  const gx = f => (PAD.l + f * iW) * DPR;
-  const gy = v => (PAD.t + (1 - (v + vMax) / (2 * vMax)) * iH) * DPR;
-
-  gctx.fillStyle = dark ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.03)';
-  gctx.fillRect(gx(0), PAD.t * DPR, iW * DPR, iH * DPR);
-
-  gctx.lineWidth = DPR;
-  for (let g = 0; g <= 4; g++) {
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    const yy = (PAD.t + g * iH / 4) * DPR;
-    gctx.beginPath(); gctx.moveTo(gx(0), yy); gctx.lineTo(gx(1), yy); gctx.stroke();
+  const C = Lab.graphColors(), E = P.mode === 'E', k = E ? PHI_SI : 1;
+  const ex = exactFlux() * k, comp = cachedFlux * k;
+  let m = Lab.niceMax(Math.max(Math.abs(ex), Math.abs(comp), E ? 50 : 1) * 1.2);
+  let g = Lab.panel(gCanvas[0], { title: E ? 'Flusso di E attraverso la superficie (V·m)' : 'Flusso di B (unità arbitrarie)', xr: [0, 2], xStep: 9, xFmt: () => '', yr: [-m, m] });
+  if (g) {
+    const [c, f] = g;
+    const bars = [[0.5, comp, C.accent, 'calcolato ∮ F·dA'], [1.5, ex, C.amber, E ? 'previsto Q_int/ε₀' : 'previsto: 0']];
+    for (const [x, v, col, lbl] of bars) {
+      const cx = f.X(x), bw = (f.R - f.L) * 0.22, y0 = f.Y(0), y1 = f.Y(v);
+      c.fillStyle = col; c.globalAlpha = 0.85; c.fillRect(cx - bw / 2, Math.min(y0, y1), bw, Math.abs(y1 - y0)); c.globalAlpha = 1;
+      c.font = '9.5px "DM Sans",sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillStyle = C.text; c.fillText(lbl, cx, f.B + 10);
+      c.font = '9.5px "Space Mono",monospace'; c.fillStyle = C.title; c.fillText(E ? Lab.fmt(v, 0) : Lab.fmt(v, 2), cx, y1 + (v >= 0 ? -8 : 8));
+    }
   }
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
-  gctx.beginPath(); gctx.moveTo(gx(0), gy(0)); gctx.lineTo(gx(1), gy(0)); gctx.stroke();
-  gctx.strokeStyle = axCol;
-  gctx.beginPath();
-  gctx.moveTo(gx(0), PAD.t * DPR); gctx.lineTo(gx(0), (PAD.t + iH) * DPR);
-  gctx.lineTo(gx(1), (PAD.t + iH) * DPR); gctx.stroke();
-
-  const bW = iW * 0.16;
-  function bar(fracX, val, col, label) {
-    const cx = PAD.l + fracX * iW;
-    const y0 = gy(0), y1 = gy(val);
-    gctx.fillStyle = col;
-    gctx.fillRect((cx - bW / 2) * DPR, Math.min(y0, y1), bW * DPR, Math.abs(y1 - y0));
-    gctx.fillStyle = lblCol;
-    gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    gctx.fillText(label, cx * DPR, (PAD.t + iH + 5) * DPR);
-    gctx.textBaseline = val >= 0 ? 'bottom' : 'top';
-    gctx.fillText(fmt(val), cx * DPR, y1 + (val >= 0 ? -2 : 2) * DPR);
+  const Rs = [], pts = [];
+  for (let r = 1; r <= 16; r += 0.05) { Rs.push(r); pts.push([r, fluxForR(r * PX_CM) * k]); }
+  m = Lab.niceMax(Math.max(...pts.map(p => Math.abs(p[1])), E ? 50 : 1) * 1.1);
+  g = Lab.panel(gCanvas[1], { title: 'Flusso in funzione della dimensione della superficie' + (E ? ' (V·m)' : ''), xr: [0, 16], xStep: 2, yr: [-m, m], xLabel: 'raggio / semilato (cm)' });
+  if (g) {
+    const [c, f] = g;
+    Lab.plotPts(c, f, pts, C.amber, 2);
+    Lab.dot(c, f, P.R / PX_CM, ex, C.accent, 4.5);
   }
-
-  bar(0.25, comp, CYAN(dark, 0.75), '∮ F·dA');
-  bar(0.70, ex,
-    dark ? 'rgba(200,200,200,0.40)' : 'rgba(80,80,80,0.30)',
-    P.mode === 'E' ? 'Q·4π/ε₀' : 'Φ_teo=0');
-
-  // Y ticks
-  gctx.fillStyle = lblCol;
-  gctx.font = `${8 * DPR}px "Space Mono",monospace`;
-  gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-  for (let g = 0; g <= 4; g++) {
-    const v = vMax * (1 - 2 * g / 4);
-    const s = Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1);
-    gctx.fillText(s, (PAD.l - 3) * DPR, gy(v));
-  }
-
-  // Title
-  gctx.fillStyle = dark ? 'rgba(255,255,255,0.40)' : 'rgba(0,0,0,0.36)';
-  gctx.font = `bold ${9 * DPR}px "Space Mono",monospace`;
-  gctx.textAlign = 'left'; gctx.textBaseline = 'top';
-  gctx.fillText(`Flusso — campo ${P.mode === 'E' ? 'elettrico' : 'magnetico'}`, gx(0), 5 * DPR);
 }
 
 /* ── Readout ─────────────────────────────────────────────────────────────── */
 function updateReadout() {
   const ex = exactFlux();
+  const qIn = sources.filter(s => isInside(s.x - surfX, s.y - surfY, 0)).reduce((a, s) => a + s.q, 0);
   document.getElementById('readout').innerHTML = [
-    { label: '∮ F·dA',                   value: fmt(cachedFlux) },
-    { label: P.mode === 'E' ? 'Q·4π/ε₀' : 'Φ_teo', value: fmt(ex) },
-    { label: 'sorgenti',                  value: `${sources.length}` },
-    { label: 'superficie',               value: P.surface },
+    { label: P.mode === 'E' ? '∮ E·dA calcolato' : '∮ B·dA calcolato', value: fmt(cachedFlux) },
+    { label: P.mode === 'E' ? 'Q_int/ε₀' : 'previsto', value: fmt(ex) },
+    { label: P.mode === 'E' ? 'carica interna' : 'dipoli', value: P.mode === 'E' ? `${qIn > 0 ? '+' : ''}${qIn} nC` : `${sources.length}` },
+    { label: 'superficie',               value: { sphere: 'sferica', cube: 'cubica', blob: 'amorfa' }[P.surface] },
   ].map(r =>
     `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
@@ -716,89 +689,68 @@ function buildControls() {
     onChange: v => { P.surface = v; fluxDirty = true; },
   }));
   surfSec.add(Lab.Slider({
-    label: 'Raggio / semilato  [px]', min: 50, max: 200, step: 5, value: P.R,
-    onChange: v => { P.R = v; fluxDirty = true; },
+    label: 'Raggio / semilato', min: 4, max: 15, step: 0.5, value: P.R / PX_CM, unit: ' cm',
+    onChange: v => { P.R = v * PX_CM; fluxDirty = true; },
   }));
   ctrl.appendChild(surfSec.el);
 
-  // Source list (built as raw DOM, appended to section body)
   const srcSec = Lab.Section('Sorgenti');
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'display:flex;flex-direction:column;gap:5px;';
-
-  sources.forEach((s, i) => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:6px;font:11px "Space Mono",monospace;';
-    const lbl = document.createElement('span');
-    lbl.style.cssText = `flex:1;color:${P.mode === 'E' ? (s.q > 0 ? '#ff8080' : '#8099ff') : '#00d4ff'};`;
-    lbl.textContent = P.mode === 'E' ? `Carica ${i + 1}: ${s.q > 0 ? '+' : ''}${s.q}` : `Dipolo ${i + 1}`;
-    const rm = document.createElement('button');
-    rm.textContent = '×';
-    rm.style.cssText = 'background:rgba(255,80,80,0.15);border:1px solid rgba(255,80,80,0.35);color:#ff8080;border-radius:3px;cursor:pointer;padding:1px 6px;font-size:12px;line-height:1.4;';
-    rm.onclick = () => { sources.splice(i, 1); fluxDirty = true; buildControls(); };
-    row.append(lbl, rm);
-    wrap.appendChild(row);
-  });
-
-  if (sources.length < 8) {
-    const addRow = document.createElement('div');
-    addRow.style.cssText = 'display:flex;gap:5px;margin-top:4px;';
-    if (P.mode === 'E') {
-      [['＋1', 1], ['＋2', 2], ['－1', -1], ['－2', -2]].forEach(([lbl, q]) => {
-        const btn = document.createElement('button');
-        btn.textContent = lbl;
-        btn.style.cssText = `flex:1;padding:3px 0;font-size:10px;border-radius:3px;cursor:pointer;` +
-          `background:${q > 0 ? 'rgba(255,80,80,0.1)' : 'rgba(80,120,255,0.1)'};` +
-          `border:1px solid ${q > 0 ? 'rgba(255,80,80,0.3)' : 'rgba(80,120,255,0.3)'};` +
-          `color:${q > 0 ? '#ff8080' : '#8099ff'};`;
-        btn.onclick = () => {
-          const a = Math.random() * 2 * Math.PI, r = P.R * 0.5 * Math.random();
-          sources.push({ x: surfX + r * Math.cos(a), y: surfY + r * Math.sin(a), q });
-          fluxDirty = true; buildControls();
-        };
-        addRow.appendChild(btn);
-      });
-    } else {
-      const btn = document.createElement('button');
-      btn.textContent = '+ Dipolo';
-      btn.style.cssText = 'flex:1;padding:4px;font-size:10px;border-radius:3px;cursor:pointer;' +
-        'background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);color:#00d4ff;';
-      btn.onclick = () => {
-        const a = Math.random() * 2 * Math.PI, r = P.R * 0.5 * Math.random();
-        sources.push({ x: surfX + r * Math.cos(a), y: surfY + r * Math.sin(a), q: 1, angle: -Math.PI / 2 });
-        fluxDirty = true; buildControls();
-      };
-      addRow.appendChild(btn);
-    }
-    wrap.appendChild(addRow);
-  }
-
-  srcSec.add(wrap);
+  const addAt = s => { const a = Math.random() * 2 * Math.PI, r = P.R * 0.5 * Math.random(); sources.push({ x: surfX + r * Math.cos(a), y: surfY + r * Math.sin(a), ...s }); fluxDirty = true; buildControls(); };
+  srcSec.add(Lab.ItemList({
+    items: sources,
+    text: (s, i) => (P.mode === 'E' ? `Carica ${i + 1}: ${s.q > 0 ? '+' : '−'}${Math.abs(s.q)} nC` : `Dipolo magnetico ${i + 1}`),
+    color: s => (P.mode === 'E' ? (s.q > 0 ? '#ff7070' : '#7090ff') : '#00d4ff'),
+    onRemove: i => { sources.splice(i, 1); fluxDirty = true; buildControls(); },
+    max: 8,
+    add: P.mode === 'E'
+      ? [['+1 nC', 1], ['+2 nC', 2], ['−1 nC', -1], ['−2 nC', -2]].map(([label, q]) => ({ label, color: q > 0 ? '#ff7070' : '#7090ff', onClick: () => addAt({ q }) }))
+      : [{ label: '+ dipolo', onClick: () => addAt({ q: 1, angle: -Math.PI / 2 }) }],
+  }));
+  const note = document.createElement('div');
+  note.className = 'lab-note';
+  note.innerHTML = 'Trascina le sorgenti e il centro della superficie. Il flusso dipende solo dalla carica <b>interna</b>, non da forma e dimensione della superficie.';
+  srcSec.add(note);
   ctrl.appendChild(srcSec.el);
+
+  const exSec = Lab.Section('Esempi');
+  const ex = document.createElement('div');
+  ex.className = 'ctrl-btn-row';
+  const EX = P.mode === 'E' ? [
+    ['Una carica dentro', [{ x: 30, y: -20, q: 2 }]],
+    ['Una carica fuori: Φ = 0', [{ x: -200, y: 40, q: 2 }]],
+    ['Dipolo dentro: Φ = 0', [{ x: -35, y: 0, q: 2 }, { x: 35, y: 0, q: -2 }]],
+    ['Due dentro, una fuori', [{ x: 40, y: -30, q: 1 }, { x: -45, y: 40, q: 2 }, { x: 205, y: 10, q: -2 }]],
+  ] : [
+    ['Un dipolo dentro', [{ x: 0, y: 0, q: 1, angle: -Math.PI / 2 }]],
+    ['Due dipoli', [{ x: -40, y: 10, q: 1, angle: -Math.PI / 2 }, { x: 50, y: -20, q: 1, angle: 0 }]],
+  ];
+  for (const [label, src] of EX) {
+    const b = document.createElement('button');
+    b.className = 'ctrl-btn'; b.textContent = label;
+    b.onclick = () => { sources = src.map(o => ({ ...o })); surfX = 0; surfY = 0; fluxDirty = true; buildControls(); };
+    ex.appendChild(b);
+  }
+  exSec.add(ex);
+  ctrl.appendChild(exSec.el);
 }
 
 /* ── Resize ──────────────────────────────────────────────────────────────── */
 function resizeCanvases() {
   const area = sc.parentElement;
   const ga   = document.getElementById('graphArea');
+  if (!gCanvas.length) gCanvas = Lab.graphPanels(ga, 2, 180);
   const rd   = area.querySelector('.readout-bar');
-  const rdH  = rd ? rd.clientHeight || 48 : 48;
-  const gaH  = ga.clientHeight || 190;
-
+  const rdH  = rd ? rd.offsetHeight || 48 : 48;
+  const gaH  = ga.offsetHeight || 180;
+  DPR = window.devicePixelRatio || 1;
   SW = area.clientWidth;
   SH = Math.max(80, area.clientHeight - gaH - rdH);
-
-  sc.width  = Math.round(SW * DPR); sc.height = Math.round(SH * DPR);
-  sc.style.width  = SW + 'px';      sc.style.height = SH + 'px';
-
-  GW = area.clientWidth; GH = gaH;
-  gc.width  = Math.round(GW * DPR); gc.height = Math.round(GH * DPR);
-  gc.style.width  = GW + 'px';      gc.style.height = GH + 'px';
-
+  Lab.hidpi(sc, SW, SH);
+  Lab.fitPanels(gCanvas);
   CX = SW / 2; CY = SH / 2;
 }
 
-window.addEventListener('resize', resizeCanvases);
+new ResizeObserver(resizeCanvases).observe(sc.parentElement);
 
 function init() {
   resizeCanvases();

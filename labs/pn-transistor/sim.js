@@ -195,8 +195,8 @@ function drawBond(ctx,a,b){
 }
 function drawAtom(ctx,a,label,isDop){
   ctx.fillStyle=dk()?'#0b1018':'#ffffff'; ctx.beginPath(); ctx.arc(a.x,a.y,a.r,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle=isDop?rgb(T.accent):(dk()?'rgba(220,228,240,0.85)':'rgba(40,55,80,0.85)'); ctx.lineWidth=isDop?2.2:1.4; ctx.stroke();
-  ctx.fillStyle=isDop?rgb(T.accent):T.txt; ctx.font='bold '+Math.round(a.r*0.72)+'px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(label,a.x,a.y); ctx.textBaseline='alphabetic';
+  ctx.strokeStyle=isDop?T.accent:(dk()?'rgba(220,228,240,0.85)':'rgba(40,55,80,0.85)'); ctx.lineWidth=isDop?2.2:1.4; ctx.stroke();
+  ctx.fillStyle=isDop?T.accent:T.txt; ctx.font='bold '+Math.round(a.r*0.72)+'px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(label,a.x,a.y); ctx.textBaseline='alphabetic';
 }
 function drawDoping(ctx){
   const nType=P.dope==='n', cr=crystal();
@@ -311,7 +311,7 @@ function gJunction(){
   if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
     const {gW,gH,zx}=gBase(ctx,W,H,PAD,0.6); const Vmin=-1,Vmax=0.85;
     const xOf=v=>PAD.l+(v-Vmin)/(Vmax-Vmin)*gW, yOf=i=>PAD.t+gH-clamp(i,-0.05,1)*gH*0.85;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
     for(let i=0;i<=90;i++){ const v=Vmin+(Vmax-Vmin)*i/90,x=xOf(v),y=yOf(diodeRel(v)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
     ctx.fillStyle=rgb(T.field); ctx.beginPath(); ctx.arc(xOf(P.V),yOf(diodeRel(P.V)),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('V',PAD.l+gW-2,PAD.t+gH-3);
@@ -340,7 +340,7 @@ function gTransistor(){
   if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const Ibmax=100;
     const xOf=i=>PAD.l+i/Ibmax*gW, yOf=ic=>PAD.t+gH-clamp(ic/(BETA*Ibmax),0,1)*gH*0.9;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(Ibmax),yOf(BETA*Ibmax)); ctx.stroke();
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(Ibmax),yOf(BETA*Ibmax)); ctx.stroke();
     ctx.fillStyle=rgb(T.field); ctx.beginPath(); ctx.arc(xOf(P.Ib),yOf(icTransistor()),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I_C',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('I_B',PAD.l+gW-2,PAD.t+gH-3);
   }
@@ -348,7 +348,7 @@ function gTransistor(){
   if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const Vmax=10, Icmax=BETA*100;
     const xOf=v=>PAD.l+v/Vmax*gW, yOf=ic=>PAD.t+gH-clamp(ic/Icmax,0,1)*gH*0.9;
-    for(const ib of [20,50,100]){ ctx.strokeStyle=ib===P.Ib?rgb(T.accent):'rgba(120,140,170,0.4)'; ctx.lineWidth=ib===P.Ib?1.7:1; ctx.beginPath();
+    for(const ib of [20,50,100]){ ctx.strokeStyle=ib===P.Ib?T.accent:'rgba(120,140,170,0.4)'; ctx.lineWidth=ib===P.Ib?1.7:1; ctx.beginPath();
       for(let i=0;i<=60;i++){ const v=Vmax*i/60, plateau=BETA*ib, ic=plateau*clamp(v/0.4,0,1); const x=xOf(v),y=yOf(ic); i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke(); }
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I_C',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('V_CE',PAD.l+gW-2,PAD.t+gH-3);
   }

@@ -21,6 +21,7 @@ const e0=1.602e-19, me=9.109e-31, hbar=1.0546e-34;
 
 let tAnim=0, last=0;
 let electrons=[], tracer=null, comX=0;
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout;
 
@@ -171,8 +172,7 @@ function drawSection(ctx){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal();
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   geom(W,H);
@@ -230,49 +230,40 @@ function drawHeader(ctx,W,H){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-// 1: v_d vs I
+// 1: v_d in funzione di I per i quattro metalli (assi fissi: il materiale scelto è evidenziato)
 function drawVdI(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return; const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:18,l:30,r:8}; const {gW,gH}=gBase(ctx,W,H,PAD);
-  const Imax=10, vdmax=Imax/(nDens()*e0*Acur());
-  const xOf=i=>PAD.l+i/Imax*gW, yOf=v=>PAD.t+gH-v/vdmax*gH*0.9;
-  ctx.strokeStyle=rgb(T.elec); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(Imax),yOf(vdmax)); ctx.stroke();
-  ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(Ieff()), yOf(vDrift()),3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('v_d',PAD.l+2,PAD.t+7);
-  ctx.textAlign='right'; ctx.fillText('I',PAD.l+gW-2,PAD.t+gH-3);
+  const g=Lab.panel(gCanvas[0],{ title:'Velocità di deriva v_d (mm/s)', xr:[0,10], yr:[0,2.5], yStep:0.5, xLabel:'I (A)' });
+  if(!g) return; const [ctx,f]=g;
+  for(const k of Object.keys(MAT)){
+    const sel=k===P.mat, slope=1e3/(MAT[k].n*e0*Acur());
+    Lab.plot(ctx,f,i=>i*slope,[0,10],sel?rgb(T.elec):f.C.grid.replace(/[\d.]+\)$/,'0.35)'),sel?2.2:1.2);
+    if(!sel){ ctx.fillStyle=f.C.text; ctx.font='9px "DM Sans",sans-serif'; ctx.textAlign='right';
+      const ie=Math.min(9.6,2.3/slope); ctx.fillText(k,f.X(ie),f.Y(ie*slope)-7); }
+  }
+  Lab.dot(ctx,f,Ieff(),vDrift()*1e3,f.C.accent,4);
+  Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.elec),`${MAT[P.mat].name}: v_d = I/(n·e·A)`]]);
 }
-// 2: I–V (legge di Ohm)
+// 2: caratteristica I–V (legge di Ohm), V fino a quella con 10 A
 function drawIV(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return; const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:14,b:18,l:26,r:8}; const {gW,gH}=gBase(ctx,W,H,PAD);
-  const R=resistance(), Imax=10, Vmax=Imax*R;
-  const xOf=v=>PAD.l+(Vmax>0?v/Vmax:0)*gW, yOf=i=>PAD.t+gH-i/Imax*gH*0.9;
-  ctx.strokeStyle=rgb(T.cur); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(Vmax),yOf(Imax)); ctx.stroke();
-  ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(voltage()), yOf(Ieff()),3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I',PAD.l+2,PAD.t+7);
-  ctx.textAlign='right'; ctx.fillText('V',PAD.l+gW-2,PAD.t+gH-3);
-  ctx.fillStyle=T.gText; ctx.textAlign='left'; ctx.fillText('R='+resistance().toExponential(1)+'Ω',PAD.l+4,PAD.t+gH-4);
+  const R=resistance(), Vm=Lab.niceMax(10*R);
+  const g=Lab.panel(gCanvas[1],{ title:`Legge di Ohm · R = ${Lab.sci(R,3)} Ω`, xr:[0,Vm], yr:[0,10], yStep:2, xLabel:'V (V)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,v=>v/R,[0,Vm],rgb(T.cur),2.2);
+  Lab.dot(ctx,f,voltage(),Ieff(),f.C.accent,4);
+  Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.cur),'I = V/R']]);
 }
-// 3: confronto v_Fermi vs v_deriva (scala log)
+// 3: confronto in scala logaritmica fra velocità di Fermi e di deriva
 function drawCompare(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return; const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:16,b:24,l:10,r:10}; const {gW,gH}=gBase(ctx,W,H,PAD);
-  const lo=-6, hi=7;   // 10^lo .. 10^hi  m/s
-  const yOf=v=>{ const lg=Math.log10(Math.max(1e-9,v)); return PAD.t+gH-(clamp(lg,lo,hi)-lo)/(hi-lo)*gH; };
-  const bars=[{v:vFermi(), c:T.tracer, l:'v_Fermi'},{v:Math.max(1e-9,vDrift()), c:T.elec, l:'v_deriva'}];
-  const bw=gW/2*0.5;
-  bars.forEach((b,i)=>{ const cx=PAD.l+gW*(i+0.5)/2, y=yOf(b.v);
-    ctx.fillStyle=rgba(b.c,0.85); ctx.fillRect(cx-bw/2, y, bw, PAD.t+gH-y);
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(b.l,cx,PAD.t+gH+10);
-    ctx.fillStyle=rgb(b.c); ctx.font='7px "Space Mono",monospace'; ctx.fillText(b.v.toExponential(1),cx,y-3); });
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('m/s (log)',PAD.l+2,PAD.t+6);
+  const g=Lab.panel(gCanvas[2],{ title:'Velocità tipiche (m/s, scala log)', xr:[0,2], xStep:10, xFmt:()=> '', yr:[1e-6,1e7], yLog:true, yFmt:v=>Lab.sci(v,1) });
+  if(!g) return; const [ctx,f]=g;
+  const bars=[{v:vFermi(), c:T.tracer, l:'v_Fermi (moto casuale)'},{v:Math.max(1e-6,vDrift()), c:T.elec, l:'v_deriva'}];
+  bars.forEach((b,i)=>{
+    const cx=f.X(i+0.5), bw=(f.R-f.L)*0.28, y=f.Y(b.v);
+    ctx.fillStyle=rgba(b.c,0.85); ctx.fillRect(cx-bw/2,y,bw,f.B-y);
+    ctx.font='9.5px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillStyle=rgb(b.c);
+    ctx.fillText(Lab.sci(b.v,2),cx,y-7);
+    ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillStyle=f.C.text; ctx.fillText(b.l,cx,f.B+10);
+  });
 }
 function drawGraphs(){ drawVdI(); drawIV(); drawCompare(); }
 
@@ -282,7 +273,7 @@ function buildControls(){
   const secM=Lab.Section('Conduttore');
   cont.appendChild(secM.el);
   secM.add(Lab.RadioGroup({ label:'Materiale (densità n)',
-    options:Object.keys(MAT).map(k=>({value:k, label:MAT[k].name, hint:(MAT[k].n/1e28).toFixed(1)+'·10²⁸'})),
+    options:Object.keys(MAT).map(k=>({value:k, label:MAT[k].name, hint:Lab.fmt((MAT[k].n/1e28),1)+'·10²⁸'})),
     value:P.mat, onChange(v){ P.mat=v; } }));
   secM.add(Lab.Slider({ label:'Sezione A', min:0.5, max:5, step:0.1, value:P.A, unit:' mm²', onChange(v){P.A=v;} }));
   secM.add(Lab.Slider({ label:'Lunghezza L', min:0.1, max:5, step:0.1, value:P.L, unit:' m', onChange(v){P.L=v;} }));
@@ -293,18 +284,10 @@ function buildControls(){
 }
 
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['v_d in funzione di I','Legge di Ohm I–V','Fermi vs deriva (log)'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -338,10 +321,10 @@ function init(){
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(220,Math.floor(ar.height-rb.height-gaH-4));
     simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    geom(simCanvas.width,simCanvas.height);
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    geom(Math.floor(ar.width), h);
     if(!electrons.length) initElectrons();
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -356,12 +339,12 @@ function init(){
     step(dt);
     draw(simCanvas);
     drawGraphs();
-    readout.set('vd', P.on? vDrift().toExponential(2)+' m/s' : '0');
-    readout.set('vf', vFermi().toExponential(2)+' m/s');
-    readout.set('ratio', P.on? (vFermi()/vDrift()).toExponential(1) : '∞');
-    readout.set('J', P.on? Jdens().toExponential(2)+' A/m²' : '0');
-    readout.set('mu', mobility().toExponential(2)+' m²/Vs');
-    readout.set('R', resistance().toExponential(2)+' Ω');
+    readout.set('vd', P.on? Lab.sci(vDrift(),3)+' m/s' : '0');
+    readout.set('vf', Lab.sci(vFermi(),3)+' m/s');
+    readout.set('ratio', P.on? Lab.sci((vFermi()/vDrift()),2) : '∞');
+    readout.set('J', P.on? Lab.sci(Jdens(),3)+' A/m²' : '0');
+    readout.set('mu', Lab.sci(mobility(),3)+' m²/Vs');
+    readout.set('R', Lab.sci(resistance(),3)+' Ω');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

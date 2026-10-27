@@ -217,8 +217,8 @@ function drawPiano(ctx,W,H,PXM,rpx,ang){
   ctx.beginPath(); ctx.moveTo(Ax,Ay); ctx.lineTo(Cx,Cy); ctx.lineTo(Cx,Ay); ctx.closePath(); ctx.stroke();
   ctx.strokeStyle=T.plane; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,Ay); ctx.lineTo(W,Ay); ctx.stroke();   // orizzonte
   // angolo θ
-  ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.2; ctx.beginPath(); ctx.arc(Ax,Ay,30,-th,0); ctx.stroke();
-  ctx.fillStyle=rgb(T.accent); ctx.font='10px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('θ='+P.theta+'°', Ax+36, Ay-8);
+  ctx.strokeStyle=T.accent; ctx.lineWidth=1.2; ctx.beginPath(); ctx.arc(Ax,Ay,30,-th,0); ctx.stroke();
+  ctx.fillStyle=T.accent; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('θ='+P.theta+'°', Ax+36, Ay-8);
   // versori
   const ux=c, uy=-sn, nx=-sn, ny=-c;               // su lungo il piano / normale uscente
   // ── m2 sul piano (sale di s) ──
@@ -340,8 +340,8 @@ function drawGraphs(){
   if(gCanvas[2].width){ const ctx=gCtx[2],Wd=gCanvas[2].width,Hd=gCanvas[2].height,PAD={t:16,b:18,l:10,r:8};
     const {gW,gH}=gBase(ctx,Wd,Hd,PAD); const t=tensions();
     let vals=[],labs=[],cols=[];
-    if(P.mode==='uno'){ vals=[P.m1*G,t.T]; labs=['P','T']; cols=[rgb(T.m1c),rgb(T.accent)]; }
-    else if(P.mode==='due'){ vals=[P.m1*G,P.m2*G,t.T1,t.T2]; labs=['P₁','P₂','T₁','T₂']; cols=[rgb(T.m1c),rgb(T.m2c),rgb(T.accent),rgb(T.accent)]; }
+    if(P.mode==='uno'){ vals=[P.m1*G,t.T]; labs=['P','T']; cols=[rgb(T.m1c),T.accent]; }
+    else if(P.mode==='due'){ vals=[P.m1*G,P.m2*G,t.T1,t.T2]; labs=['P₁','P₂','T₁','T₂']; cols=[rgb(T.m1c),rgb(T.m2c),T.accent,T.accent]; }
     else if(P.mode==='piano'){ vals=[P.m1*G,t.fr,t.T1,t.T2]; labs=['P₁','attr','T₁','T₂']; cols=[rgb(T.m1c),rgb(FCOL.attr),rgb(FCOL.tens),rgb(FCOL.tens)]; }
     else { vals=[P.Feff,P.m2*G/P.n,P.m2*G,t.F1]; labs=['F','F_eq','M·g','F₁']; cols=[rgb(FCOL.peso),rgb([150,180,210]),rgb(T.m2c),rgb(FCOL.norm)]; }
     const mx=Math.max(...vals,1e-6), n=vals.length;

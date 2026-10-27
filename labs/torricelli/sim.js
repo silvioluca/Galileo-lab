@@ -165,7 +165,7 @@ function draw(canvas){
   ctx.fillText('p₀', xT-14, G.ySurf+aLen+10);
   if(!off){ arrow(ctx, xT+w/2+16, yCol+18, xT+w/2+16, yCol+44, rgb(T.press), 2.4);   // peso colonna gρh
     ctx.textAlign='left'; ctx.fillText('g·ρ·h', xT+w/2+22, yCol+22); }
-  ctx.fillStyle=rgb(T.accent); ctx.font='10px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('A', xT+w/2+8, G.ySurf+4);
+  ctx.fillStyle=T.accent; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('A', xT+w/2+8, G.ySurf+4);
   ctx.beginPath(); ctx.arc(xT, G.ySurf, 3, 0, Math.PI*2); ctx.fill();
 
   // ── intestazione ──
@@ -220,7 +220,7 @@ function drawGraphs(){
   if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:28,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const pmax=1.3, hmax=pmax*ATM/(rho()*Gacc);
     const xOf=p=>PAD.l+p/pmax*gW, yOf=h=>PAD.t+gH-clamp(h/hmax,0,1)*gH*0.9;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(pmax),yOf(pmax*ATM/(rho()*Gacc))); ctx.stroke();
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(pmax),yOf(pmax*ATM/(rho()*Gacc))); ctx.stroke();
     ctx.fillStyle=rgb(T.press); ctx.beginPath(); ctx.arc(xOf(P.p0),yOf(colH()),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('h',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('p₀',PAD.l+gW-2,PAD.t+gH-3);
   }
@@ -236,7 +236,7 @@ function drawGraphs(){
   if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
     const {gW,gH}=gBase(ctx,W,H,PAD); const altmax=10000;
     const xOf=a=>PAD.l+a/altmax*gW, yOf=p=>PAD.t+gH-clamp(p,0,1.05)*gH*0.9;
-    ctx.strokeStyle=rgb(T.accent); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
+    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
     for(let a=0;a<=altmax;a+=200){ const p=Math.exp(-a/8400); const x=xOf(a),y=yOf(p); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
     const altNow=clamp(altitudeEq(),0,altmax); ctx.fillStyle=rgb(T.press); ctx.beginPath(); ctx.arc(xOf(altNow),yOf(P.p0),3.5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('p/p₀',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('quota',PAD.l+gW-2,PAD.t+gH-3);

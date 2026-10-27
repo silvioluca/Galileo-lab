@@ -647,7 +647,7 @@ const LABS = [
   {
     id: 'standing-waves',
     name: 'Onde Stazionarie',
-    desc: 'Visualizza onde stazionarie su corda fissata o tubo risonante. Esplora armoniche, nodi e ventri al variare di frequenza, lunghezza e tensione.',
+    desc: 'Corda di Melde e tubi risonanti forzati e smorzati: nodi, ventri, particelle d’aria e pressione, curva di risonanza e serie armonica, con scansione in frequenza e suono.',
     topic: 'onde',
     status: 'stable',
     icon: '〰️',
@@ -674,7 +674,7 @@ const LABS = [
   {
     id: 'faraday',
     name: 'Induzione di Faraday',
-    desc: 'Simula l\'esperimento di Faraday (1831): un magnete che si avvicina a una bobina induce una corrente. Visualizza il flusso magnetico, la FEM indotta e la legge di Lenz. Trascina il magnete manualmente oppure avvia l\'oscillazione automatica.',
+    desc: 'Simula l\'esperimento di Faraday (1831): un magnete che si avvicina a una bobina induce una corrente. Valori reali (spire, cm, A·m²): flusso, f.e.m. e corrente indotta, verso della corrente sulle spire (legge di Lenz) e Φ in funzione della posizione. Il magnete si può capovolgere e trascinare.',
     topic: 'elettromagnetismo',
     status: 'beta',
     icon: '🔄',
@@ -683,7 +683,7 @@ const LABS = [
   {
     id: 'em-field',
     name: 'Campo Elettrico',
-    desc: 'Visualizza il campo elettrico e il potenziale di monopoli, dipoli, quadrupoli e multipoli superiori. Trascina la sonda per misurare V ed E in ogni punto, e le cariche per riposizionarle.',
+    desc: 'Visualizza il campo elettrico e il potenziale di monopoli, dipoli, quadrupoli e multipoli superiori. Cariche in nC e distanze in cm: trascina la sonda per misurare V (in volt) ed E (in kV/m), e le cariche per riposizionarle.',
     topic: 'elettromagnetismo',
     status: 'stable',
     icon: '⚡',
@@ -701,7 +701,7 @@ const LABS = [
   {
     id: 'correnti',
     name: 'Campi da Correnti',
-    desc: 'Visualizza il campo magnetico di filo infinito, spira circolare/quadrata, solenoide e toroide. Biot-Savart in 3D con piano di taglio colorato e linee di campo interattive.',
+    desc: 'Campo magnetico di filo, spira circolare e quadrata, solenoide e toroide: vista 3D ruotabile e sezione esatta con linee di campo a flusso costante, mappa di |B|, sonda, campo sull’asse e legge di Ampère.',
     topic: 'elettromagnetismo',
     status: 'beta',
     icon: '🔌',
@@ -755,7 +755,7 @@ const LABS = [
   {
     id: 'mag-field',
     name: 'Campo Magnetico',
-    desc: 'Visualizza il campo magnetico generato da magneti permanenti. Trascina i magneti, ruotali con lo scroll del mouse. Osserva linee di campo, mappa di calore e pattern di limatura di ferro.',
+    desc: 'Campo magnetico di barrette al neodimio: B in mT, linee chiuse anche dentro il magnete, mappa di |B|, limatura di ferro e vista 3D. Trascina e ruota i magneti.',
     topic: 'elettromagnetismo',
     status: 'stable',
     icon: '🧲',
@@ -800,7 +800,7 @@ const LABS = [
   {
     id: 'transformer',
     name: 'Trasformatore',
-    desc: 'Simula un trasformatore ideale: V₂/V₁ = N₂/N₁. Varia il voltaggio di ingresso, il numero di spire primario e secondario, il nucleo magnetico (aria/ferrite/ferro) e la modalità AC/DC. Osserva V₁ e V₂ sullo stesso grafico.',
+    desc: 'Simula un trasformatore: V₂/V₁ = N₂/N₁ e I₁/I₂ = N₂/N₁. Varia tensione, frequenza, spire, carico e nucleo (aria, ferrite, ferro); grafici di tensioni, flusso e correnti, in alternata e in continua.',
     topic: 'elettromagnetismo',
     status: 'stable',
     icon: '⚡',
@@ -809,7 +809,7 @@ const LABS = [
   {
     id: 'displacement',
     name: 'Corrente di Spostamento',
-    desc: 'Osserva la legge di Ampere-Maxwell con un condensatore in carica AC. Trascina il percorso amperiano dal filo (I_c) al gap (I_d): ∮ B·dl resta invariato. Il campo B esiste anche nel gap dove non c\'è filo.',
+    desc: 'Osserva la legge di Ampère-Maxwell con un condensatore in carica AC. Trascina il percorso amperiano dal filo (I_c) al gap (I_d): ∮ B·dl resta invariato. Il campo B esiste anche nel gap dove non c\'è filo.',
     topic: 'elettromagnetismo',
     status: 'stable',
     icon: '⚡',
@@ -817,8 +817,8 @@ const LABS = [
   },
   {
     id: 'ampere',
-    name: 'Teorema di Ampere',
-    desc: 'Esplora il teorema di Ampere (∮ B·dl = μ₀·I_enc). Sposta fili percorsi da corrente, varia il percorso amperiano (circolare, rettangolare, amorfo) e osserva l\'integrale di linea cumulativo confrontato con il valore teorico.',
+    name: 'Teorema di Ampère',
+    desc: 'Esplora il teorema di Ampère (∮ B·dl = μ₀·I_enc). Fili in ampere e percorsi in cm: linee di campo esatte, esempi pronti, integrale accumulato lungo il percorso e campo punto per punto.',
     topic: 'elettromagnetismo',
     status: 'stable',
     icon: '🌀',
@@ -899,7 +899,7 @@ const LABS = [
   {
     id: 'lorentz',
     name: 'Forza di Lorentz',
-    desc: 'Studia il moto di una carica in campi elettrici e magnetici. Osserva orbite circolari, il raggio di Larmor al variare di q e m, e la deriva E×B in campi incrociati.',
+    desc: 'Studia il moto di una carica in campi elettrici e magnetici. Elettrone, protone o particella α in campi reali: orbite di raggio r = mv/qB, eliche, deriva E×B in campi incrociati e grafici di velocità ed energia.',
     topic: 'elettromagnetismo',
     status: 'stable',
     icon: '🧲',

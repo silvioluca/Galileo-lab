@@ -197,7 +197,7 @@ function drawEquivalent(ctx, x0, x1, cy, eqVal) {
   drawWire(ctx, batX, cy + 20, batX, yBot); drawWire(ctx, batX, yBot, x1, yBot);
   drawWire(ctx, x1, yTop, x1, yBot);
   drawBatterySymbol(ctx, batX, cy, 40);
-  const label = `${P.elemType}eq=${eqVal.toFixed(2)}${P.elemType === 'R' ? 'Ω' : 'µF'}`;
+  const label = `${P.elemType}eq=${Lab.fmt(eqVal,2)}${P.elemType === 'R' ? 'Ω' : 'µF'}`;
   drawElementSymbol(ctx, elemX0, yTop, elemX1, yTop, P.elemType, label);
 }
 function drawFlowDots(ctx) {
@@ -232,7 +232,7 @@ function drawSeriesParallelScene(ctx, W, H) {
   ctx.fillText(`${P.elemType === 'R' ? 'Resistori' : 'Condensatori'} in ${P.config === 'series' ? 'serie' : 'parallelo'}`, 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
   const unit = P.elemType === 'R' ? ' Ω' : ' µF';
-  ctx.fillText(`N=${P.n}   equivalente = ${eq.toFixed(2)}${unit}   V₀=${P.v0} V`, 14, 36);
+  ctx.fillText(`N=${P.n}   equivalente = ${Lab.fmt(eq,2)}${unit}   V₀=${P.v0} V`, 14, 36);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   let hint;
@@ -253,9 +253,9 @@ function drawStarPanel(ctx, cx, cy, R, Ra, Rb, Rc) {
 }
 function drawDeltaPanel(ctx, cx, cy, R, Rab, Rbc, Rca) {
   const { A, B, C } = triPos(cx, cy, R);
-  drawElementSymbol(ctx, A.x, A.y, B.x, B.y, 'R', `Rab=${Rab.toFixed(1)}Ω`);
-  drawElementSymbol(ctx, B.x, B.y, C.x, C.y, 'R', `Rbc=${Rbc.toFixed(1)}Ω`);
-  drawElementSymbol(ctx, C.x, C.y, A.x, A.y, 'R', `Rca=${Rca.toFixed(1)}Ω`);
+  drawElementSymbol(ctx, A.x, A.y, B.x, B.y, 'R', `Rab=${Lab.fmt(Rab,1)}Ω`);
+  drawElementSymbol(ctx, B.x, B.y, C.x, C.y, 'R', `Rbc=${Lab.fmt(Rbc,1)}Ω`);
+  drawElementSymbol(ctx, C.x, C.y, A.x, A.y, 'R', `Rca=${Lab.fmt(Rca,1)}Ω`);
   drawTerminal(ctx, A, 'A', 0, -14); drawTerminal(ctx, B, 'B', -16, 8); drawTerminal(ctx, C, 'C', 16, 8);
 }
 function drawStarDeltaScene(ctx, W, H) {
@@ -264,7 +264,7 @@ function drawStarDeltaScene(ctx, W, H) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Trasformazione stella-triangolo (Y-Δ)', 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`Ra=${sd.Ra}Ω Rb=${sd.Rb}Ω Rc=${sd.Rc}Ω  →  Rab=${sd.Rab.toFixed(1)}Ω Rbc=${sd.Rbc.toFixed(1)}Ω Rca=${sd.Rca.toFixed(1)}Ω`, 14, 36);
+  ctx.fillText(`Ra=${sd.Ra}Ω Rb=${sd.Rb}Ω Rc=${sd.Rc}Ω  →  Rab=${Lab.fmt(sd.Rab,1)}Ω Rbc=${Lab.fmt(sd.Rbc,1)}Ω Rca=${Lab.fmt(sd.Rca,1)}Ω`, 14, 36);
 
   const cy = H * 0.54, R = Math.min(W * 0.16, H * 0.26), cxL = W * 0.26, cxR = W * 0.74;
   drawStarPanel(ctx, cxL, cy, R, sd.Ra, sd.Rb, sd.Rc);
@@ -288,7 +288,7 @@ function drawWheatstoneScene(ctx, W, H) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Ponte di Wheatstone', 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`I_g=${(wb.Ig * 1000).toFixed(3)} mA   V₀=${P.v0} V   ${wb.balanced ? 'ponte bilanciato' : 'ponte sbilanciato'}`, 14, 36);
+  ctx.fillText(`I_g=${Lab.fmt((wb.Ig * 1000),3)} mA   V₀=${P.v0} V   ${wb.balanced ? 'ponte bilanciato' : 'ponte sbilanciato'}`, 14, 36);
 
   const cx = W * 0.42, cy = H * 0.54, Rd = Math.min(W * 0.16, H * 0.3);
   const A = { x: cx, y: cy - Rd }, D = { x: cx, y: cy + Rd }, B = { x: cx - Rd * 0.95, y: cy }, C = { x: cx + Rd * 0.95, y: cy };
@@ -317,22 +317,21 @@ function drawWheatstoneScene(ctx, W, H) {
   ctx.strokeStyle = T.grid; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(px0 - 25, 55); ctx.lineTo(px0 - 25, H - 65); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle = T.txt; ctx.font = '11px "Space Mono",monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`R₁/R₂ = ${wb.balanceRatioLeft.toFixed(3)}`, px0, cy - 40);
-  ctx.fillText(`R₃/R₄ = ${wb.balanceRatioRight.toFixed(3)}`, px0, cy - 20);
+  ctx.fillText(`R₁/R₂ = ${Lab.fmt(wb.balanceRatioLeft,3)}`, px0, cy - 40);
+  ctx.fillText(`R₃/R₄ = ${Lab.fmt(wb.balanceRatioRight,3)}`, px0, cy - 20);
   ctx.fillStyle = wb.balanced ? '#7fe0a0' : '#ff9d4d';
   ctx.font = 'bold 13px "Space Mono",monospace';
   ctx.fillText(wb.balanced ? '✓ ponte bilanciato' : '✗ ponte sbilanciato', px0, cy + 10);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`I_g = ${(wb.Ig * 1000).toFixed(3)} mA`, px0, cy + 34);
-  ctx.fillText(`V_th = V_B−V_C = ${wb.Vth.toFixed(3)} V`, px0, cy + 52);
+  ctx.fillText(`I_g = ${Lab.fmt((wb.Ig * 1000),3)} mA`, px0, cy + 34);
+  ctx.fillText(`V_th = V_B−V_C = ${Lab.fmt(wb.Vth,3)} V`, px0, cy + 52);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText('il ponte è bilanciato (I_g=0) quando R₁/R₂ = R₃/R₄, indipendentemente dal valore di Rg', W / 2, H - 8);
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = T.grid; ctx.lineWidth = 1;
@@ -345,121 +344,89 @@ function draw(canvas) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-function drawBars(ctx, W, H, values, colors, labels, unitText) {
-  const PAD = { t: 14, b: 22, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const maxV = Math.max(...values, 1e-9) * 1.15;
-  const gap = gW / values.length, bw = gap * 0.62;
-  values.forEach((v, i) => {
-    const x = PAD.l + i * gap + (gap - bw) / 2, h = clamp(v / maxV, 0, 1) * gH, y = PAD.t + gH - h;
-    ctx.fillStyle = colors[i]; ctx.fillRect(x, y, bw, h);
-    ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'center';
-    ctx.fillText(labels[i], x + bw / 2, PAD.t + gH + 10);
+// istogramma con asse dei valori numerato (il fondo scala è un valore "tondo" sopra il massimo)
+function drawBars(i, title, values, colors, labels) {
+  const max = Lab.niceMax(Math.max(...values.map(Math.abs), 1e-9) * 1.1);
+  const g = Lab.panel(gCanvas[i], { title, xr: [0, values.length], xStep: 1e9, xFmt: () => '', yr: [0, max] });
+  if (!g) return; const [ctx, f] = g;
+  const gap = (f.R - f.L) / values.length, bw = gap * 0.6;
+  values.forEach((v, k) => {
+    const x = f.L + k * gap + (gap - bw) / 2, y = f.Y(Math.max(0, v));
+    ctx.fillStyle = colors[k]; ctx.fillRect(x, y, bw, f.B - y);
+    ctx.font = '9.5px "Space Mono",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = f.C.text; ctx.fillText(labels[k], x + bw / 2, f.B + 10);
+    ctx.fillStyle = f.C.title; ctx.fillText(Lab.sci(v, 3), x + bw / 2, y - 7);
   });
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText(unitText, PAD.l + 2, PAD.t + 7);
 }
+const BAR = 'rgba(0,212,255,0.75)';
 // 1: valori dei singoli elementi confrontati con il valore equivalente
 function drawGraphValues() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], vals = P.values.slice(0, P.n), eq = computeEquivalent();
-  const values = vals.concat([eq]);
-  const colors = vals.map(() => 'rgba(0,212,255,0.75)').concat(['#ff9d4d']);
-  const labels = vals.map((_, i) => sub(i + 1)).concat(['eq']);
-  drawBars(ctx, cv.width, cv.height, values, colors, labels, P.elemType === 'R' ? 'valori (Ω)' : 'valori (µF)');
+  const vals = P.values.slice(0, P.n), eq = computeEquivalent();
+  drawBars(0, `Valori ed equivalente (${P.elemType === 'R' ? 'Ω' : 'µF'})`, vals.concat([eq]),
+    vals.map(() => BAR).concat(['#ff9d4d']), vals.map((_, i) => sub(i + 1)).concat(['eq']));
 }
 // 2: grandezza che varia da elemento a elemento (V per la serie di R, I per il parallelo di R, ecc.)
 function drawGraphDistribution() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], dist = computeDistribution();
-  const values = dist.map(d => d.varying);
-  const labels = dist.map((_, i) => sub(i + 1));
-  const colors = dist.map(() => '#7fe0a0');
-  const d0 = dist[0] || { varLabel: '', varUnit: '' };
-  drawBars(ctx, cv.width, cv.height, values, colors, labels, `${d0.varLabel} per elemento (${d0.varUnit})`);
+  const dist = computeDistribution(), d0 = dist[0] || { varLabel: '', varUnit: '' };
+  drawBars(1, `${d0.varLabel} su ogni elemento (${d0.varUnit})`, dist.map(d => d.varying), dist.map(() => '#7fe0a0'), dist.map((_, i) => sub(i + 1)));
 }
 // 3: come cambierebbe l'equivalente al variare di N, per N elementi tutti uguali al valore medio
-// attuale — curva chiusa: R serie ∝ N, R parallelo ∝ 1/N, C serie ∝ 1/N, C parallelo ∝ N (duali)
+// attuale — R serie ∝ N, R parallelo ∝ 1/N, C serie ∝ 1/N, C parallelo ∝ N (duali)
 function drawGraphTrend() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   const vals = P.values.slice(0, P.n), vbar = vals.reduce((a, b) => a + b, 0) / vals.length;
   const NMAX = 12;
   const eqOf = k => {
     if (P.elemType === 'R') return P.config === 'series' ? vbar * k : vbar / k;
     return P.config === 'series' ? vbar / k : vbar * k;
   };
-  const pts = []; for (let k = 1; k <= NMAX; k++) pts.push(eqOf(k));
-  const maxV = Math.max(...pts) * 1.1;
-  const xOf = k => PAD.l + (k - 1) / (NMAX - 1) * gW;
-  const yOf = v => PAD.t + gH - clamp(v / maxV, 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  pts.forEach((v, i) => { const x = xOf(i + 1), y = yOf(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
-  const curV = eqOf(P.n);
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(P.n), yOf(curV), 3.4, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('eq. con N elementi uguali a V̄', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('N', PAD.l + gW - 2, PAD.t + gH - 3);
+  const pts = []; for (let k = 1; k <= NMAX; k++) pts.push([k, eqOf(k)]);
+  const max = Lab.niceMax(Math.max(...pts.map(p => p[1])) * 1.05);
+  const g = Lab.panel(gCanvas[2], { title: `Equivalente di N elementi uguali alla media (${P.elemType === 'R' ? 'Ω' : 'µF'})`, xr: [1, NMAX], xStep: 1, yr: [0, max], xLabel: 'N' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, pts, f.C.accent, 2);
+  for (const [k, v] of pts) Lab.dot(ctx, f, k, v, f.C.accent, 2.2);
+  Lab.dot(ctx, f, P.n, eqOf(P.n), '#ff9d4d', 4.5);
 }
 // grafici: stella-triangolo
 function drawGraphStarDeltaLine() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const maxX = 1000;
-  const xOf = x => PAD.l + clamp(x / maxX, 0, 1) * gW, yOf = y => PAD.t + gH - clamp(y / (3 * maxX), 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  ctx.moveTo(xOf(0), yOf(0)); ctx.lineTo(xOf(maxX), yOf(3 * maxX)); ctx.stroke();
+  const g = Lab.panel(gCanvas[2], { title: 'Con Ra = Rb = Rc = R: Rab = Rbc = Rca = 3R', xr: [0, 1000], yr: [0, 3000], xLabel: 'R (Ω)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, x => 3 * x, [0, 1000], f.C.accent, 2);
   const sd = computeStarDelta(), vbar = (sd.Ra + sd.Rb + sd.Rc) / 3;
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(vbar), yOf(3 * vbar), 3.4, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('se Ra=Rb=Rc=R → Rab=Rbc=Rca=3R', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('R (Ω)', PAD.l + gW - 2, PAD.t + gH - 3);
+  Lab.dot(ctx, f, vbar, 3 * vbar, '#ff9d4d', 4);
 }
 function drawGraphsStarDelta() {
   const sd = computeStarDelta();
-  drawBars(gCtx[0], gCanvas[0].width, gCanvas[0].height, [sd.Ra, sd.Rb, sd.Rc], ['rgba(0,212,255,0.75)', 'rgba(0,212,255,0.75)', 'rgba(0,212,255,0.75)'], ['Ra', 'Rb', 'Rc'], 'valori stella (Ω)');
-  drawBars(gCtx[1], gCanvas[1].width, gCanvas[1].height, [sd.Rab, sd.Rbc, sd.Rca], ['#ff9d4d', '#ff9d4d', '#ff9d4d'], ['Rab', 'Rbc', 'Rca'], 'valori triangolo (Ω)');
+  drawBars(0, 'Resistenze della stella (Ω)', [sd.Ra, sd.Rb, sd.Rc], [BAR, BAR, BAR], ['Ra', 'Rb', 'Rc']);
+  drawBars(1, 'Resistenze del triangolo equivalente (Ω)', [sd.Rab, sd.Rbc, sd.Rca], ['#ff9d4d', '#ff9d4d', '#ff9d4d'], ['Rab', 'Rbc', 'Rca']);
   drawGraphStarDeltaLine();
 }
 // grafici: ponte di Wheatstone
 function drawGraphWheatstoneSweep(wb) {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const R4max = Math.max(wb.R4 * 3, 100);
+  const R4max = Lab.niceMax(Math.max(wb.R4 * 3, 100));
   const igOf = R4 => {
     const Vb = P.v0 * wb.R2 / (wb.R1 + wb.R2), Vc = P.v0 * R4 / (wb.R3 + R4);
     const Rth = (wb.R1 * wb.R2) / (wb.R1 + wb.R2) + (wb.R3 * R4) / (wb.R3 + R4);
-    return (Vb - Vc) / (Rth + wb.Rg);
+    return (Vb - Vc) / (Rth + wb.Rg) * 1e3;      // mA
   };
-  const N = 100, pts = []; let maxAbs = 1e-9;
-  for (let i = 0; i <= N; i++) { const R4 = i / N * R4max, ig = igOf(R4); pts.push([R4, ig]); maxAbs = Math.max(maxAbs, Math.abs(ig)); }
-  const xOf = x => PAD.l + clamp(x / R4max, 0, 1) * gW, yOf = y => PAD.t + gH / 2 - clamp(y / maxAbs, -1, 1) * (gH / 2 - 2);
-  ctx.strokeStyle = 'rgba(150,180,210,0.3)'; ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t + gH / 2); ctx.lineTo(PAD.l + gW, PAD.t + gH / 2); ctx.stroke();
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  pts.forEach(([x, y], i) => { const sx = xOf(x), sy = yOf(y); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); }); ctx.stroke();
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(wb.R4), yOf(wb.Ig), 3.4, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('I_g al variare di R₄ (bilancio a I_g=0)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('R₄ (Ω)', PAD.l + gW - 2, PAD.t + gH - 3);
+  let maxAbs = 1e-9; for (let i = 0; i <= 100; i++) maxAbs = Math.max(maxAbs, Math.abs(igOf(i / 100 * R4max)));
+  const m = Lab.niceMax(maxAbs);
+  const g = Lab.panel(gCanvas[1], { title: 'Corrente nel galvanometro I_g (mA) al variare di R₄', xr: [0, R4max], yr: [-m, m], xLabel: 'R₄ (Ω)', yFmt: v => Lab.sci(v, 2) });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, igOf, [0, R4max], f.C.accent, 2);
+  Lab.dot(ctx, f, wb.R4, wb.Ig * 1e3, '#ff9d4d', 4);
+  // R₄ di bilanciamento: R₄ = R₃·R₂/R₁
+  const R4b = wb.R3 * wb.R2 / wb.R1;
+  if (R4b <= R4max) { ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.green; ctx.beginPath(); ctx.moveTo(f.X(R4b), f.T); ctx.lineTo(f.X(R4b), f.B); ctx.stroke(); ctx.restore(); }
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[f.C.green, 'bilanciamento R₄ = R₂R₃/R₁', [3, 3]]]);
 }
 function drawGraphsWheatstone() {
   const wb = computeWheatstone();
-  drawBars(gCtx[0], gCanvas[0].width, gCanvas[0].height, [wb.R1, wb.R2, wb.R3, wb.R4, wb.Rg], ['rgba(0,212,255,0.75)', 'rgba(0,212,255,0.75)', 'rgba(0,212,255,0.75)', 'rgba(0,212,255,0.75)', '#c47fff'], ['R1', 'R2', 'R3', 'R4', 'Rg'], 'valori (Ω)');
+  drawBars(0, 'Resistenze del ponte (Ω)', [wb.R1, wb.R2, wb.R3, wb.R4, wb.Rg], [BAR, BAR, BAR, BAR, '#c47fff'], ['R1', 'R2', 'R3', 'R4', 'Rg']);
   drawGraphWheatstoneSweep(wb);
-  drawBars(gCtx[2], gCanvas[2].width, gCanvas[2].height, [wb.Vb, wb.Vc], ['#7fe0a0', '#ff9d4d'], ['Vb', 'Vc'], 'tensione ai nodi (V)');
+  drawBars(2, 'Tensioni ai nodi del ponte (V)', [wb.Vb, wb.Vc], ['#7fe0a0', '#ff9d4d'], ['Vb', 'Vc']);
 }
 function drawGraphs() {
-  let titles;
-  if (P.config === 'star-delta') titles = ['Valori della stella', 'Valori del triangolo', 'Caso R uguali: Δ = 3×Y'];
-  else if (P.config === 'wheatstone') titles = ['Valori del ponte', 'Corrente al variare di R₄', 'Tensioni ai nodi del ponte'];
-  else titles = ['Valori e equivalente', 'Distribuzione per elemento', 'Tendenza con N (valore medio)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
   if (P.config === 'star-delta') drawGraphsStarDelta();
   else if (P.config === 'wheatstone') drawGraphsWheatstone();
   else { drawGraphValues(); drawGraphDistribution(); drawGraphTrend(); }
@@ -550,18 +517,11 @@ function buildReadout() {
   }
 }
 
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -586,8 +546,8 @@ function init() {
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
     simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -603,22 +563,22 @@ function init() {
       draw(simCanvas); drawGraphs();
       if (P.config === 'star-delta') {
         const sd = computeStarDelta();
-        readout.set('ra', sd.Ra.toFixed(1) + ' Ω'); readout.set('rb', sd.Rb.toFixed(1) + ' Ω'); readout.set('rc', sd.Rc.toFixed(1) + ' Ω');
-        readout.set('rab', sd.Rab.toFixed(1) + ' Ω'); readout.set('rbc', sd.Rbc.toFixed(1) + ' Ω'); readout.set('rca', sd.Rca.toFixed(1) + ' Ω');
+        readout.set('ra', Lab.fmt(sd.Ra,1) + ' Ω'); readout.set('rb', Lab.fmt(sd.Rb,1) + ' Ω'); readout.set('rc', Lab.fmt(sd.Rc,1) + ' Ω');
+        readout.set('rab', Lab.fmt(sd.Rab,1) + ' Ω'); readout.set('rbc', Lab.fmt(sd.Rbc,1) + ' Ω'); readout.set('rca', Lab.fmt(sd.Rca,1) + ' Ω');
       } else if (P.config === 'wheatstone') {
         const wb = computeWheatstone();
-        readout.set('rth', wb.Rth.toFixed(2) + ' Ω'); readout.set('vth', wb.Vth.toFixed(3) + ' V');
-        readout.set('ig', (wb.Ig * 1000).toFixed(3) + ' mA'); readout.set('stato', wb.balanced ? 'bilanciato' : 'sbilanciato');
-        readout.set('r1r2', wb.balanceRatioLeft.toFixed(3)); readout.set('r3r4', wb.balanceRatioRight.toFixed(3));
+        readout.set('rth', Lab.fmt(wb.Rth,2) + ' Ω'); readout.set('vth', Lab.fmt(wb.Vth,3) + ' V');
+        readout.set('ig', Lab.fmt((wb.Ig * 1000),3) + ' mA'); readout.set('stato', wb.balanced ? 'bilanciato' : 'sbilanciato');
+        readout.set('r1r2', Lab.fmt(wb.balanceRatioLeft,3)); readout.set('r3r4', Lab.fmt(wb.balanceRatioRight,3));
       } else {
         const unit = P.elemType === 'R' ? ' Ω' : ' µF';
         readout.set('tipo', P.elemType === 'R' ? 'Resistori' : 'Condensatori');
         readout.set('config', P.config === 'series' ? 'Serie' : 'Parallelo');
         readout.set('n', String(P.n));
-        readout.set('eq', computeEquivalent().toFixed(2) + unit);
-        readout.set('v0', P.v0.toFixed(1) + ' V');
+        readout.set('eq', Lab.fmt(computeEquivalent(),2) + unit);
+        readout.set('v0', Lab.fmt(P.v0,1) + ' V');
         const tot = computeTotal();
-        readout.set('tot', P.elemType === 'R' ? (tot * 1000).toFixed(1) + ' mA' : tot.toFixed(2) + ' µC');
+        readout.set('tot', P.elemType === 'R' ? Lab.fmt((tot * 1000),1) + ' mA' : Lab.fmt(tot,2) + ' µC');
       }
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

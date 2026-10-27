@@ -18,6 +18,7 @@ const e0 = 1.602e-19;
 let tAnim=0, last=0;
 let carriers={pos:[],neg:[]};
 let acc={pos:0,neg:0};       // frazione di campo di Hall accumulato (transitorio) per tipo
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout, carrierRadio=null;
 let lastB=0.5, lastI=80;     // per rilevare variazioni che rilanciano il transitorio
@@ -326,8 +327,7 @@ function draw2DBar(ctx,R,c){
 
 // ═══ Dispatcher ═══════════════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal();
   TZ=tz();                       // spessore geometrico legato allo slider t
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
@@ -363,36 +363,25 @@ function draw(canvas){
   }
 }
 function tag(ctx,cx,cy,col,txt){ ctx.textAlign='center'; ctx.font='bold 11px "Space Mono",monospace'; ctx.fillStyle=rgb(col); ctx.fillText(txt,cx,cy); }
-function fmtV(v){ const a=Math.abs(v),s=v<0?'−':''; if(a<1e-3) return `${s}${(a*1e6).toFixed(1)} µV`; return `${s}${(a*1e3).toFixed(3)} mV`; }
+function fmtV(v){ const a=Math.abs(v),s=v<0?'−':''; if(a<1e-3) return `${s}${Lab.fmt((a*1e6),1)} µV`; return `${s}${Lab.fmt((a*1e3),3)} mV`; }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b, zy=PAD.t+gH/2;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(PAD.l,zy); ctx.lineTo(PAD.l+gW,zy); ctx.stroke();
-  return {gW,gH,zy};
-}
-function drawDual(ctx,W,H,xlabel,xmax,fmag,xcur){
-  const PAD={t:14,b:18,l:24,r:8};
-  const {gW,gH,zy}=gBase(ctx,W,H,PAD);
-  let vmax=1e-12; for(let i=0;i<=20;i++) vmax=Math.max(vmax,fmag(xmax*i/20));
-  const yOf=v=> zy-(v/vmax)*(gH/2*0.86), xOf=x=> PAD.l+(x/xmax)*gW;
-  function plot(sign,col){ ctx.strokeStyle=rgb(col); ctx.lineWidth=1.5; ctx.beginPath(); let f=true;
-    for(let i=0;i<=40;i++){ const x=xmax*i/40,v=sign*fmag(x),px=xOf(x),py=yOf(v); f?(ctx.moveTo(px,py),f=false):ctx.lineTo(px,py);} ctx.stroke(); }
-  plot(+1,T.pos); plot(-1,T.neg);
-  ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(xcur), yOf(qSignOf(P.carrier)*fmag(xcur)),3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('V_H',PAD.l+2,PAD.t+7);
-  ctx.textAlign='right'; ctx.fillText(xlabel,PAD.l+gW-2,zy-3);
-  ctx.fillStyle=rgba(T.pos,0.9); ctx.textAlign='left'; ctx.fillText('+',PAD.l+gW-26,PAD.t+8);
-  ctx.fillStyle=rgba(T.neg,0.9); ctx.fillText('−',PAD.l+gW-14,PAD.t+8);
+// V_H = I·B/(n·e·t) con il segno del portatore: rosso per le lacune (+), blu per gli elettroni (−).
+// Le tensioni sono in µV; il fondo scala segue il valore massimo raggiungibile su quell'asse.
+function drawDual(cv,title,xr,xLabel,fmag,xcur,opt={}){
+  const vmax=Lab.niceMax(Math.max(1e-9,...Array.from({length:41},(_,i)=>fmag(xr[0]+(xr[1]-xr[0])*i/40)))*1e6);
+  const g=Lab.panel(cv,{ title, xr, yr:[-vmax,vmax], xLabel, yFmt:v=>Lab.sci(v,2), ...opt });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,x=>fmag(x)*1e6,xr,rgb(T.pos),1.8,[],200);
+  Lab.plot(ctx,f,x=>-fmag(x)*1e6,xr,rgb(T.neg),1.8,[],200);
+  Lab.dot(ctx,f,xcur,qSignOf(P.carrier)*fmag(xcur)*1e6,f.C.accent,4);
+  Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.pos),'lacune (+)'],[rgb(T.neg),'elettroni (−)']]);
 }
 function drawGraphs(){
   const {I,B,n,t}=dims();
-  if(gCanvas[0]&&gCanvas[0].width) drawDual(gCtx[0],gCanvas[0].width,gCanvas[0].height,'B',1.0,(b)=>I*b/(n*e0*t),B);
-  if(gCanvas[1]&&gCanvas[1].width) drawDual(gCtx[1],gCanvas[1].width,gCanvas[1].height,'I',0.2,(i)=>i*B/(n*e0*t),I);
-  if(gCanvas[2]&&gCanvas[2].width) drawDual(gCtx[2],gCanvas[2].width,gCanvas[2].height,'n',50e24,(nn)=>nn>1e22?I*B/(nn*e0*t):0,n);
+  drawDual(gCanvas[0],'Tensione di Hall V_H (µV) in funzione di B',[0,1],'B (T)',b=>I*b/(n*e0*t),B);
+  drawDual(gCanvas[1],'V_H (µV) in funzione della corrente',[0,200],'I (mA)',i=>i*1e-3*B/(n*e0*t),I*1e3);
+  drawDual(gCanvas[2],'V_H (µV) in funzione della densità n',[0.5,50],'n (10²⁴ m⁻³)',nn=>I*B/(nn*1e24*e0*t),n/1e24,{xLog:true,xFmt:v=>String(v)});
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -423,18 +412,10 @@ function buildControls(){
 }
 
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['V_H in funzione di B','V_H in funzione di I','V_H in funzione di n'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -476,8 +457,8 @@ function init(){
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(220,Math.floor(ar.height-rb.height-gaH-4));
     simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -494,10 +475,10 @@ function init(){
     drawGraphs();
     const eq = (P.B>0.001 && P.I>0);
     readout.set('car', P.carrier==='pos'?'+ (lacune)':'− (elettroni)');
-    readout.set('vd', vDrift().toExponential(2)+' m/s');
+    readout.set('vd', Lab.sci(vDrift(),3)+' m/s');
     readout.set('vh', fmtV(vHall()*acc[P.carrier])+(acc[P.carrier]<0.97&&eq?' ↑':''));
-    readout.set('eh', (eHall()*acc[P.carrier]).toFixed(3)+' V/m');
-    readout.set('sel', eq?('v = '+(eHall()/P.B).toExponential(2)+' m/s'):'—');
+    readout.set('eh', Lab.fmt((eHall()*acc[P.carrier]),3)+' V/m');
+    readout.set('sel', eq?('v = '+Lab.sci((eHall()/P.B),3)+' m/s'):'—');
     readout.set('side', !eq?'— (B=0)':(P.carrier==='pos'?'positivo +':'negativo −'));
     requestAnimationFrame(frame);
   }
