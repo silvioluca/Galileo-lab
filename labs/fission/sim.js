@@ -340,7 +340,7 @@ function drawSim() {
   const kCol   = kVal > 1.05 ? '#ff4444' : kVal > 0.95 ? '#ffcc00' : '#44cc77';
   const status = kVal > 1.05 ? 'SUPERCRITICO' : kVal > 0.95 ? 'CRITICO' : 'SOTTOCRITICO';
   const intact = nuclei.filter(n => n.state === 'intact').length;
-  const energy = totalEnergy > 1000 ? (totalEnergy / 1000).toFixed(1) + ' GeV' : totalEnergy.toFixed(0) + ' MeV';
+  const energy = totalEnergy > 1000 ? Lab.fmt((totalEnergy / 1000),1) + ' GeV' : Lab.fmt(totalEnergy,0) + ' MeV';
 
   ctx.textAlign = 'left';
   ctx.font      = `bold 14px 'Space Mono', monospace`;
@@ -349,7 +349,7 @@ function drawSim() {
 
   ctx.font      = `bold 13px 'Space Mono', monospace`;
   ctx.fillStyle = kCol;
-  ctx.fillText(`k_eff ≈ ${kVal.toFixed(2)}`, 12, 42);
+  ctx.fillText(`k_eff ≈ ${Lab.fmt(kVal,2)}`, 12, 42);
 
   ctx.font      = `10px 'DM Sans', sans-serif`;
   ctx.fillStyle = kCol + 'bb';
@@ -391,7 +391,7 @@ function drawSim() {
   ctx.fillText('2', gx + gW,     gy + gH + 13);
 
   ctx.textAlign = 'right'; ctx.font = `10px 'DM Sans', sans-serif`; ctx.fillStyle = fg + '55';
-  ctx.fillText(`t = ${simT.toFixed(2)} s`, SW - 10, 18);
+  ctx.fillText(`t = ${Lab.fmt(simT,2)} s`, SW - 10, 18);
 
   ctx.restore();
 }
@@ -503,17 +503,17 @@ function updateReadout() {
   const kVal   = computeKeff();
   const kCol   = kVal > 1.05 ? '#ff4444' : kVal > 0.95 ? '#ffcc00' : '#44cc77';
   const status = kVal > 1.05 ? 'Supercritico' : kVal > 0.95 ? 'Critico' : 'Sottocritico';
-  const energy = totalEnergy > 1000 ? (totalEnergy / 1000).toFixed(1) + ' GeV' : totalEnergy.toFixed(0) + ' MeV';
+  const energy = totalEnergy > 1000 ? Lab.fmt((totalEnergy / 1000),1) + ' GeV' : Lab.fmt(totalEnergy,0) + ' MeV';
 
   document.getElementById('readout').innerHTML = [
     { label: 'elemento',  value: `<span style="color:${el.color}">${P.element}</span>` },
-    { label: 'k_eff',     value: `<span style="color:${kCol}">${kVal.toFixed(3)}</span>` },
+    { label: 'fattore di moltiplicazione k', value: `<span style="color:${kCol}">${Lab.fmt(kVal,3)}</span>` },
     { label: 'regime',    value: `<span style="color:${kCol}">${status}</span>` },
-    { label: 'fissioni',  value: totalFissions },
-    { label: 'energia',   value: energy },
-    { label: 'neutroni',  value: neutrons.length },
+    { label: 'fissioni avvenute', value: totalFissions },
+    { label: 'energia liberata', value: energy },
+    { label: 'neutroni liberi', value: neutrons.length },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 
@@ -526,9 +526,9 @@ function buildControls() {
   mat.add(Lab.RadioGroup({
     label: 'Elemento fissile',
     options: [
-      { label: 'U-235',  value: 'U-235',  hint: 'ν = 2.43' },
-      { label: 'Pu-239', value: 'Pu-239', hint: 'ν = 2.87' },
-      { label: 'U-233',  value: 'U-233',  hint: 'ν = 2.49' },
+      { label: 'U-235',  value: 'U-235',  hint: 'ν = 2,43' },
+      { label: 'Pu-239', value: 'Pu-239', hint: 'ν = 2,87' },
+      { label: 'U-233',  value: 'U-233',  hint: 'ν = 2,49' },
       { label: 'U-238',  value: 'U-238',  hint: 'fertile'   },
     ],
     value: P.element,
@@ -608,7 +608,7 @@ function init() {
   resize();
   initNuclei();
   buildControls();
-  window.addEventListener('resize', () => { resize(); initNuclei(); });
+  new ResizeObserver(() => { resize(); initNuclei(); }).observe(sc.parentElement);
   requestAnimationFrame(loop);
 }
 

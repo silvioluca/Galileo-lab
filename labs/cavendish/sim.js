@@ -60,7 +60,7 @@ function pal() {
 }
 let T = pal();
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const fmtSci = (x, u) => (Math.abs(x) < 1e-3 || Math.abs(x) >= 1e4) ? x.toExponential(2) + (u || '') : x.toFixed(4) + (u || '');
+const fmtSci = (x, u) => (x === 0 ? '0' : Lab.sci(x, 3)) + (u || '');
 
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
 // Bilancia di torsione: due masse piccole m su un'asta di semi-lunghezza L, sospese al
@@ -197,8 +197,7 @@ function drawDistanceLabel(ctx, x0, y0, x1, y1, label) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -256,7 +255,7 @@ function draw2D(ctx, W, H) {
   [p1s, p2s].forEach(p => { drawSphere(ctx, p.x, p.y, rm, '#9be9ff', '#0091b8'); drawChargeBadge(ctx, p.x, p.y, P.qm, rm); });
   [M1s, M2s].forEach(p => { drawSphere(ctx, p.x, p.y, rM, dk() ? '#e4e8ef' : '#c9ced8', dk() ? '#565c68' : '#3d434f'); drawChargeBadge(ctx, p.x, p.y, P.qM, rM); });
 
-  drawDistanceLabel(ctx, p1s.x, p1s.y, M1s.x, M1s.y, `d = ${(st.d * 100).toFixed(2)} cm`);
+  drawDistanceLabel(ctx, p1s.x, p1s.y, M1s.x, M1s.y, `d = ${Lab.fmt((st.d * 100),2)} cm`);
 
   // frecce delle forze (gravità e Coulomb separate) sulla massa 1
   const fScale = clamp(26 / Math.max(st.Fg, Math.abs(st.Fe), 1e-30), 4, 4e9);
@@ -360,7 +359,7 @@ function drawHeaderFooter(ctx, W, H) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Bilancia di Cavendish — F = G·M·m/d² ± k_e·q_M·q_m/d²', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`M=${P.M.toFixed(2)} kg   m=${P.m.toFixed(3)} kg   d=${(st.d * 100).toFixed(2)} cm   θ=${(theta * 180 / Math.PI).toFixed(3)}°`, 14, 40);
+  ctx.fillText(`M=${Lab.fmt(P.M,2)} kg   m=${Lab.fmt(P.m,3)} kg   d=${Lab.fmt((st.d * 100),2)} cm   θ=${Lab.fmt((theta * 180 / Math.PI),3)}°`, 14, 40);
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'left';
   ctx.fillText(`F gravità = ${fmtSci(st.Fg, ' N')}   F elettrica = ${fmtSci(st.Fe, ' N')} (${st.Fe > 0 ? 'repulsiva' : (st.Fe < 0 ? 'attrattiva' : '—')})`, 14, 56);
 
@@ -376,87 +375,46 @@ function drawHeaderFooter(ctx, W, H) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: θ(t) — scala e finestra FISSE
+// 1: θ(t) nella finestra WIN_T, con il fondo scala THETA_MAX_GRAPH (ricalcolato quando cambiano
+//    i parametri, mai durante il moto)
 function drawGraphTheta() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  const xOf = t => PAD.l + (t - (tSim - WIN_T)) / WIN_T * gW;
-  const yOf = th => zero - th / THETA_MAX_GRAPH * (gH * 0.46);
-  if (hist.length > 1) {
-    ctx.strokeStyle = COL[0]; ctx.lineWidth = 1.5; ctx.beginPath();
-    hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.th); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  }
-  ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('θ', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const DEG = 180 / Math.PI, t0 = tSim - WIN_T, ym = Lab.niceMax(THETA_MAX_GRAPH * DEG);
+  const g = Lab.panel(gCanvas[0], { title: 'Angolo di rotazione θ (°)', xr: [Math.max(0, t0), Math.max(WIN_T, tSim)], yr: [-ym, ym], xLabel: 't (s)', yFmt: v => Lab.sci(v, 2) });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.th * DEG]), COL[0], 2);
 }
-// 2: F(d) — confronto gravità/Coulomb in funzione della distanza (dominio fisso)
+// 2: |F| in funzione della distanza, in scala log-log: due rette di pendenza −2 (stessa legge 1/d²)
 function drawGraphForceD() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   const dMax = P.L + P.d0 + 0.05, dMin = D_CONTACT;
-  const lnDmin = Math.log(dMin), lnDmax = Math.log(dMax);
   const qMc = P.qM * 1e-9, qmc = P.qm * 1e-9;
   const fgAt = d => G_CONST * P.M * P.m / (d * d), feAt = d => Math.abs(KE_CONST * qMc * qmc) / (d * d);
-  const fMaxCandidates = [fgAt(dMin), feAt(dMin) || 1e-30];
-  const lnFmax = Math.log(Math.max(...fMaxCandidates, 1e-30)), lnFmin = lnFmax - 22;   // ~10 decadi di dinamica
-  const xOf = d => PAD.l + (Math.log(d) - lnDmin) / (lnDmax - lnDmin) * gW;
-  const yOf = f => PAD.t + gH - clamp((Math.log(Math.max(f, 1e-300)) - lnFmin) / (lnFmax - lnFmin), 0, 1) * gH;
-  [[fgAt, FCOL.g], [feAt, FCOL.e]].forEach(([fn, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
-    for (let i = 0; i <= 80; i++) { const lnD = lnDmin + (lnDmax - lnDmin) * i / 80, d = Math.exp(lnD);
-      const x = xOf(d), y = yOf(fn(d)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.stroke();
-  });
+  const top = 10 ** Math.ceil(Math.log10(Math.max(fgAt(dMin), feAt(dMin), 1e-12)));
+  const g = Lab.panel(gCanvas[1], { title: 'Forza fra le sfere (N), scala log', xr: [dMin * 100, dMax * 100], xLog: true, yr: [top * 1e-10, top], yLog: true, xLabel: 'd (cm)', xFmt: v => Lab.fmt(v, 0), yFmt: v => Lab.sci(v, 1) });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, dc => fgAt(dc / 100), [dMin * 100, dMax * 100], FCOL.g, 2);
+  if (qMc && qmc) Lab.plot(ctx, f, dc => feAt(dc / 100), [dMin * 100, dMax * 100], FCOL.e, 2);
   const st = pairState(theta);
-  ctx.fillStyle = FCOL.g; ctx.beginPath(); ctx.arc(xOf(st.d), yOf(st.Fg), 3, 0, TWO); ctx.fill();
-  if (Math.abs(st.Fe) > 0) { ctx.fillStyle = FCOL.e; ctx.beginPath(); ctx.arc(xOf(st.d), yOf(Math.abs(st.Fe)), 3, 0, TWO); ctx.fill(); }
-  ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left';
-  ctx.fillStyle = FCOL.g; ctx.fillText('F grav.', PAD.l + 2, PAD.t + 7);
-  ctx.fillStyle = FCOL.e; ctx.fillText('F elettr.', PAD.l + 2, PAD.t + 16);
-  ctx.fillStyle = T.gText; ctx.textAlign = 'right'; ctx.fillText('d', PAD.l + gW - 2, PAD.t + gH - 3);
+  Lab.dot(ctx, f, st.d * 100, st.Fg, FCOL.g, 4);
+  if (Math.abs(st.Fe) > 0) Lab.dot(ctx, f, st.d * 100, Math.abs(st.Fe), FCOL.e, 4);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[FCOL.g, 'gravitazionale'], [FCOL.e, 'elettrica']]);
 }
-// 3: confronto diretto |F| a barre (scala log) — quanto è più forte l'elettrica della gravità
+// 3: confronto diretto, scala log: con cariche anche piccolissime l'elettrica stravince
 function drawGraphBars() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 18, b: 20, l: 34, r: 10 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   const st = pairState(theta);
   const vals = [Math.max(st.Fg, 1e-30), Math.max(Math.abs(st.Fe), 1e-30)];
-  const lnMax = Math.log(Math.max(...vals)), lnMin = lnMax - 24;
-  const barW = gW / 2 * 0.5;
-  [['F grav.', vals[0], FCOL.g], ['F elettr.', vals[1], FCOL.e]].forEach(([lbl, v, col], i) => {
-    const h = clamp((Math.log(v) - lnMin) / (lnMax - lnMin), 0.02, 1) * gH * 0.85;
-    const x = PAD.l + gW * (0.28 + i * 0.5) - barW / 2, y = PAD.t + gH - h;
-    ctx.fillStyle = col; ctx.fillRect(x, y, barW, h);
-    ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'center';
-    ctx.fillText(lbl, x + barW / 2, PAD.t + gH + 11);
-    ctx.fillText(fmtSci(v, ' N'), x + barW / 2, y - 4);
+  const top = 10 ** Math.ceil(Math.log10(Math.max(...vals)));
+  const ratio = st.Fg > 0 && Math.abs(st.Fe) > 0 ? Math.abs(st.Fe) / st.Fg : null;
+  const g = Lab.panel(gCanvas[2], { title: ratio ? `|F| a confronto · elettrica/gravità ≈ ${Lab.sci(ratio, 2)}` : '|F| a confronto (N), scala log', xr: [0, 2], xStep: 9, xFmt: () => '', yr: [top * 1e-12, top], yLog: true, yFmt: v => Lab.sci(v, 1) });
+  if (!g) return; const [ctx, f] = g;
+  [['gravitazionale', vals[0], FCOL.g], ['elettrica', vals[1], FCOL.e]].forEach(([lbl, v, col], i) => {
+    const cx = f.X(i + 0.5), bw = (f.R - f.L) * 0.26, y = f.Y(Math.max(v, top * 1e-12));
+    ctx.fillStyle = col; ctx.fillRect(cx - bw / 2, y, bw, f.B - y);
+    ctx.font = '9.5px "Space Mono",monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = f.C.title; ctx.fillText(v > 1e-29 ? Lab.sci(v, 3) + ' N' : '0', cx, y - 8);
+    ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.fillText(lbl, cx, f.B + 10);
   });
-  if (st.Fg > 0 && Math.abs(st.Fe) > 0) {
-    const ratio = Math.abs(st.Fe) / st.Fg;
-    ctx.fillStyle = T.gText; ctx.font = 'bold 8px "Space Mono",monospace'; ctx.textAlign = 'left';
-    ctx.fillText(`rapporto ≈ ${ratio.toExponential(2)}×`, PAD.l, PAD.t - 6);
-  }
 }
-function drawGraphs() {
-  const titles = ['θ(t) — transitorio', 'F(d) — gravità vs Coulomb', 'confronto diretto |F|'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphTheta(); drawGraphForceD(); drawGraphBars();
-}
+function drawGraphs() { drawGraphTheta(); drawGraphForceD(); drawGraphBars(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -497,18 +455,11 @@ function buildReadout() {
   ]);
 }
 
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -556,9 +507,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -573,11 +523,11 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const st = pairState(theta);
-      readout.set('t', tSim.toFixed(2) + ' s');
-      readout.set('theta', (theta * 180 / Math.PI).toFixed(3) + '°');
+      readout.set('t', Lab.fmt(tSim,2) + ' s');
+      readout.set('theta', Lab.fmt((theta * 180 / Math.PI),3) + '°');
       readout.set('Fg', fmtSci(st.Fg, ' N'));
       readout.set('Fe', fmtSci(st.Fe, ' N'));
-      readout.set('ratio', st.Fg > 0 ? (Math.abs(st.Fe) / st.Fg).toExponential(2) : '—');
+      readout.set('ratio', st.Fg > 0 ? Lab.sci((Math.abs(st.Fe) / st.Fg),3) : '—');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

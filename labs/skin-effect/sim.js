@@ -199,13 +199,6 @@ function drawGrid(ctx,W,H){ ctx.strokeStyle=T.grid; ctx.lineWidth=1;
   for(let y=0;y<=H;y+=40){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); } }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
 function drawGraphs(){
   const m=MAT[P.mat], dr=dRatio(), C=Lab.graphColors();
   const fAx=[1,10**9.3], fFmt=v=>Lab.eng(v).replace(' ','');
@@ -262,7 +255,7 @@ function init(){
   readout=new Lab.Readout(document.getElementById('readout'),[
     {key:'f',  label:'Frequenza'},
     {key:'d',  label:'Profondità δ'},
-    {key:'dr', label:'δ / R'},
+    {key:'dr', label:'spessore pelle / raggio'},
     {key:'rac',label:'R_ac / R_dc'},
     {key:'jc', label:'J centro / J sup.'},
     {key:'reg',label:'Regime'},

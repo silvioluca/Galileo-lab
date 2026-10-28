@@ -457,7 +457,7 @@ function updateReadout() {
       { label: 'flusso', value: `${beamTrajs.length} particelle` },
       { label: 'selezionate', value: `${beamTrajs.filter(b => !b.hitPlate).length}` },
     ].map(r =>
-      `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+      `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
     ).join('');
     return;
   }
@@ -476,7 +476,7 @@ function updateReadout() {
     { label: 'deviazione Δy',  value: hitPlate ? '—' : Lab.fmt(dy * 10,2) + ' mm' },
     { label: 'stato',    value: stato },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 

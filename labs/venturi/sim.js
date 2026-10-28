@@ -7,7 +7,7 @@ const TUBE_LEN = 2.0;     // physical length (m) — used for particle speed
 const FLUIDS = {
   acqua: { rho: 1000,  label: 'Acqua',         hint: '1000 kg/m³' },
   olio:  { rho: 900,   label: 'Olio minerale',  hint: '900 kg/m³'  },
-  aria:  { rho: 1.225, label: 'Aria',            hint: '1.2 kg/m³'  },
+  aria:  { rho: 1.225, label: 'Aria',            hint:'1,2 kg/m³'  },
 };
 
 const params = {
@@ -250,7 +250,7 @@ function drawScene() {
     ctx.fillStyle = isLow ? '#ff7070' : col.accent;
     ctx.font = 'bold 10px Space Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText((P/1000).toFixed(1) + ' kPa', mx, boxY - 4);
+    ctx.fillText(Lab.fmt((P/1000),1) + ' kPa', mx, boxY - 4);
 
     // Section subscript
     ctx.fillStyle = col.muted;
@@ -277,7 +277,7 @@ function drawScene() {
     ctx.fillStyle = '#ffaa44';
     ctx.font = '10px Space Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(V.toFixed(2) + ' m/s', mx, arY + 16);
+    ctx.fillText(Lab.fmt(V,2) + ' m/s', mx, arY + 16);
   });
 
   // ── Cavitation warning ────────────────────────────────────────────────────
@@ -292,7 +292,7 @@ function drawScene() {
   ctx.fillStyle = col.muted;
   ctx.font = '11px Space Mono, monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('P + ½ρv² = ' + (stagP()/1000).toFixed(1) + ' kPa (costante)', TL + 4, SH - 10);
+  ctx.fillText('P + ½ρv² = ' + Lab.fmt((stagP()/1000),1) + ' kPa (costante)', TL + 4, SH - 10);
 }
 
 // ── Graph utilities ───────────────────────────────────────────────────────────
@@ -312,7 +312,7 @@ function fmtTick(v) {
   if (v === 0) return '0';
   const a = Math.abs(v);
   const s = a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : a >= 1 ? v.toFixed(1) : v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 // ── Graphs ────────────────────────────────────────────────────────────────────

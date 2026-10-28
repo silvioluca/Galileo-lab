@@ -294,16 +294,16 @@ function drawMain(C) {
   ctx.font         = '10px Space Mono, monospace';
   ctx.textAlign    = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText('β = ' + b.toFixed(2) + '   ' + modeLabel, 12, 12);
+  ctx.fillText('β = ' + Lab.fmt(b,2) + '   ' + modeLabel, 12, 12);
 
   // Top-right wavelength info
   ctx.textAlign = 'right';
   ctx.fillStyle = srcCol;
-  ctx.fillText('λ₀ = ' + P.lambda0.toFixed(0) + ' nm', SW - 12, 12);
+  ctx.fillText('λ₀ = ' + Lab.fmt(P.lambda0,0) + ' nm', SW - 12, 12);
   const obsLamColor = inVis ? nmToColor(lamObs) : C.muted;
   ctx.fillStyle = obsLamColor;
   const uvir = lamObs < 380 ? ' (UV)' : lamObs > 720 ? ' (IR)' : '';
-  ctx.fillText('λ_obs = ' + lamObs.toFixed(1) + ' nm' + uvir, SW - 12, 27);
+  ctx.fillText('λ_obs = ' + Lab.fmt(lamObs,1) + ' nm' + uvir, SW - 12, 27);
 
   ctx.textBaseline = 'alphabetic';
 }
@@ -456,7 +456,7 @@ function drawSpectrum(C, x0, pw) {
 
   // Δλ label
   const dLam     = lamO0 - P.lambda0;
-  const shiftTxt = (dLam >= 0 ? 'Δλ = +' : 'Δλ = ') + dLam.toFixed(1) + ' nm';
+  const shiftTxt = (dLam >= 0 ? 'Δλ = +' : 'Δλ = ') + Lab.fmt(dLam,1) + ' nm';
   const shiftCol = dLam > 1 ? C.redShift : dLam < -1 ? C.blueShift : C.muted;
   gctx.fillStyle    = shiftCol;
   gctx.font         = '9px Space Mono, monospace';
@@ -546,7 +546,7 @@ function drawDopplerCurves(C, x0, pw) {
     gctx.font         = '7px Space Mono, monospace';
     gctx.textAlign    = 'center';
     gctx.textBaseline = 'top';
-    gctx.fillText(bv.toFixed(1), x, ay + 4);
+    gctx.fillText(Lab.fmt(bv,1), x, ay + 4);
     gctx.strokeStyle = C.muted;
     gctx.lineWidth   = 0.5;
     gctx.beginPath();
@@ -607,7 +607,7 @@ function drawDopplerCurves(C, x0, pw) {
   gctx.font         = 'bold 8px Space Mono, monospace';
   gctx.textAlign    = mcx > ax + iw * 0.55 ? 'right' : 'left';
   gctx.textBaseline = 'bottom';
-  gctx.fillText(D.toFixed(3), mcx + (mcx > ax + iw * 0.55 ? -6 : 6), mcy - 3);
+  gctx.fillText(Lab.fmt(D,3), mcx + (mcx > ax + iw * 0.55 ? -6 : 6), mcy - 3);
 
   // Legend (top-right)
   let legY = PAD.t + 4;
@@ -688,7 +688,7 @@ function drawClassComp(C, x0, pw) {
     gctx.font         = '7px Space Mono, monospace';
     gctx.textAlign    = 'center';
     gctx.textBaseline = 'top';
-    gctx.fillText(bv.toFixed(1), x, ay + 4);
+    gctx.fillText(Lab.fmt(bv,1), x, ay + 4);
     gctx.strokeStyle = C.muted;
     gctx.lineWidth   = 0.5;
     gctx.beginPath();
@@ -807,11 +807,11 @@ function drawClassComp(C, x0, pw) {
 // ── Readout ────────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(readoutEl, [
   { key: 'beta',     label: 'β = v/c' },
-  { key: 'gamma',    label: 'γ' },
-  { key: 'lambda0',  label: 'λ₀' },
-  { key: 'lambdaObs',label: 'λ_obs' },
-  { key: 'ratio',    label: 'f_obs / f₀' },
-  { key: 'mode',     label: 'Modo' },
+  { key: 'gamma',    label: 'fattore di Lorentz γ' },
+  { key: 'lambda0',  label: 'λ emessa λ₀' },
+  { key: 'lambdaObs',label: 'λ osservata' },
+  { key: 'ratio',    label: 'rapporto f/f₀' },
+  { key: 'mode',     label: 'moto della sorgente' },
 ]);
 
 // ── Controls ───────────────────────────────────────────────────────────────────
@@ -857,11 +857,11 @@ function loop(ts) {
   const lam  = P.lambda0 / D;
   const modeNames = ['Avvic.', 'Allont.', 'Trasv.'];
 
-  readout.set('beta',      b.toFixed(3));
-  readout.set('gamma',     g.toFixed(4));
-  readout.set('lambda0',   P.lambda0.toFixed(0) + ' nm');
-  readout.set('lambdaObs', lam.toFixed(1) + ' nm');
-  readout.set('ratio',     D.toFixed(4));
+  readout.set('beta',      Lab.fmt(b,3));
+  readout.set('gamma',     Lab.fmt(g,4));
+  readout.set('lambda0',   Lab.fmt(P.lambda0,0) + ' nm');
+  readout.set('lambdaObs', Lab.fmt(lam,1) + ' nm');
+  readout.set('ratio',     Lab.fmt(D,4));
   readout.set('mode',      modeNames[P.mode]);
 
   const C = getColors();
@@ -874,7 +874,7 @@ Lab.initTheme('themeToggle');
 resetSim();
 resize();
 buildControls();
-window.addEventListener('resize', resize);
+new ResizeObserver(resize).observe(canvas.parentElement);
 document.getElementById('btnPlay').addEventListener('click',  () => setRunning(!running));
 document.getElementById('btnReset').addEventListener('click', () => { resetSim(); });
 requestAnimationFrame(loop);

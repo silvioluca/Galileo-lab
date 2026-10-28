@@ -1,10 +1,10 @@
 /* ── Double Pendulum Simulation ─────────────────────────────── */
 
 const PLANETS = [
-  { value: 'luna',  label: 'Luna',  hint: '1.62 m/s²', g: 1.62  },
-  { value: 'marte', label: 'Marte', hint: '3.72 m/s²', g: 3.72  },
-  { value: 'terra', label: 'Terra', hint: '9.81 m/s²', g: 9.81  },
-  { value: 'giove', label: 'Giove', hint: '24.79 m/s²', g: 24.79 },
+  { value: 'luna',  label: 'Luna',  hint: '1,62 m/s²', g: 1.62  },
+  { value: 'marte', label: 'Marte', hint: '3,72 m/s²', g: 3.72  },
+  { value: 'terra', label: 'Terra', hint: '9,81 m/s²', g: 9.81  },
+  { value: 'giove', label: 'Giove', hint: '24,79 m/s²', g: 24.79 },
 ];
 
 // Two bobs per instance need two colors each: [bob1, bob2]
@@ -615,7 +615,7 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, series, label, dark, yFixed, tFixe
     gctx.beginPath(); gctx.moveTo(gx, oy + pt + iH); gctx.lineTo(gx, oy + pt + iH + 4); gctx.stroke();
     if (tv > tStart + tRange * 0.03) {
       gctx.fillStyle = tickClr;
-      gctx.fillText(fmtTick(tv) + 's', gx, oy + pt + iH + 16);
+      gctx.fillText(fmtTick(tv) + ' s', gx, oy + pt + iH + 16);
     }
   });
 
@@ -658,23 +658,23 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, series, label, dark, yFixed, tFixe
 
 /* ── Readout ─────────────────────────────────────────────────── */
 const readout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 't',  label: 't'     },
-  { key: 't1', label: 'θ₁'    },
-  { key: 't2', label: 'θ₂'    },
-  { key: 'x2', label: 'x₂'    },
-  { key: 'y2', label: 'y₂'    },
-  { key: 'v2', label: '|v₂|'  },
+  { key: 't',  label: 'tempo t'     },
+  { key: 't1', label: 'angolo θ₁'    },
+  { key: 't2', label: 'angolo θ₂'    },
+  { key: 'x2', label: 'posizione x₂'    },
+  { key: 'y2', label: 'quota y₂'    },
+  { key: 'v2', label: 'velocità |v₂|'  },
 ]);
 
 function updateReadout() {
   const inst = instances[0];
   const s = inst.state;
-  readout.set('t',  s.t.toFixed(2) + ' s');
-  readout.set('t1', (s.theta1 * 180 / Math.PI).toFixed(1) + '°');
-  readout.set('t2', (s.theta2 * 180 / Math.PI).toFixed(1) + '°');
-  readout.set('x2', inst.bob2X.toFixed(3) + ' m');
-  readout.set('y2', inst.bob2Y.toFixed(3) + ' m');
-  readout.set('v2', inst.v2.toFixed(3) + ' m/s');
+  readout.set('t',  Lab.fmt(s.t,2) + ' s');
+  readout.set('t1', Lab.fmt((s.theta1 * 180 / Math.PI),1) + '°');
+  readout.set('t2', Lab.fmt((s.theta2 * 180 / Math.PI),1) + '°');
+  readout.set('x2', Lab.fmt(inst.bob2X,3) + ' m');
+  readout.set('y2', Lab.fmt(inst.bob2Y,3) + ' m');
+  readout.set('v2', Lab.fmt(inst.v2,3) + ' m/s');
 }
 
 /* ── Controls ────────────────────────────────────────────────── */
@@ -911,7 +911,7 @@ function fmtTick(v) {
   if (v === 0) return '0';
   const abs = Math.abs(v);
   const s = abs >= 100 ? v.toFixed(0) : abs >= 10 ? v.toFixed(1) : abs >= 1 ? v.toFixed(1) : v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 function hexToRgba(hex, alpha) {

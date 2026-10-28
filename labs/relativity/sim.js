@@ -112,7 +112,7 @@ function drawSPanel(C, x0, pw, b, g) {
 
   ctx.fillStyle = C.muted; ctx.font = '9px Space Mono, monospace';
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-  ctx.fillText('v = '+b.toFixed(3)+'c  →', x0+pw-10, TH+14);
+  ctx.fillText('v = '+Lab.fmt(b,3)+'c  →', x0+pw-10, TH+14);
 
   for (let k=-6; k<=6; k++) {
     const sx = cx + k*sc;
@@ -145,7 +145,7 @@ function drawSPanel(C, x0, pw, b, g) {
 
   ctx.fillStyle = C.accent; ctx.font = '10px Space Mono, monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText('L = L₀/γ = '+(L0/g).toFixed(3)+' u', cx, shipY+26);
+  ctx.fillText('L = L₀/γ = '+Lab.fmt(L0/g,3)+' m', cx, shipY+26);
 
   // Clocks: gray = S proper time (reference), cyan = ship clock (dilated slow)
   const cTop = shipY + 46, cH = SH - cTop - 12;
@@ -158,12 +158,12 @@ function drawSPanel(C, x0, pw, b, g) {
   ctx.beginPath(); ctx.moveTo(cx, cTop); ctx.lineTo(cx, SH-8); ctx.stroke();
   ctx.setLineDash([]);
 
-  drawClock(ctx, cx1, cY, cR, tau,   C.muted,  C, 't = '+tau.toFixed(2));
+  drawClock(ctx, cx1, cY, cR, tau,   C.muted,  C, 't = '+Lab.fmt(tau,2));
   ctx.fillStyle = C.muted; ctx.font = '8px Space Mono, monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillText('tempo proprio S', cx1, cY+cR+18);
 
-  drawClock(ctx, cx2, cY, cR, tau/g, C.accent, C, 'τ = '+(tau/g).toFixed(2));
+  drawClock(ctx, cx2, cY, cR, tau/g, C.accent, C, 'τ = '+Lab.fmt((tau/g),2));
   ctx.fillStyle = C.accent; ctx.font = 'bold 8px Space Mono, monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillText("tempo improprio S'", cx2, cY+cR+18);
@@ -204,7 +204,7 @@ function drawSpPanel(C, x0, pw, b, g) {
 
   ctx.fillStyle = col; ctx.font = '10px Space Mono, monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText('L₀ = '+L0.toFixed(1)+' u  (lunghezza propria)', cx, shipY+26);
+  ctx.fillText('L₀ = '+Lab.fmt(L0,1)+' m  (lunghezza propria)', cx, shipY+26);
 
   // Clocks: orange = S' proper time (reference), gray = S clock as seen from S' (dilated)
   const cTop = shipY + 46, cH = SH - cTop - 12;
@@ -217,13 +217,13 @@ function drawSpPanel(C, x0, pw, b, g) {
   ctx.beginPath(); ctx.moveTo(cx, cTop); ctx.lineTo(cx, SH-8); ctx.stroke();
   ctx.setLineDash([]);
 
-  drawClock(ctx, cx1, cY, cR, tau, col, C, "τ = "+tau.toFixed(2));
+  drawClock(ctx, cx1, cY, cR, tau, col, C, "τ = "+Lab.fmt(tau,2));
   ctx.fillStyle = col; ctx.font = '8px Space Mono, monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillText("tempo proprio S'", cx1, cY+cR+18);
 
   // S clock as seen from S': appears dilated (slow) by factor 1/γ
-  drawClock(ctx, cx2, cY, cR, tau/g, C.muted, C, 't = '+(tau/g).toFixed(2));
+  drawClock(ctx, cx2, cY, cR, tau/g, C.muted, C, 't = '+Lab.fmt((tau/g),2));
   ctx.fillStyle = C.muted; ctx.font = 'bold 8px Space Mono, monospace';
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillText('tempo improprio S', cx2, cY+cR+18);
@@ -394,7 +394,7 @@ function drawGammaCurve(C, ox, ow) {
     gctx.beginPath(); gctx.moveTo(x,ay); gctx.lineTo(x,ay+4); gctx.stroke();
     gctx.fillStyle = C.muted; gctx.font = '7px Space Mono, monospace';
     gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    gctx.fillText(bv.toFixed(1), x, ay+5);
+    gctx.fillText(Lab.fmt(bv,1), x, ay+5);
   });
 
   // Curve
@@ -419,7 +419,7 @@ function drawGammaCurve(C, ox, ow) {
   gctx.fillStyle = C.accent; gctx.font = 'bold 9px Space Mono, monospace';
   gctx.textAlign = cx > ax+iw*0.6 ? 'right' : 'left';
   gctx.textBaseline = 'bottom';
-  gctx.fillText('γ='+gCur.toFixed(2), cx+(cx>ax+iw*0.6?-7:7), cy-4);
+  gctx.fillText('γ='+Lab.fmt(gCur,2), cx+(cx>ax+iw*0.6?-7:7), cy-4);
 
   gctx.fillStyle = C.muted; gctx.font = 'italic 9px DM Sans, monospace';
   gctx.textAlign = 'center'; gctx.textBaseline = 'top';
@@ -456,7 +456,7 @@ function drawEffects(C, ox, ow) {
     gctx.setLineDash([]);
     gctx.fillStyle = C.muted; gctx.font = '8px Space Mono, monospace';
     gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-    gctx.fillText(v.toFixed(2), ax-3, y);
+    gctx.fillText(Lab.fmt(v,2), ax-3, y);
   });
 
   // β ticks
@@ -466,7 +466,7 @@ function drawEffects(C, ox, ow) {
     gctx.beginPath(); gctx.moveTo(x,ay); gctx.lineTo(x,ay+4); gctx.stroke();
     gctx.fillStyle = C.muted; gctx.font = '7px Space Mono, monospace';
     gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    gctx.fillText(bv.toFixed(1), x, ay+5);
+    gctx.fillText(Lab.fmt(bv,1), x, ay+5);
   });
 
   // L/L₀ = 1/γ — solid accent
@@ -502,7 +502,7 @@ function drawEffects(C, ox, ow) {
   gctx.fillStyle = C.accent; gctx.font = 'bold 9px Space Mono, monospace';
   gctx.textAlign = cx > ax+iw*0.6 ? 'right' : 'left';
   gctx.textBaseline = 'top';
-  gctx.fillText(val.toFixed(3), cx+(cx>ax+iw*0.6?-7:7), cy+4);
+  gctx.fillText(Lab.fmt(val,3), cx+(cx>ax+iw*0.6?-7:7), cy+4);
 
   // Legend
   const lx = ax+4, ly = PAD.t+10;
@@ -526,11 +526,11 @@ function drawEffects(C, ox, ow) {
 // ── Readout ───────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(readoutEl, [
   { key: 'beta',  label: 'β = v/c' },
-  { key: 'gamma', label: 'γ' },
-  { key: 'L',     label: 'L contrazione' },
-  { key: 'E',     label: 'E / mc²' },
-  { key: 'Ek',    label: 'Ek / mc²' },
-  { key: 'p',     label: 'p / mc' },
+  { key: 'gamma', label: 'fattore di Lorentz γ' },
+  { key: 'L',     label: 'lunghezza misurata L' },
+  { key: 'E',     label: 'energia totale E' },
+  { key: 'Ek',    label: 'energia cinetica' },
+  { key: 'p',     label: 'quantità di moto p' },
 ]);
 
 function buildControls() {
@@ -550,12 +550,12 @@ function loop(ts) {
   lastTS = ts;
   if (running && dt > 0) tau += TAU_RATE * dt;
   const b = P.beta, g = gam(b);
-  readout.set('beta',  b.toFixed(4));
-  readout.set('gamma', g.toFixed(4));
-  readout.set('L',     (L0/g).toFixed(4)+' u');
-  readout.set('E',     g.toFixed(4)+' mc²');
-  readout.set('Ek',    (g-1).toFixed(4)+' mc²');
-  readout.set('p',     (g*b).toFixed(4)+' mc');
+  readout.set('beta',  Lab.fmt(b,4));
+  readout.set('gamma', Lab.fmt(g,4));
+  readout.set('L',     Lab.fmt(L0/g,3)+' m');
+  readout.set('E',     Lab.fmt(g,4)+' mc²');
+  readout.set('Ek',    Lab.fmt((g-1),4)+' mc²');
+  readout.set('p',     Lab.fmt((g*b),4)+' mc');
   const C = getColors();
   drawMain(C);
   drawGraph(C);
@@ -565,7 +565,7 @@ Lab.initTheme('themeToggle');
 resetSim();
 resize();
 buildControls();
-window.addEventListener('resize', resize);
+new ResizeObserver(resize).observe(canvas.parentElement);
 document.getElementById('btnPlay').addEventListener('click', () => setRunning(!running));
 document.getElementById('btnReset').addEventListener('click', resetSim);
 requestAnimationFrame(loop);

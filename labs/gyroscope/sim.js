@@ -148,8 +148,7 @@ function proj(v) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -265,7 +264,7 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Giroscopio — precessione sotto la coppia di gravità', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`m=${P.m.toFixed(2)} kg   ω=${P.rpm.toFixed(0)} rpm   θ₀=${P.theta_deg.toFixed(0)}°   θ=${thetaAt(animT).toFixed(0)}° (dalla verticale)`, 14, 40);
+  ctx.fillText(`m=${Lab.fmt(P.m,2)} kg   ω=${Lab.fmt(P.rpm,0)} rpm   θ₀=${Lab.fmt(P.theta_deg,0)}°   θ=${Lab.fmt(thetaAt(animT),0)}° (dalla verticale)`, 14, 40);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText(fallen
@@ -274,71 +273,33 @@ function draw(canvas) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: ω(t) — decadimento dello spin (tempo reale, nessuna compressione: qui i tempi sono già
-// dell'ordine di secondi/minuti, non femtosecondi o ore come negli altri lab di questo sito)
+const RPM = 60 / TWO;        // da rad/s a giri al minuto
+// 1: velocità di rotazione del rotore, che cala per l'attrito
 function drawGraphOmega() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const WIN_T = winT();
-  const xOf = t => PAD.l + (t - (animT - WIN_T)) / WIN_T * gW;
-  const yOf = om => PAD.t + gH - clamp(om / omega0(), 0, 1) * gH;
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.5; ctx.beginPath();
-  hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.om); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('ω', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const WIN_T = winT(), om = Lab.niceMax(omega0() * RPM);
+  const g = Lab.panel(gCanvas[0], { title: 'Rotazione del rotore ω (giri/min)', xr: [Math.max(0, animT - WIN_T), Math.max(WIN_T, animT)], yr: [0, om], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.om * RPM]), '#00d4ff', 2);
 }
-// 2: Ω_prec(t) — accelera mentre ω rallenta
+// 2: velocità di precessione Ω = m·g·r/(I·ω): cresce mentre ω diminuisce
 function drawGraphPrec() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   const WIN_T = winT();
-  // pMax ha un pavimento minimo: a θ=0 la precessione è identicamente nulla (coppia zero), e senza
-  // questo pavimento tutti i termini si azzererebbero insieme causando una divisione 0/0 (NaN)
-  const pMax = Math.max(precOmega0() * 3, hist.length ? hist[hist.length - 1].prec * 1.15 : precOmega0() * 2, 1e-3);
-  const xOf = t => PAD.l + (t - (animT - WIN_T)) / WIN_T * gW;
-  const yOf = om => PAD.t + gH - clamp(om / pMax, 0, 1) * gH;
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.5; ctx.beginPath();
-  hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.prec); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('Ω_prec', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const pMax = Lab.niceMax(Math.max(precOmega0() * 2, hist.length ? hist[hist.length - 1].prec * 1.15 : 0, 1e-3));
+  const g = Lab.panel(gCanvas[1], { title: 'Velocità di precessione Ω (rad/s)', xr: [Math.max(0, animT - WIN_T), Math.max(WIN_T, animT)], yr: [0, pMax], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.prec]), '#ff9d4d', 2);
 }
-// 3: Ω_prec in funzione di θ — dovrebbe essere una retta ORIZZONTALE (indipendenza da θ),
-// ricalcolata dai parametri correnti (non un'evoluzione temporale)
+// 3: Ω in funzione dell'inclinazione θ: una retta orizzontale, la precessione non dipende da θ
+// (si annulla solo a θ = 0, dove la coppia è nulla)
 function drawGraphPrecTheta() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  // la retta di riferimento usa il valore GENERICO (θ≠0) della formula, non precOmega0() corrente:
-  // se lo slider è a θ=0 precOmega0() vale 0 per il caso degenere, e userei quello schiaccerebbe a
-  // zero l'intera retta invece di mostrare correttamente "costante per θ>0, poi crolla a 0 in θ=0"
-  const Pgen = torqueMax() / (I3() * omega0()), P0 = precOmega0(), yTop = Pgen * 1.5;
-  const xOf = th => PAD.l + th / 90 * gW, yOf = v => PAD.t + gH - clamp(v / yTop, 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.6; ctx.beginPath();
-  ctx.moveTo(xOf(2), yOf(Pgen)); ctx.lineTo(xOf(90), yOf(Pgen)); ctx.stroke();
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(P.theta_deg), yOf(P0), 3.4, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('Ω_prec', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('θ', PAD.l + gW - 2, PAD.t + gH - 3);
+  const Pgen = torqueMax() / (I3() * omega0()), P0 = precOmega0(), yTop = Lab.niceMax(Pgen * 1.5);
+  const g = Lab.panel(gCanvas[2], { title: 'Ω in funzione dell\'inclinazione (rad/s)', xr: [0, 90], xStep: 15, yr: [0, yTop], xLabel: 'θ dalla verticale (°)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, th => (th < 1 ? NaN : Pgen), [0, 90], '#00d4ff', 2);
+  Lab.dot(ctx, f, P.theta_deg, P0, '#ff9d4d', 4.5);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['#00d4ff', 'Ω = m·g·r / (I·ω): non dipende da θ']]);
 }
-function drawGraphs() {
-  const titles = ['ω(t) — decadimento spin', 'Ω_prec(t) — accelera', 'Ω_prec(θ) — indipendente!'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphOmega(); drawGraphPrec(); drawGraphPrecTheta();
-}
+function drawGraphs() { drawGraphOmega(); drawGraphPrec(); drawGraphPrecTheta(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -376,18 +337,11 @@ function buildReadout() {
   ]);
 }
 
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -431,9 +385,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -448,11 +401,11 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const om = omegaAt(animT), pr = precOmegaAt(animT);
-      readout.set('t', animT.toFixed(1) + ' s');
-      readout.set('om', (om * 60 / TWO).toFixed(0) + ' rpm');
+      readout.set('t', Lab.fmt(animT,1) + ' s');
+      readout.set('om', Lab.fmt((om * 60 / TWO),0) + ' rpm');
       readout.set('precT', pr > 1e-9 ? fmt(TWO / pr, ' s') : '—');
       readout.set('L', fmt(I3() * om, ' kg·m²/s'));
-      readout.set('theta', thetaAt(animT).toFixed(1) + '°');
+      readout.set('theta', Lab.fmt(thetaAt(animT),1) + '°');
       readout.set('stato', fallen ? 'caduto' : 'in precessione');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

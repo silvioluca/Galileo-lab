@@ -36,7 +36,7 @@ function pal() {
 }
 let T = pal();
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const fmtNm = (nm) => nm >= 10000 ? (nm / 1000).toFixed(1) + ' µm' : nm.toFixed(0) + ' nm';
+const fmtNm = (nm) => nm >= 10000 ? Lab.fmt((nm / 1000),1) + ' µm' : Lab.fmt(nm,0) + ' nm';
 
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
 // Planck (quantistica, corretta): la quantizzazione dell'energia (E=nhν) fa sì che i modi ad alta
@@ -193,8 +193,7 @@ function drawPlanckGraph(ctx) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -209,7 +208,7 @@ function draw(canvas) {
   ctx.fillText('Corpo Nero — radiazione termica e catastrofe ultravioletta', 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
   const lp = wienPeakLambda(dispT) * 1e9;
-  ctx.fillText(`T=${dispT.toFixed(0)} K   ε=${dispEps.toFixed(2)}   λ_picco=${fmtNm(lp)}   P/A=${stefanBoltzmannP(dispT, dispEps).toExponential(2)} W/m²`, 14, 36);
+  ctx.fillText(`T=${Lab.fmt(dispT,0)} K   ε=${Lab.fmt(dispEps,2)}   λ_picco=${fmtNm(lp)}   P/A=${Lab.sci(stefanBoltzmannP(dispT, dispEps),3)} W/m²`, 14, 36);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   const hint = P.mode === 'classical'
@@ -261,9 +260,9 @@ function drawModel(ctx) {
   }
 
   ctx.textAlign = 'center'; ctx.fillStyle = T.txt; ctx.font = 'bold 10px "Space Mono",monospace';
-  ctx.fillText(`${dispT.toFixed(0)} K`, cx, cy + radius + 22);
+  ctx.fillText(`${Lab.fmt(dispT,0)} K`, cx, cy + radius + 22);
   ctx.fillStyle = T.sub; ctx.font = '8px "Space Mono",monospace';
-  ctx.fillText(`ε = ${dispEps.toFixed(2)}`, cx, cy + radius + 35);
+  ctx.fillText(`ε = ${Lab.fmt(dispEps,2)}`, cx, cy + radius + 35);
   ctx.fillStyle = T.sub; ctx.font = '7px "Space Mono",monospace';
   ctx.fillText(visible ? 'emette abbastanza luce visibile da apparire incandescente' : 'emissione infrarossa: invisibile all\'occhio, ma reale', cx, m.y0 + 14);
   ctx.fillText(visible
@@ -272,74 +271,31 @@ function drawModel(ctx) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: legge di Wien — λ_picco(T), curva FISSA (dipende solo dall'intervallo di T offerto dallo
-// slider, non dallo stato corrente), con il punto attuale marcato
+// 1: legge di Wien λ_picco = b/T (b = 2,898·10⁻³ m·K)
 function drawGraphWien() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const lMax = wienPeakLambda(T_MIN) * 1e9 * 1.05;
-  const xOfT = t => PAD.l + clamp((t - T_MIN) / (T_MAX - T_MIN), 0, 1) * gW;
-  const yOfL = l => PAD.t + gH - clamp(l / lMax, 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 100; i++) { const t = T_MIN + (T_MAX - T_MIN) * i / 100; const x = xOfT(t), y = yOfL(wienPeakLambda(t) * 1e9); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const px = xOfT(dispT), py = yOfL(wienPeakLambda(dispT) * 1e9);
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(px, py, 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('λ_picco (nm)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('T (K)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[0], { title: 'Legge di Wien: lunghezza d’onda di picco (nm)', xr: [T_MIN, T_MAX], yr: [100, 20000], yLog: true, xLabel: 'temperatura T (K)' });
+  if (!g) return; const [ctx, f] = g;
+  ctx.fillStyle = 'rgba(160,120,255,0.10)'; ctx.fillRect(f.L, f.Y(750), f.R - f.L, f.Y(380) - f.Y(750));
+  Lab.plot(ctx, f, t => wienPeakLambda(t) * 1e9, [T_MIN, T_MAX], '#00d4ff', 2);
+  Lab.dot(ctx, f, dispT, wienPeakLambda(dispT) * 1e9, '#ff9d4d', 4.5);
+  ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText('fascia: visibile', f.R - 4, f.Y(565));
 }
-// 2: Stefan-Boltzmann — P/A(T) a ε=1 (curva di riferimento FISSA), scala log data l'enorme
-// intervallo (T⁴ su un fattore 15× in T copre più di 4 ordini di grandezza); il punto marcato usa
-// invece l'ε corrente, mostrando visibilmente quanto sta sotto l'ideale
+// 2: legge di Stefan–Boltzmann P/A = ε·σ·T⁴ (curva per ε = 1, punto con l'emissività attuale)
 function drawGraphStefan() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const pMin = Math.log10(stefanBoltzmannP(T_MIN, 1)), pMax = Math.log10(stefanBoltzmannP(T_MAX, 1));
-  const xOfT = t => PAD.l + clamp((t - T_MIN) / (T_MAX - T_MIN), 0, 1) * gW;
-  const yOfP = p => PAD.t + gH - clamp((Math.log10(Math.max(p, 1)) - pMin) / (pMax - pMin), 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 100; i++) { const t = T_MIN + (T_MAX - T_MIN) * i / 100; const x = xOfT(t), y = yOfP(stefanBoltzmannP(t, 1)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const px = xOfT(dispT), py = yOfP(stefanBoltzmannP(dispT, dispEps));
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(px, py, 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('P/A (W/m², log)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('T (K)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[1], { title: 'Potenza emessa per m² (W/m²) — Stefan–Boltzmann', xr: [T_MIN, T_MAX], yr: [Math.pow(10, Math.floor(Math.log10(stefanBoltzmannP(T_MIN, 1)))), Math.pow(10, Math.ceil(Math.log10(stefanBoltzmannP(T_MAX, 1))))], yLog: true, xLabel: 'temperatura T (K)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, t => stefanBoltzmannP(t, 1), [T_MIN, T_MAX], '#00d4ff', 2);
+  Lab.dot(ctx, f, dispT, stefanBoltzmannP(dispT, dispEps), '#ff9d4d', 4.5);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['#00d4ff', 'corpo nero ideale (ε = 1)']]);
 }
-// 3: rapporto classico/quantistico in funzione di λ alla T corrente — quantifica "quanto sbaglia"
-// Rayleigh-Jeans, scala log (il rapporto esplode di ordini di grandezza a piccole λ)
+// 3: quanto sbaglia la fisica classica: rapporto Rayleigh–Jeans / Planck alla temperatura attuale
 function drawGraphRatio() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const rMin = 0, rMax = 8;                                        // log10 del rapporto: da 1× a 10⁸×, range fisso
   const lamMax = lamMaxFor(dispT);
-  const xOf2 = lambda => PAD.l + clamp((lambda - LAMBDA_MIN) / (lamMax - LAMBDA_MIN), 0, 1) * gW;
-  const yOfR = v => PAD.t + gH - clamp((v - rMin) / (rMax - rMin), 0, 1) * gH;
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 200; i++) {
-    const lambda = LAMBDA_MIN + (lamMax - LAMBDA_MIN) * i / 200;
-    const ratio = rayleighJeansB(lambda, dispT) / Math.max(planckB(lambda, dispT), 1e-300);
-    const x = xOf2(lambda), y = yOfR(Math.log10(Math.max(ratio, 1)));
-    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-  }
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('RJ / Planck (×10ⁿ)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('λ (nm)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[2], { title: 'Classica / quantistica (Rayleigh–Jeans ÷ Planck)', xr: [LAMBDA_MIN * 1e9, lamMax * 1e9], yr: [1, 1e8], yLog: true, xLabel: 'λ (nm)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, l => Math.max(1, rayleighJeansB(l * 1e-9, dispT) / Math.max(planckB(l * 1e-9, dispT), 1e-300)), [LAMBDA_MIN * 1e9, lamMax * 1e9], '#ff9d4d', 2, [], 400);
 }
-function drawGraphs() {
-  const titles = ['Legge di Wien', 'Stefan-Boltzmann', 'Scarto classico/quantistico'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphWien(); drawGraphStefan(); drawGraphRatio();
-}
+function drawGraphs() { drawGraphWien(); drawGraphStefan(); drawGraphRatio(); }
 
 // ═══ Passo di simulazione ═══════════════════════════════════════════════════
 // Nessuna vera dinamica fisica qui (è un grafico esplorativo, non un sistema che evolve): l'unica
@@ -382,27 +338,20 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'T', label: 'Temperatura' },
-    { key: 'eps', label: 'Emissività' },
+    { key: 'T', label: 'temperatura' },
+    { key: 'eps', label: 'emissività ε' },
     { key: 'lambdaPeak', label: 'λ di picco (Wien)' },
-    { key: 'power', label: 'Potenza per unità di area' },
-    { key: 'mode', label: 'Modello' },
-    { key: 'stato', label: 'Stato' },
+    { key: 'power', label: 'potenza per m²' },
+    { key: 'mode', label: 'modello' },
+    { key: 'stato', label: 'stato' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -425,9 +374,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -441,10 +389,10 @@ function init() {
     if (!P.paused) step(dt * P.speed);
     try {
       draw(simCanvas); drawGraphs();
-      readout.set('T', dispT.toFixed(0) + ' K');
-      readout.set('eps', dispEps.toFixed(2));
+      readout.set('T', Lab.fmt(dispT,0) + ' K');
+      readout.set('eps', Lab.fmt(dispEps,2));
       readout.set('lambdaPeak', fmtNm(wienPeakLambda(dispT) * 1e9));
-      readout.set('power', stefanBoltzmannP(dispT, dispEps).toExponential(2) + ' W/m²');
+      readout.set('power', Lab.sci(stefanBoltzmannP(dispT, dispEps),3) + ' W/m²');
       readout.set('mode', P.mode === 'compare' ? 'confronto' : P.mode === 'quantum' ? 'quantistico' : 'classico');
       readout.set('stato', Math.abs(dispT - P.T) < 5 && Math.abs(dispEps - P.epsilon) < 0.005 ? 'stabile' : 'in transizione');
     } catch (err) { console.error(err); }

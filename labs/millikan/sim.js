@@ -46,7 +46,7 @@ function pal() {
 }
 let T = pal();
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const fmtSci = (x, u) => (Math.abs(x) < 1e-3 && x !== 0 || Math.abs(x) >= 1e4) ? x.toExponential(3) + (u || '') : x.toFixed(4) + (u || '');
+const fmtSci = (x, u) => (Math.abs(x) < 1e-3 && x !== 0 || Math.abs(x) >= 1e4) ? Lab.sci(x,4) + (u || '') : Lab.fmt(x,4) + (u || '');
 
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
 // Una goccia d'olio carica, fra due piastre orizzontali, è soggetta a tre forze verticali:
@@ -93,7 +93,7 @@ function step(dt) {
   if (P.showTrail) { trail.push({ y: yPos }); if (trail.length > 500) trail.shift(); }
 }
 function newDroplet(randomize) {
-  if (randomize) { P.r_um = +(0.25 + Math.random() * 1.4).toFixed(2); P.n = 1 + Math.floor(Math.random() * 10); }
+  if (randomize) { P.r_um = +Lab.fmt((0.25 + Math.random() * 1.4),2); P.n = 1 + Math.floor(Math.random() * 10); }
   yPos = 0; tSim = 0; hist = []; trail = [];
   trackedEntered = false; entryPxY = null;                 // riparte dallo spruzzatore, come le goccioline decorative
   updateVGraphRange();
@@ -224,7 +224,7 @@ function drawMicroscopePanel(ctx, x0, y0, w, h, topY, botY, dropY, rPxTracked, s
 // tick fisico (updateTrackedEntry/updateBgDrops in frame()) sia dal rendering (draw()), un'unica
 // fonte di verità così le due parti non possono disallinearsi fra loro
 function computeLayout(canvas) {
-  const W = canvas.width, H = canvas.height;
+  const W = canvas.width / (canvas._dpr || 1), H = canvas.height / (canvas._dpr || 1);
   const scopeW = clamp(W * 0.32, 190, 400);
   const deviceW = Math.max(260, W - scopeW - 20);
   const scopeX = deviceW + 18, scopeY = 14, scopeH = H - 28;
@@ -249,8 +249,7 @@ function computeLayout(canvas) {
 }
 
 function draw(canvas, LY) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -427,9 +426,9 @@ function draw(canvas, LY) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText("Esperimento di Millikan — qE = m_eff·g   (goccia in equilibrio)", 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`r=${P.r_um.toFixed(2)} μm   n=${P.n}   q=n·e=${fmtSci(P.n * E_CHARGE, ' C')}   v=${fmtSci(v * 1000, ' mm/s')}`, 14, 40);
+  ctx.fillText(`r=${Lab.fmt(P.r_um,2)} μm   n=${P.n}   q=n·e=${fmtSci(P.n * E_CHARGE, ' C')}   v=${fmtSci(v * 1000, ' mm/s')}`, 14, 40);
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace';
-  ctx.fillText(`peso efficace = ${fmtSci(Fg, ' N')}   forza elettrica = ${fmtSci(Fe, ' N')}   ${P.fieldOn ? `V=${P.V.toFixed(0)} V` : 'campo spento'}`, 14, 56);
+  ctx.fillText(`peso efficace = ${fmtSci(Fg, ' N')}   forza elettrica = ${fmtSci(Fe, ' N')}   ${P.fieldOn ? `V=${Lab.fmt(P.V,0)} V` : 'campo spento'}`, 14, 56);
 
   if (trackedEntered && Math.abs(yPos) >= halfGap() * 0.995) {
     ctx.fillStyle = FCOL.e; ctx.font = 'bold 11px "Space Mono",monospace'; ctx.textAlign = 'center';
@@ -443,81 +442,44 @@ function draw(canvas, LY) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: v(t) — scala e finestra fisse (ricalcolate sui cambi di parametro, non sull'evoluzione)
+// 1: velocità della goccia nel tempo (mm/s, positiva verso l'alto): raggiunge subito la velocità limite di Stokes
 function drawGraphV() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  const xOf = t => PAD.l + (t - (tSim - WIN_T)) / WIN_T * gW;
-  const yOf = v => zero - v / VMAX_GRAPH * (gH * 0.46);
-  if (hist.length > 1) {
-    ctx.strokeStyle = COL[0]; ctx.lineWidth = 1.5; ctx.beginPath();
-    hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  }
-  ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('v', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const vm = Lab.niceMax(VMAX_GRAPH * 1000), t1 = Math.max(tSim, WIN_T);
+  const g = Lab.panel(gCanvas[0], { title: 'Velocità della goccia (mm/s, + verso l’alto)', xr: [t1 - WIN_T, t1], xStep: 5, yr: [-vm, vm], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.v * 1000]), COL[0], 2);
 }
-// 2: v(V) — retta analitica, dominio fisso (range dello slider V), con il punto di equilibrio
+// 2: velocità limite in funzione della tensione: è una retta, e si annulla alla tensione di equilibrio
 function drawGraphVV() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const Vmin = -1000, Vmax = 1000;
   const r = rMeters(), Fg = effWeight(r), b = dragCoef(r), d = dMeters();
-  const vAt = VV => (P.n * E_CHARGE * (VV / d) - Fg) / b;
-  const vExtremes = [vAt(Vmin), vAt(Vmax), 0];
-  const vg = clamp(Math.max(...vExtremes.map(Math.abs)) * 1.15, 2e-6, 0.02);
-  const xOf = VV => PAD.l + (VV - Vmin) / (Vmax - Vmin) * gW;
-  const yOf = v => PAD.t + gH - clamp((v + vg) / (2 * vg), 0, 1) * gH;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, yOf(0)); ctx.lineTo(PAD.l + gW, yOf(0)); ctx.stroke();
-  ctx.strokeStyle = COL[0]; ctx.lineWidth = 1.6; ctx.beginPath();
-  ctx.moveTo(xOf(Vmin), yOf(vAt(Vmin))); ctx.lineTo(xOf(Vmax), yOf(vAt(Vmax))); ctx.stroke();
+  const vAt = VV => (P.n * E_CHARGE * (VV / d) - Fg) / b * 1000;
+  const vm = Lab.niceMax(Math.max(Math.abs(vAt(-1000)), Math.abs(vAt(1000)), 1e-3) * 1.1);
+  const g = Lab.panel(gCanvas[1], { title: 'Velocità limite (mm/s) in funzione della tensione', xr: [-1000, 1000], xStep: 500, yr: [-vm, vm], xLabel: 'V (volt)' });
+  if (!g) return; const [ctx, f] = g;
   const Vb = balanceVoltage();
-  if (Vb !== null && Vb >= Vmin && Vb <= Vmax) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(xOf(Vb), PAD.t); ctx.lineTo(xOf(Vb), PAD.t + gH); ctx.stroke(); ctx.setLineDash([]);
+  if (Vb !== null && Vb >= -1000 && Vb <= 1000) {
+    ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.amber; ctx.beginPath(); ctx.moveTo(f.X(Vb), f.T); ctx.lineTo(f.X(Vb), f.B); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = f.C.amber; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textBaseline = 'middle';
+    const right = f.X(Vb) < (f.L + f.R) / 2; ctx.textAlign = right ? 'left' : 'right';
+    ctx.fillText(`equilibrio a ${Lab.fmt(Vb, 0)} V`, f.X(Vb) + (right ? 5 : -5), f.T + 8);
   }
+  Lab.plot(ctx, f, vAt, [-1000, 1000], COL[0], 2);
   const curV = P.fieldOn ? P.V : 0;
-  ctx.fillStyle = FCOL.e; ctx.beginPath(); ctx.arc(xOf(curV), yOf(P.fieldOn ? vAt(curV) : vAt(0) - 0), 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('v', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('V', PAD.l + gW - 2, PAD.t + gH - 3);
+  Lab.dot(ctx, f, curV, vAt(curV), FCOL.e, 4.5);
 }
-// 3: quantizzazione della carica — pettine q=n·e, evidenzia n corrente
+// 3: la carica è quantizzata: q è sempre un multiplo intero di e = 1,602·10⁻¹⁹ C
 function drawGraphQuant() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 16, b: 18, l: 10, r: 10 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const NMAX = 12;
-  const xOf = n => PAD.l + (n / NMAX) * gW;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t + gH * 0.6); ctx.lineTo(PAD.l + gW, PAD.t + gH * 0.6); ctx.stroke();
+  const NMAX = 15;
+  const g = Lab.panel(gCanvas[2], { title: 'Carica della goccia q = n·e (10⁻¹⁹ C)', xr: [0, NMAX], xStep: 2, yr: [0, Lab.niceMax(NMAX * 1.602)], xLabel: 'n (numero di cariche elementari)' });
+  if (!g) return; const [ctx, f] = g;
   for (let n = 0; n <= NMAX; n++) {
-    const x = xOf(n), isCur = n === P.n;
-    ctx.strokeStyle = isCur ? FCOL.e : 'rgba(150,205,225,0.4)'; ctx.lineWidth = isCur ? 2.2 : 1;
-    const h = isCur ? gH * 0.46 : gH * 0.3;
-    ctx.beginPath(); ctx.moveTo(x, PAD.t + gH * 0.6 - h); ctx.lineTo(x, PAD.t + gH * 0.6 + 4); ctx.stroke();
+    const cur = n === P.n, q = n * 1.602;
+    ctx.strokeStyle = cur ? FCOL.e : 'rgba(0,212,255,0.45)'; ctx.lineWidth = cur ? 3 : 1.6;
+    ctx.beginPath(); ctx.moveTo(f.X(n), f.B); ctx.lineTo(f.X(n), f.Y(q)); ctx.stroke();
+    Lab.dot(ctx, f, n, q, cur ? FCOL.e : 'rgba(0,212,255,0.8)', cur ? 4.5 : 2.5);
   }
-  ctx.fillStyle = FCOL.e; ctx.font = 'bold 8px "Space Mono",monospace'; ctx.textAlign = 'center';
-  ctx.fillText(`q = ${P.n}e`, xOf(P.n), PAD.t + 8);
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace';
-  ctx.fillText('q = n·e  (n = 0…' + NMAX + ')', PAD.l + gW / 2, PAD.t + gH - 2);
 }
-function drawGraphs() {
-  const titles = ['v(t) — velocità limite', 'v(V) — retta di equilibrio', 'quantizzazione di q = n·e'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphV(); drawGraphVV(); drawGraphQuant();
-}
+function drawGraphs() { drawGraphV(); drawGraphVV(); drawGraphQuant(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -543,26 +505,19 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 't', label: 'Tempo' },
-    { key: 'v', label: 'Velocità v' },
-    { key: 'Fg', label: 'Peso efficace' },
-    { key: 'Fe', label: 'Forza elettrica' },
-    { key: 'q', label: 'Carica q = n·e' },
+    { key: 't', label: 'tempo' },
+    { key: 'v', label: 'velocità della goccia' },
+    { key: 'Fg', label: 'peso meno spinta d’Archimede' },
+    { key: 'Fe', label: 'forza elettrica qE' },
+    { key: 'q', label: 'carica q = n·e' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -587,9 +542,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
     // le goccioline decorative e la caduta pre-ingresso della goccia tracciata memorizzano
     // posizioni in PIXEL assoluti; se il canvas cambia dimensione la geometria (pareti, piastre,
     // ugello) si ricalcola altrove e quelle posizioni restano quelle vecchie, facendo sembrare lo
@@ -615,7 +569,7 @@ function init() {
     try {
       draw(simCanvas, LY); drawGraphs();
       const v = terminalVelocity(), Fg = effWeight(rMeters()), Fe = electricForce();
-      readout.set('t', tSim.toFixed(2) + ' s');
+      readout.set('t', Lab.fmt(tSim, 2) + ' s');
       readout.set('v', fmtSci(v * 1000, ' mm/s'));
       readout.set('Fg', fmtSci(Fg, ' N'));
       readout.set('Fe', fmtSci(Fe, ' N'));

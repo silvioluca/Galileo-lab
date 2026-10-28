@@ -180,7 +180,7 @@ function drawScene() {
     ctx.fillStyle = col.muted;
     ctx.font = '11px Space Mono, monospace';
     ctx.textAlign = 'left';
-    ctx.fillText('h = ' + hMax().toFixed(3) + ' m', gx + bobR + 6, gy);
+    ctx.fillText('h = ' + Lab.fmt(hMax(),3) + ' m', gx + bobR + 6, gy);
     ctx.restore();
   }
 
@@ -212,7 +212,7 @@ function drawScene() {
       ctx.font = 'bold 12px Space Mono, monospace';
       ctx.fillStyle = C_ARC;
       ctx.textAlign = 'center';
-      ctx.fillText((Math.abs(theta) * 180/Math.PI).toFixed(1) + '°', lx, ly);
+      ctx.fillText(Lab.fmt((Math.abs(theta) * 180/Math.PI),1) + '°', lx, ly);
     }
     ctx.restore();
   }
@@ -307,7 +307,7 @@ function drawScene() {
     ctx.fillStyle = col.muted;
     ctx.font = '12px Space Mono, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('θ_max = ' + (th_max * 180/Math.PI).toFixed(1) + '°', SW/2, SH * 0.96);
+    ctx.fillText('θ_max = ' + Lab.fmt((th_max * 180/Math.PI),1) + '°', SW/2, SH * 0.96);
   }
 }
 
@@ -328,7 +328,7 @@ function fmtTick(v) {
   if (v === 0) return '0';
   const a = Math.abs(v);
   const s = a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : a >= 1 ? v.toFixed(1) : v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 // ── Graphs ────────────────────────────────────────────────────────────────────
@@ -372,7 +372,7 @@ function drawEnergyPanel(ctx, dk, ox, oy, pw, ph) {
     ctx.fillStyle = color; ctx.fillRect(x, baseY - bh, barW, bh);
     ctx.fillStyle = color; ctx.font = '700 9px "Space Mono",monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(val.toFixed(1) + ' J', x + barW/2, baseY - bh - 4);
+    ctx.fillText(Lab.fmt(val,1) + ' J', x + barW/2, baseY - bh - 4);
     ctx.fillStyle = tkC; ctx.font = '9px "Space Mono",monospace';
     ctx.fillText(lbl, x + barW/2, baseY + 16);
   }
@@ -382,7 +382,7 @@ function drawEnergyPanel(ctx, dk, ox, oy, pw, ph) {
 
   if (hasSwung) {
     ctx.fillStyle = tkC; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
-    ctx.fillText('ΔKE = −' + (ke0-ke1).toFixed(2) + ' J', ox + pw/2, it + ih - 4);
+    ctx.fillText('ΔKE = −' + Lab.fmt((ke0-ke1),2) + ' J', ox + pw/2, it + ih - 4);
   }
 
   ctx.strokeStyle = axC; ctx.lineWidth = 1;
@@ -443,7 +443,7 @@ function drawThetaPanel(ctx, dk, ox, oy, pw, ph) {
       ctx.setLineDash([]); ctx.restore();
       ctx.fillStyle = C_ARC; ctx.font = '700 8px "Space Mono",monospace';
       ctx.textAlign = 'left';
-      ctx.fillText((th_max*180/Math.PI).toFixed(1)+'°', il + 3, ymx - 3);
+      ctx.fillText(Lab.fmt((th_max*180/Math.PI),1)+'°', il + 3, ymx - 3);
     }
   }
 
@@ -512,21 +512,21 @@ function drawThetaPanel(ctx, dk, ox, oy, pw, ph) {
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 'v0',    label: 'v₀' },
-  { key: 'vpost', label: 'V post' },
-  { key: 'thmax', label: 'θ_max' },
-  { key: 'hmax',  label: 'h_max' },
-  { key: 'ke0',   label: 'KE₀' },
-  { key: 'dke',   label: 'ΔKE' },
+  { key: 'v0',    label: 'velocità proiettile v₀' },
+  { key: 'vpost', label: 'velocità dopo l’urto' },
+  { key: 'thmax', label: 'angolo massimo' },
+  { key: 'hmax',  label: 'altezza massima' },
+  { key: 'ke0',   label: 'energia cinetica iniziale' },
+  { key: 'dke',   label: 'energia dissipata' },
 ]);
 
 function updateReadout() {
-  readout.set('v0',    params.v0.toFixed(0) + ' m/s');
-  readout.set('vpost', Vpost().toFixed(3) + ' m/s');
-  readout.set('thmax', (thMax()*180/Math.PI).toFixed(2) + '°');
-  readout.set('hmax',  hMax().toFixed(4) + ' m');
-  readout.set('ke0',   KE0().toFixed(2) + ' J');
-  readout.set('dke',   '−' + (KE0()-KE1()).toFixed(2) + ' J');
+  readout.set('v0',    Lab.fmt(params.v0,0) + ' m/s');
+  readout.set('vpost', Lab.fmt(Vpost(),3) + ' m/s');
+  readout.set('thmax', Lab.fmt((thMax()*180/Math.PI),2) + '°');
+  readout.set('hmax',  Lab.fmt(hMax(),4) + ' m');
+  readout.set('ke0',   Lab.fmt(KE0(),2) + ' J');
+  readout.set('dke',   '−' + Lab.fmt((KE0()-KE1()),2) + ' J');
 }
 
 // ── Controls ──────────────────────────────────────────────────────────────────

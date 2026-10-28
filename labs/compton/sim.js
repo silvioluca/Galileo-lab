@@ -248,14 +248,14 @@ function drawSim() {
       // θ: from 0 (right) to +tR (downward in canvas)
       drawArc(CX, CY, arcR, 0, tR, col1 + 'cc');
       ctx.fillStyle = col1; ctx.font = `bold 11px 'DM Sans', sans-serif`; ctx.textAlign = 'center';
-      ctx.fillText(`θ=${anim.thetaDeg.toFixed(0)}°`,
+      ctx.fillText(`θ=${Lab.fmt(anim.thetaDeg,0)}°`,
         CX + (arcR + 16) * Math.cos(tR / 2), CY + (arcR + 16) * Math.sin(tR / 2));
 
       // φ: from -phi (upward in canvas) to 0
       if (cd.phi > 0.05) {
         drawArc(CX, CY, arcR + 14, -cd.phi, 0, '#4488ffcc');
         ctx.fillStyle = '#4488ff'; ctx.font = `bold 11px 'DM Sans', sans-serif`; ctx.textAlign = 'center';
-        ctx.fillText(`φ=${(cd.phi * 180 / Math.PI).toFixed(0)}°`,
+        ctx.fillText(`φ=${Lab.fmt((cd.phi * 180 / Math.PI),0)}°`,
           CX + (arcR + 30) * Math.cos(-cd.phi / 2), CY + (arcR + 30) * Math.sin(-cd.phi / 2));
       }
     }
@@ -270,7 +270,7 @@ function drawSim() {
       const ly = CY + sdY * dist + perpY * 18;
       ctx.font = `10px 'Space Mono', monospace`; ctx.textAlign = 'center';
       ctx.fillStyle = col1;
-      ctx.fillText(`λ' = ${cd.lam1.toFixed(2)} pm  E' = ${cd.E1.toFixed(1)} keV`, lx, ly);
+      ctx.fillText(`λ' = ${Lab.fmt(cd.lam1,2)} pm  E' = ${Lab.fmt(cd.E1,1)} keV`, lx, ly);
       ctx.globalAlpha = 1;
     }
   }
@@ -278,9 +278,9 @@ function drawSim() {
   // ── Static overlay ────────────────────────────────────────────────────
   ctx.textAlign = 'left'; ctx.font = `10px 'Space Mono', monospace`;
   ctx.fillStyle = col0;
-  ctx.fillText(`E₀ = ${P.E0} keV   λ₀ = ${cd.lam0.toFixed(2)} pm`, 12, 20);
+  ctx.fillText(`E₀ = ${P.E0} keV   λ₀ = ${Lab.fmt(cd.lam0,2)} pm`, 12, 20);
   ctx.fillStyle = fg + '88';
-  ctx.fillText(`ε = ${cd.eps.toFixed(3)}   Δλ_max = ${(2 * LAMBDA_C * 1e12).toFixed(3)} pm  (θ=180°)`, 12, 36);
+  ctx.fillText(`ε = ${Lab.fmt(cd.eps,3)}   Δλ_max = ${Lab.fmt((2 * LAMBDA_C * 1e12),3)} pm  (θ=180°)`, 12, 36);
 
   if (P.continuous && totalShots > 0) {
     ctx.textAlign = 'right'; ctx.fillStyle = fg + '66';
@@ -384,14 +384,14 @@ function drawGraph() {
   gctx.lineTo(bx1, bY); gctx.lineTo(bx1, bY + 5);
   gctx.stroke();
   gctx.fillStyle = fg + 'cc'; gctx.textAlign = 'center'; gctx.font = `9px 'DM Sans', sans-serif`;
-  gctx.fillText(`Δλ = ${dL.toFixed(3)} pm`, (bx0 + bx1) / 2, bY - 1);
+  gctx.fillText(`Δλ = ${Lab.fmt(dL,3)} pm`, (bx0 + bx1) / 2, bY - 1);
 
   // λ axis labels
   gctx.font = `9px 'Space Mono', monospace`; gctx.textAlign = 'center';
   gctx.fillStyle = photonColor(P.E0) + 'bb';
-  gctx.fillText(`λ=${lam0.toFixed(2)}`, gxS(lam0), LP.t + lH + 18);
+  gctx.fillText(`λ=${Lab.fmt(lam0,2)}`, gxS(lam0), LP.t + lH + 18);
   gctx.fillStyle = photonColor(cd.E1) + 'bb';
-  gctx.fillText(`λ'=${lam1.toFixed(2)}`, gxS(lam1), LP.t + lH + 18);
+  gctx.fillText(`λ'=${Lab.fmt(lam1,2)}`, gxS(lam1), LP.t + lH + 18);
 
   // Axes
   gctx.strokeStyle = fg + 'bb'; gctx.lineWidth = 1;
@@ -483,15 +483,15 @@ function drawGraph() {
 function updateReadout() {
   const cd = comptonCalc(P.E0, anim.thetaDeg);
   document.getElementById('readout').innerHTML = [
-    { label: 'E₀',      value: `${P.E0} keV` },
-    { label: "E' (γ)",  value: `${cd.E1.toFixed(2)} keV` },
-    { label: 'T (e⁻)',  value: `${cd.T.toFixed(2)} keV` },
-    { label: 'Δλ',      value: `${cd.dLam.toFixed(4)} pm` },
-    { label: 'θ',       value: `${anim.thetaDeg.toFixed(1)}°` },
-    { label: 'φ',       value: `${(cd.phi * 180 / Math.PI).toFixed(1)}°` },
-    { label: 'ε',       value: cd.eps.toFixed(3) },
+    { label: 'fotone incidente E₀', value: `${P.E0} keV` },
+    { label: "fotone diffuso E'", value: `${Lab.fmt(cd.E1,2)} keV` },
+    { label: 'energia dell’elettrone', value: `${Lab.fmt(cd.T,2)} keV` },
+    { label: 'spostamento Δλ', value: `${Lab.fmt(cd.dLam,4)} pm` },
+    { label: 'angolo del fotone θ', value: `${Lab.fmt(anim.thetaDeg,1)}°` },
+    { label: 'angolo dell’elettrone φ', value: `${Lab.fmt((cd.phi * 180 / Math.PI),1)}°` },
+    { label: 'rapporto E₀/(mₑc²)', value: Lab.fmt(cd.eps,3) },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 
@@ -573,7 +573,7 @@ function init() {
   anim.thetaDeg = P.theta;
   resize();
   buildControls();
-  window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe(sc.parentElement);
   requestAnimationFrame(loop);
 }
 

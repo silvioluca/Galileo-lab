@@ -13,7 +13,8 @@ const P = {
 const TIME_SCALE = 8;       // accelerazione temporale della simulazione
 const Cth = 6000;           // capacità termica della camera (J/°C)
 const HYST = 0.5;           // isteresi del termostato (°C)
-const COP_CAP = 7;          // tetto realistico al COP
+const HIST_WIN = 600;       // s simulati mostrati nel grafico della temperatura (10 min)
+const DT_HX = 10;           // °C: l'evaporatore è 10 °C sotto la camera, il condensatore 10 °C sopra l'ambiente
 
 let Tcam = 25;              // temperatura attuale della camera (°C)
 let compOn = false;         // stato compressore (termostato)
@@ -55,12 +56,14 @@ const rgba=(a,al)=>`rgba(${a[0]},${a[1]},${a[2]},${al})`;
 
 // ═══ Fisica (ciclo a compressione di vapore) ══════════════════════════════════
 const K=273.15;
+// Il refrigerante lavora fra la temperatura dell'evaporatore e quella del condensatore, non fra camera
+// e stanza: perché il calore passi servono differenze di temperatura negli scambiatori. Questo
+// rende il COP di Carnot realistico (≈ 6–15) anche quando la camera è quasi alla temperatura ambiente.
 function copCarnot(){
-  const Tc=Tcam+K, Th=P.Tamb+K;
-  const dT=Math.max(1, Th-Tc);
-  return Tc/dT;
+  const Tc=Tcam-DT_HX+K, Th=P.Tamb+DT_HX+K;
+  return Tc/Math.max(1, Th-Tc);
 }
-function copReal(){ return Math.min(COP_CAP, P.eta*copCarnot()); }
+function copReal(){ return P.eta*copCarnot(); }
 function rates(){
   if(!compOn) return {Qc:0, Qh:0, W:0, cop:copReal()};
   const cop=copReal();
@@ -81,7 +84,7 @@ function step(dt){
   Tcam = Math.max(-40, Math.min(P.Tamb+2, Tcam));
   simT += dts;
   hist.push({t:simT, Tcam});
-  while(hist.length && hist[0].t < simT-120) hist.shift();
+  while(hist.length && hist[0].t < simT-HIST_WIN) hist.shift();
 }
 
 // ═══ Proiezione assonometrica (cabinet 3D) ════════════════════════════════════
@@ -207,7 +210,7 @@ function drawAmbient(ctx,W,H){
   ctx.fillStyle=rg; ctx.fillRect(0,0,W,H);
   // didascalia ambiente
   ctx.fillStyle=rgba([210,80,70],0.85+0.15*red); ctx.font='bold 11px "Space Mono",monospace'; ctx.textAlign='right';
-  ctx.fillText(`AMBIENTE ESTERNO · ${P.Tamb.toFixed(0)} °C`, W-14, H-12);
+  ctx.fillText(`AMBIENTE ESTERNO · ${Lab.fmt(P.Tamb,0)} °C`, W-14, H-12);
 }
 
 // interno della camera: vira al blu man mano che la temperatura scende
@@ -262,17 +265,16 @@ function drawThermometer(ctx){
   ctx.beginPath(); ctx.moveTo(tx+w,yB); ctx.lineTo(tx+w+4,yB); ctx.stroke();
   // etichette amb (sopra) / set (sotto il bulbo), centrate sul tubo
   ctx.textAlign='center'; ctx.font='8px "Space Mono",monospace';
-  ctx.fillStyle=rgba(colHot,0.95); ctx.fillText(`amb ${P.Tamb.toFixed(0)}°`, tx+w/2, yT-6);
-  ctx.fillStyle=rgba(colCold,0.95); ctx.fillText(`set ${P.Tset.toFixed(0)}°`, tx+w/2, yB+bulbR*2+2);
+  ctx.fillStyle=rgba(colHot,0.95); ctx.fillText(`amb ${Lab.fmt(P.Tamb,0)}°`, tx+w/2, yT-6);
+  ctx.fillStyle=rgba(colCold,0.95); ctx.fillText(`set ${Lab.fmt(P.Tset,0)}°`, tx+w/2, yB+bulbR*2+2);
   // valore corrente accanto al livello (a destra)
   ctx.textAlign='left'; ctx.font='bold 11px "Space Mono",monospace'; ctx.fillStyle=rgb(cur);
-  ctx.fillText(`${Tcam.toFixed(1)}°`, tx+w+7, yLev+4);
+  ctx.fillText(`${Lab.fmt(Tcam,1)}°`, tx+w+7, yLev+4);
   ctx.beginPath(); ctx.moveTo(tx+w,yLev); ctx.lineTo(tx+w+5,yLev); ctx.strokeStyle=rgb(cur); ctx.lineWidth=1.4; ctx.stroke();
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx,W,H]=Lab.ctx2d(canvas);
   T=pal();
   setupView(W,H);
   drawAmbient(ctx,W,H);
@@ -324,7 +326,7 @@ function draw(canvas){
   ctx.fillText('Ciclo a compressione di vapore   ·   Q_caldo = Q_freddo + W', 14, 22);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
   const r=rates();
-  ctx.fillText(`COP = ${r.cop.toFixed(2)}  (Carnot ${copCarnot().toFixed(2)})   ·   compressore ${compOn?'● ON':'○ OFF'}`, 14, 38);
+  ctx.fillText(`COP = ${Lab.fmt(r.cop,2)}  (Carnot ${Lab.fmt(copCarnot(),2)})   ·   compressore ${compOn?'● ON':'○ OFF'}`, 14, 38);
 }
 
 function drawCabinet(ctx){
@@ -424,7 +426,7 @@ function drawFlowArrows(ctx,A){
   ctx.fillStyle=rgb(T.cold); ctx.font='bold 22px "Space Mono",monospace';
   ctx.fillText('T1', a1[0]-14, (a1[1]+a2[1])/2-26);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-  ctx.fillText(`${P.Tset.toFixed(0)} °C`, a1[0]-14, (a1[1]+a2[1])/2-10);
+  ctx.fillText(`${Lab.fmt(P.Tset,0)} °C`, a1[0]-14, (a1[1]+a2[1])/2-10);
 
   // freccia T2 (rosso, mandata orizzontale al fondo)
   const cf=A.coXs[0];
@@ -435,7 +437,7 @@ function drawFlowArrows(ctx,A){
   ctx.fillStyle=rgb(T.hot); ctx.font='bold 22px "Space Mono",monospace';
   ctx.fillText('T2', tlab[0]+6, tlab[1]);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-  ctx.fillText(`${P.Tamb.toFixed(0)} °C`, tlab[0]+6, tlab[1]+15);
+  ctx.fillText(`${Lab.fmt(P.Tamb,0)} °C`, tlab[0]+6, tlab[1]+15);
 }
 
 function drawLabels(ctx,A,W,H){
@@ -468,93 +470,49 @@ function drawLabels(ctx,A,W,H){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-
+// 1: temperatura della camera nel tempo, con ambiente e set-point del termostato
 function drawTemp(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:26,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const win=120, t1=Math.max(simT,win*0.25), t0=t1-win;
-  const Tmax=P.Tamb+3, Tmin=Math.min(P.Tset-3,-5);
-  const yOf=v=>PAD.t+gH-(v-Tmin)/(Tmax-Tmin)*gH;
-  ctx.setLineDash([3,3]); ctx.lineWidth=0.8;
-  ctx.strokeStyle='rgba(230,70,90,0.55)'; ctx.beginPath(); ctx.moveTo(PAD.l,yOf(P.Tamb)); ctx.lineTo(PAD.l+gW,yOf(P.Tamb)); ctx.stroke();
-  ctx.strokeStyle='rgba(90,140,255,0.6)'; ctx.beginPath(); ctx.moveTo(PAD.l,yOf(P.Tset)); ctx.lineTo(PAD.l+gW,yOf(P.Tset)); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.strokeStyle=T.accent; ctx.lineWidth=1.5; ctx.beginPath(); let first=true;
-  for(const h of hist){ if(h.t<t0)continue; const x=PAD.l+(h.t-t0)/win*gW, y=yOf(h.Tcam); first?(ctx.moveTo(x,y),first=false):ctx.lineTo(x,y); }
-  ctx.stroke();
-  ctx.fillStyle='rgba(230,90,110,0.85)'; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('T2 amb',PAD.l+2,yOf(P.Tamb)-2);
-  ctx.fillStyle='rgba(110,150,255,0.9)'; ctx.fillText('T1 set',PAD.l+2,yOf(P.Tset)-2);
-  ctx.fillStyle=T.gText; ctx.fillText('°C',PAD.l-22,PAD.t+8);
+  const t1=Math.max(simT,HIST_WIN), t0=t1-HIST_WIN;
+  const ylo=Math.floor(Math.min(P.Tset-3,-5)/5)*5, yhi=Math.ceil((P.Tamb+3)/5)*5;
+  const g=Lab.panel(gCanvas[0],{ title:'Temperatura della camera (°C)', xr:[t0/60,t1/60], xStep:2, yr:[ylo,yhi], xLabel:'t (min)' });
+  if(!g) return; const [ctx,f]=g;
+  ctx.save(); ctx.setLineDash([4,3]); ctx.lineWidth=1.2;
+  ctx.strokeStyle=rgb(T.hotL);  ctx.beginPath(); ctx.moveTo(f.L,f.Y(P.Tamb)); ctx.lineTo(f.R,f.Y(P.Tamb)); ctx.stroke();
+  ctx.strokeStyle=rgb(T.coldL); ctx.beginPath(); ctx.moveTo(f.L,f.Y(P.Tset)); ctx.lineTo(f.R,f.Y(P.Tset)); ctx.stroke();
+  ctx.restore();
+  Lab.plotPts(ctx,f,hist.filter(h=>h.t>=t0).map(h=>[h.t/60,h.Tcam]),T.accent,2);
+  Lab.legend(ctx,f.L+8,f.B-10,[[T.accent,'camera'],[rgb(T.hotL),'ambiente T₂',[4,3]],[rgb(T.coldL),'termostato T₁',[4,3]]]);
 }
 
+// 2: potenze in gioco: Q₂ = Q₁ + W (al condensatore esce il calore tolto più il lavoro)
 function drawEnergy(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:18,b:22,l:10,r:10};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const r=rates();
-  const max=Math.max(1,r.Qh,P.W);
-  const bars=[{v:r.Qc,c:T.coldL,l:'Q_fre'},{v:r.W,c:[255,210,80],l:'W'},{v:r.Qh,c:T.hotL,l:'Q_cal'}];
-  const bw=gW/3*0.5;
-  bars.forEach((b,i)=>{
-    const cx=PAD.l+gW*(i+0.5)/3, bh=b.v/max*gH;
-    ctx.fillStyle=rgba(b.c,0.85); ctx.fillRect(cx-bw/2,PAD.t+gH-bh,bw,bh);
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(b.l,cx,PAD.t+gH+10);
-    ctx.fillStyle=rgb(b.c); ctx.font='8px "Space Mono",monospace'; ctx.fillText(b.v.toFixed(0)+'W',cx,PAD.t+gH-bh-3);
-  });
+  const r=rates(), leak=P.kLeak*(P.Tamb-Tcam);
+  const vals=[leak,r.Qc,r.W,r.Qh];
+  const cols=[rgba(T.hotL,0.55),rgba(T.coldL,0.9),'rgba(255,200,70,0.9)',rgba(T.hotL,0.9)];
+  const labs=['dispersione','Q₁ tolto','W','Q₂ ceduto'];
+  const ym=Lab.niceMax(Math.max(P.W*(1+copReal()),leak)*1.1);
+  const g=Lab.panel(gCanvas[1],{ title:'Potenze termiche ed elettrica (W)', xr:[0,4], xStep:1e9, xFmt:()=> '', yr:[0,ym] });
+  if(!g) return; const [ctx,f]=g, gap=(f.R-f.L)/4, bw=gap*0.55;
+  vals.forEach((v,k)=>{ const x=f.L+gap*k+(gap-bw)/2, y=f.Y(Math.max(0,v));
+    ctx.fillStyle=cols[k]; ctx.fillRect(x,y,bw,f.B-y);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='9.5px "Space Mono",monospace'; ctx.fillStyle=f.C.title; ctx.fillText(Lab.fmt(v,0),x+bw/2,y-8);
+    ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillStyle=f.C.text; ctx.fillText(labs[k],x+bw/2,f.B+10); });
 }
 
-// 3: diagramma p–V del ciclo
-function logpT(t){ return -2400/(t+K); }
-function fracP(t){ const a=logpT(-35),b=logpT(55); return Math.max(0.08,Math.min(0.95,(logpT(t)-a)/(b-a))); }
-function drawPV(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:14,b:18,l:22,r:10};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const yLow=PAD.t+gH-fracP(Tcam)*gH;
-  const yHigh=PAD.t+gH-fracP(P.Tamb)*gH;
-  const xOf=v=>PAD.l+v*gW;
-  // volumi relativi dei 4 stati
-  const V1=0.93,V2=0.46,V3=0.12,V4=0.58;
-  const p1=[xOf(V1),yLow], p2=[xOf(V2),yHigh], p3=[xOf(V3),yHigh], p4=[xOf(V4),yLow];
-  // linee p_alta / p_bassa
-  ctx.setLineDash([2,3]); ctx.lineWidth=0.7;
-  ctx.strokeStyle='rgba(230,80,100,0.4)'; ctx.beginPath(); ctx.moveTo(PAD.l,yHigh); ctx.lineTo(PAD.l+gW,yHigh); ctx.stroke();
-  ctx.strokeStyle='rgba(100,150,255,0.4)'; ctx.beginPath(); ctx.moveTo(PAD.l,yLow); ctx.lineTo(PAD.l+gW,yLow); ctx.stroke();
-  ctx.setLineDash([]);
-  // ciclo
-  ctx.lineWidth=1.7; ctx.strokeStyle=T.accent; ctx.beginPath();
-  ctx.moveTo(p4[0],p4[1]); ctx.lineTo(p1[0],p1[1]);                                  // 4→1 evaporazione (p bassa)
-  ctx.quadraticCurveTo(p1[0]-(p1[0]-p2[0])*0.15, (p1[1]+p2[1])/2, p2[0],p2[1]);      // 1→2 compressione
-  ctx.lineTo(p3[0],p3[1]);                                                           // 2→3 condensazione (p alta)
-  ctx.quadraticCurveTo(p3[0], (p3[1]+p4[1])/2, p4[0],p4[1]);                          // 3→4 laminazione
-  ctx.stroke();
-  // frecce di verso
-  const mid=(a,b)=>[(a[0]+b[0])/2,(a[1]+b[1])/2];
-  function ah(a,b){ const m=mid(a,b); const an=Math.atan2(b[1]-a[1],b[0]-a[0]); ctx.fillStyle=T.accent;
-    ctx.beginPath(); ctx.moveTo(m[0],m[1]); ctx.lineTo(m[0]-6*Math.cos(an-0.5),m[1]-6*Math.sin(an-0.5)); ctx.lineTo(m[0]-6*Math.cos(an+0.5),m[1]-6*Math.sin(an+0.5)); ctx.closePath(); ctx.fill(); }
-  ah(p4,p1); ah(p2,p3);
-  // punti + numeri
-  const pts=[p1,p2,p3,p4];
-  pts.forEach((p,i)=>{ ctx.fillStyle=(i===1||i===2)?rgb(T.hotL):rgb(T.coldL); ctx.beginPath(); ctx.arc(p[0],p[1],3,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='8px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(String(i+1), p[0]+(i===0?8:i===3?8:-8), p[1]+(i<2?-6:12)); });
-  ctx.fillStyle='rgba(230,80,100,0.7)'; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('p_alta',PAD.l+2,yHigh-2);
-  ctx.fillStyle='rgba(100,150,255,0.75)'; ctx.fillText('p_bassa',PAD.l+2,yLow+8);
-  ctx.fillStyle=T.gText; ctx.textAlign='right'; ctx.fillText('V',PAD.l+gW-2,PAD.t+gH-3);
-  ctx.textAlign='left'; ctx.fillText('p',PAD.l+2,PAD.t+7);
+// 3: COP in funzione della temperatura della camera: più freddo si vuole, meno calore si sposta per joule
+function drawCOP(){
+  const copAt=(Tc_,eta)=>{ const a=Tc_-DT_HX+K, b=P.Tamb+DT_HX+K; return eta*a/Math.max(1,b-a); };
+  const tlo=-25, thi=Math.max(20,P.Tamb);
+  const g=Lab.panel(gCanvas[2],{ title:'Coefficiente di prestazione COP = Q₁/W', xr:[tlo,thi], xStep:10, yr:[0,Lab.niceMax(copAt(thi,1)*1.05)], xLabel:'temperatura della camera (°C)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,t=>copAt(t,1),[tlo,thi],rgb(T.coldL),1.4,[4,3]);
+  Lab.plot(ctx,f,t=>copAt(t,P.eta),[tlo,thi],T.accent,2);
+  Lab.dot(ctx,f,Tcam,copReal(),T.accent,4.5);
+  Lab.legend(ctx,f.L+8,f.T+8,[[T.accent,'frigorifero reale'],[rgb(T.coldL),'limite di Carnot',[4,3]]]);
 }
 
-function drawGraphs(){ drawTemp(); drawEnergy(); drawPV(); }
+function drawGraphs(){ drawTemp(); drawEnergy(); drawCOP(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls(){
@@ -572,21 +530,8 @@ function buildControls(){
 }
 
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Temperatura camera T(t)','Bilancio energetico','Ciclo p–V'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -596,12 +541,12 @@ function init(){
   initGraphs();
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'tcam', label:'T camera'},
-    {key:'cop',  label:'COP'},
-    {key:'qc',   label:'Q freddo'},
-    {key:'w',    label:'W elettrico'},
-    {key:'qh',   label:'Q caldo'},
-    {key:'st',   label:'Compressore'},
+    {key:'tcam', label:'temperatura camera'},
+    {key:'cop',  label:'COP = Q₁/W'},
+    {key:'qc',   label:'Q₁ tolto alla camera'},
+    {key:'w',    label:'potenza elettrica W'},
+    {key:'qh',   label:'Q₂ ceduto all’ambiente'},
+    {key:'st',   label:'compressore'},
   ]);
   const btnPlay=document.getElementById('btnPlay');
   btnPlay.addEventListener('click',()=>{ P.paused=!P.paused; btnPlay.textContent = P.paused ? '▶  AVVIA' : '⏸  PAUSA'; });
@@ -616,9 +561,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(200,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -634,11 +578,11 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     const r=rates();
-    readout.set('tcam', Tcam.toFixed(1)+' °C');
-    readout.set('cop', r.cop.toFixed(2));
-    readout.set('qc', r.Qc.toFixed(0)+' W');
-    readout.set('w', (compOn?P.W:0).toFixed(0)+' W');
-    readout.set('qh', r.Qh.toFixed(0)+' W');
+    readout.set('tcam', Lab.fmt(Tcam,1)+' °C');
+    readout.set('cop', Lab.fmt(r.cop,2));
+    readout.set('qc', Lab.fmt(r.Qc,0)+' W');
+    readout.set('w', Lab.fmt(compOn?P.W:0,0)+' W');
+    readout.set('qh', Lab.fmt(r.Qh,0)+' W');
     readout.set('st', compOn?'● ON':'○ OFF');
     requestAnimationFrame(frame);
   }

@@ -195,8 +195,8 @@ function drawMartinetto(ctx,W,H){
 
   // ── aree (sotto la struttura) ──
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
-  ctx.fillText('A₁ = '+(A1*1e4).toFixed(1)+' cm²', x1, baseY+chH+16);
-  ctx.fillText('A₂ = '+(A2*1e4).toFixed(1)+' cm²', x2, baseY+chH+16);
+  ctx.fillText('A₁ = '+Lab.fmt((A1*1e4),1)+' cm²', x1, baseY+chH+16);
+  ctx.fillText('A₂ = '+Lab.fmt((A2*1e4),1)+' cm²', x2, baseY+chH+16);
 
   header(ctx,'Martinetto idraulico:  p = F₁/A₁ = F₂/A₂',
     'F₂ = F₁·(A₂/A₁) = '+gain.toFixed(1)+'×F₁   ·   carico max ≈ '+(F2/Gacc).toFixed(1)+' kg   ·   p = '+(p/1000).toFixed(1)+' kPa');
@@ -280,8 +280,7 @@ function drawBotte(ctx,W,H){
 
 // ═══ Draw ═════════════════════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   if(P.mode==='sfera') drawSfera(ctx,W,H);
@@ -290,82 +289,63 @@ function draw(canvas){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-function bars(ctx,W,H,vals,cols,labels){
-  const PAD={t:16,b:18,l:10,r:8}; const {gW,gH}=gBase(ctx,W,H,PAD);
-  const max=Math.max(...vals,1e-6), n=vals.length, bw=gW/n*0.55;
-  vals.forEach((v,i)=>{ const cx=PAD.l+gW*(i+0.5)/n, bh=clamp(v/max,0,1)*gH*0.82;
-    ctx.fillStyle=cols[i]; ctx.fillRect(cx-bw/2,PAD.t+gH-bh,bw,bh);
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(labels[i],cx,PAD.t+gH+9);
-  });
+// istogramma con asse numerato
+function bars(i,title,vals,cols,labels,unitFmt){
+  const max=Lab.niceMax(Math.max(...vals,1e-6)*1.15);
+  const g=Lab.panel(gCanvas[i],{ title, xr:[0,vals.length], xStep:1e9, xFmt:()=> '', yr:[0,max] });
+  if(!g) return; const [ctx,f]=g, gap=(f.R-f.L)/vals.length, bw=gap*0.6;
+  vals.forEach((v,k)=>{ const x=f.L+gap*k+(gap-bw)/2, y=f.Y(v);
+    ctx.fillStyle=cols[k]; ctx.fillRect(x,y,bw,f.B-y);
+    ctx.font='9.5px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    if(unitFmt && vals.length<=4){ ctx.fillStyle=f.C.title; ctx.fillText(unitFmt(v),x+bw/2,y-8); }
+    ctx.fillStyle=f.C.text; ctx.fillText(labels[k],x+bw/2,f.B+10); });
 }
 function drawGraphs(){
-  for(let i=0;i<3;i++) if(gTitle[i]) gTitle[i].textContent=TITLES[P.mode][i];
   if(P.mode==='sfera'){
-    // 1: pressione ai fori (tutte uguali)
-    if(gCanvas[0].width){ const N=Math.min(P.sfN,10), v=Array.from({length:N},()=>P.sfP);
-      bars(gCtx[0],gCanvas[0].width,gCanvas[0].height,v,v.map(()=>rgb(T.water)),v.map((_,i)=>i+1+'')); }
-    // 2: v(P)
-    if(gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:16,l:24,r:8};
-      const {gW,gH}=gBase(ctx,W,H,PAD); const Pmax=200, vmax=Math.sqrt(2*Pmax*1000/RHO);
-      const xOf=pp=>PAD.l+pp/Pmax*gW, yOf=vv=>PAD.t+gH-clamp(vv/vmax,0,1)*gH*0.9;
-      ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-      for(let pp=0;pp<=Pmax;pp+=Pmax/60){ const x=xOf(pp),y=yOf(Math.sqrt(2*pp*1000/RHO)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-      ctx.fillStyle=rgb(T.water); ctx.beginPath(); ctx.arc(xOf(P.sfP),yOf(vEffSfera()),3.4,0,7); ctx.fill();
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('v',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('p',PAD.l+gW-2,PAD.t+gH-3); }
-    // 3: rosa di trasmissione radiale
-    if(gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height; gBase(ctx,W,H,{t:12,b:12,l:12,r:12});
-      const cx=W/2, cy=H/2+2, r=Math.min(W,H)*0.16, N=P.sfN;
-      ctx.strokeStyle=rgb(T.water); ctx.lineWidth=1.4;
-      for(let i=0;i<N;i++){ const a=Math.PI*2*i/N; arrow(ctx,cx+Math.cos(a)*r,cy+Math.sin(a)*r,cx+Math.cos(a)*r*2.1,cy+Math.sin(a)*r*2.1,rgb(T.water),1.4); }
+    // 1: la pressione è la stessa a ogni foro
+    const N=Math.min(P.sfN,10), v=Array.from({length:N},()=>P.sfP);
+    bars(0,'Pressione a ogni foro (kPa): tutte uguali',v,v.map(()=>rgb(T.water)),v.map((_,i)=>String(i+1)));
+    // 2: velocità dei getti v = √(2p/ρ)
+    const g=Lab.panel(gCanvas[1],{ title:'Velocità dei getti v = √(2p/ρ) (m/s)', xr:[0,200], yr:[0,Lab.niceMax(Math.sqrt(2*200e3/RHO))], xLabel:'pressione applicata (kPa)' });
+    if(g){ const [ctx,f]=g; Lab.plot(ctx,f,pp=>Math.sqrt(2*pp*1000/RHO),[0,200],T.accent,2); Lab.dot(ctx,f,P.sfP,vEffSfera(),rgb(T.water),4.5); }
+    // 3: schema della trasmissione in tutte le direzioni (non è un grafico)
+    if(gCanvas[2]._dpr){ const [ctx,W,H]=Lab.ctx2d(gCanvas[2]), C=Lab.graphColors();
+      ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle=C.text; ctx.font='10.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText('La pressione si trasmette ugualmente in ogni direzione',8,11);
+      const cx=W/2, cy=H/2+8, r=Math.min(W,H)*0.15, N2=P.sfN;
+      for(let i=0;i<N2;i++){ const a=Math.PI*2*i/N2; arrow(ctx,cx+Math.cos(a)*r,cy+Math.sin(a)*r,cx+Math.cos(a)*r*2.1,cy+Math.sin(a)*r*2.1,rgb(T.water),1.6); }
       ctx.fillStyle=rgba(T.water,0.4); ctx.beginPath(); ctx.arc(cx,cy,r*0.7,0,7); ctx.fill(); }
   }
   else if(P.mode==='martinetto'){
     const {A1,A2,F2,gain}=mtCalc();
-    // 1: F2 vs rapporto
-    if(gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:16,l:28,r:8};
-      const {gW,gH}=gBase(ctx,W,H,PAD); const rmax=40, F2max=P.mtF1*rmax;
-      const xOf=r=>PAD.l+r/rmax*gW, yOf=ff=>PAD.t+gH-clamp(ff/F2max,0,1)*gH*0.9;
-      ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath();
-      for(let r=0;r<=rmax;r+=rmax/60){ const x=xOf(r),y=yOf(P.mtF1*r); r===0?ctx.moveTo(x,y):ctx.lineTo(x,y);} ctx.stroke();
-      ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(gain),yOf(F2),3.4,0,7); ctx.fill();
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('F₂',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('A₂/A₁',PAD.l+gW-2,PAD.t+gH-3); }
-    // 2: spostamenti d1,d2
-    if(gCanvas[1].width){ const d1=P.mtStroke, d2=P.mtStroke*(A1/A2);
-      bars(gCtx[1],gCanvas[1].width,gCanvas[1].height,[d1,d2],[rgb(T.press),T.accent],['d₁','d₂']); }
-    // 3: lavoro W1=W2
-    if(gCanvas[2].width){ const W1=P.mtF1*(P.mtStroke/100), W2=F2*((P.mtStroke*(A1/A2))/100);
-      bars(gCtx[2],gCanvas[2].width,gCanvas[2].height,[W1,W2],[rgb(T.press),T.accent],['W₁','W₂']); }
+    // 1: forza in uscita F₂ = F₁·A₂/A₁
+    const g=Lab.panel(gCanvas[0],{ title:'Forza in uscita F₂ = F₁·A₂/A₁ (N)', xr:[0,40], yr:[0,Lab.niceMax(P.mtF1*40)], xLabel:'rapporto delle aree A₂/A₁' });
+    if(g){ const [ctx,f]=g; Lab.plot(ctx,f,r=>P.mtF1*r,[0,40],T.accent,2); Lab.dot(ctx,f,gain,F2,T.accent,4.5); }
+    // 2: spostamenti: il pistone grande si muove molto meno
+    const d1=P.mtStroke, d2=P.mtStroke*(A1/A2);
+    bars(1,'Spostamento dei pistoni (cm)',[d1,d2],[rgb(T.press),T.accent],['piccolo d₁','grande d₂'],v=>Lab.fmt(v,2));
+    // 3: il lavoro si conserva: nessuna energia "gratis"
+    const W1=P.mtF1*(P.mtStroke/100), W2=F2*(d2/100);
+    bars(2,'Lavoro compiuto (J): W₁ = W₂',[W1,W2],[rgb(T.press),T.accent],['in ingresso W₁','in uscita W₂'],v=>Lab.fmt(v,2));
   }
   else {
     const {Hb,p}=btCalc();
-    // 1: p = ρgh con soglia
-    if(gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:16,l:28,r:8};
-      const {gW,gH}=gBase(ctx,W,H,PAD); const hmax=10+Hb, pmax=RHO*Gacc*hmax/1000;
-      const xOf=h=>PAD.l+h/hmax*gW, yOf=pk=>PAD.t+gH-clamp(pk/pmax,0,1)*gH*0.9;
-      ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath();
-      for(let h=0;h<=hmax;h+=hmax/60){ const x=xOf(h),y=yOf(RHO*Gacc*h/1000); h===0?ctx.moveTo(x,y):ctx.lineTo(x,y);} ctx.stroke();
-      // soglia
-      ctx.strokeStyle=rgba(T.press,0.7); ctx.setLineDash([3,3]); ctx.lineWidth=1; const ys=yOf(P.btBurst);
-      ctx.beginPath(); ctx.moveTo(PAD.l,ys); ctx.lineTo(PAD.l+gW,ys); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle=rgb(p>P.btBurst*1000?T.press:T.water); ctx.beginPath(); ctx.arc(xOf(P.btH+Hb),yOf(p/1000),3.4,0,7); ctx.fill();
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('p',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('h',PAD.l+gW-2,PAD.t+gH-3); }
-    // 2: volume nel tubo vs h
-    if(gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:16,l:30,r:8};
-      const {gW,gH}=gBase(ctx,W,H,PAD); const hmax=10, vmax=Math.PI*Math.pow(P.btR/100,2)*hmax*1e6;
-      const xOf=h=>PAD.l+h/hmax*gW, yOf=vv=>PAD.t+gH-clamp(vv/Math.max(vmax,1e-6),0,1)*gH*0.9;
-      ctx.strokeStyle=rgb(T.water); ctx.lineWidth=1.6; ctx.beginPath();
-      for(let h=0;h<=hmax;h+=hmax/60){ const x=xOf(h),y=yOf(Math.PI*Math.pow(P.btR/100,2)*h*1e6); h===0?ctx.moveTo(x,y):ctx.lineTo(x,y);} ctx.stroke();
-      ctx.fillStyle=rgb(T.water); ctx.beginPath(); ctx.arc(xOf(P.btH),yOf(Math.PI*Math.pow(P.btR/100,2)*P.btH*1e6),3.4,0,7); ctx.fill();
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('mL',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('h',PAD.l+gW-2,PAD.t+gH-3); }
-    // 3: pressione vs soglia
-    if(gCanvas[2].width){ bars(gCtx[2],gCanvas[2].width,gCanvas[2].height,[p/1000,P.btBurst],[rgb(p>P.btBurst*1000?T.press:T.water),rgb(T.press)],['p','soglia']); }
+    // 1: pressione sul fondo p = ρ·g·h (sopra quella atmosferica) e soglia di rottura
+    const hmax=10+Hb, pm=Lab.niceMax(Math.max(RHO*Gacc*hmax/1000,P.btBurst));
+    let g=Lab.panel(gCanvas[0],{ title:'Pressione sul fondo p = ρ·g·h (kPa)', xr:[0,hmax], yr:[0,pm], xLabel:'altezza dell’acqua (m)' });
+    if(g){ const [ctx,f]=g;
+      ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=rgb(T.press); ctx.beginPath(); ctx.moveTo(f.L,f.Y(P.btBurst)); ctx.lineTo(f.R,f.Y(P.btBurst)); ctx.stroke(); ctx.restore();
+      Lab.plot(ctx,f,h=>RHO*Gacc*h/1000,[0,hmax],T.accent,2);
+      Lab.dot(ctx,f,P.btH+Hb,p/1000,rgb(p>P.btBurst*1000?T.press:T.water),4.5);
+      Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.press),'soglia di rottura',[3,3]]]); }
+    // 2: l'acqua nel tubo è pochissima, eppure basta a rompere la botte
+    const vm=Lab.niceMax(Math.PI*Math.pow(P.btR/100,2)*10*1e6);
+    g=Lab.panel(gCanvas[1],{ title:'Acqua nel tubo (mL)', xr:[0,10], yr:[0,vm], xLabel:'altezza del tubo (m)' });
+    if(g){ const [ctx,f]=g; const V=h=>Math.PI*Math.pow(P.btR/100,2)*h*1e6;
+      Lab.plot(ctx,f,V,[0,10],rgb(T.water),2); Lab.dot(ctx,f,P.btH,V(P.btH),rgb(T.water),4.5); }
+    // 3: pressione raggiunta e soglia
+    bars(2,'Pressione sul fondo e soglia (kPa)',[p/1000,P.btBurst],[rgb(p>P.btBurst*1000?T.press:T.water),rgb(T.press)],['pressione','soglia'],v=>Lab.fmt(v,1));
   }
 }
 
@@ -408,17 +388,10 @@ function buildReadout(){
 }
 
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[P.mode][i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d'); gTitle[i]=title;
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -443,9 +416,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(240,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -462,16 +434,16 @@ function init(){
     try{
       draw(simCanvas); drawGraphs();
       if(P.mode==='sfera'){
-        readout.set('p', P.sfP.toFixed(0)+' kPa'); readout.set('v', vEffSfera().toFixed(1)+' m/s');
-        readout.set('n', String(P.sfN)); readout.set('w', (sfWater*100).toFixed(0)+'%');
+        readout.set('p', Lab.fmt(P.sfP,0)+' kPa'); readout.set('v', Lab.fmt(vEffSfera(),1)+' m/s');
+        readout.set('n', String(P.sfN)); readout.set('w', Lab.fmt((sfWater*100),0)+'%');
       } else if(P.mode==='martinetto'){
         const {A1,A2,p,F2,gain}=mtCalc(); const d2=P.mtStroke*(A1/A2);
-        readout.set('P',(p/1000).toFixed(1)+' kPa'); readout.set('F2',F2.toFixed(0)+' N');
-        readout.set('gain',gain.toFixed(1)+'×'); readout.set('disp',P.mtStroke.toFixed(1)+' → '+d2.toFixed(2)+' cm');
+        readout.set('P',Lab.fmt((p/1000),1)+' kPa'); readout.set('F2',Lab.fmt(F2,0)+' N');
+        readout.set('gain',Lab.fmt(gain,1)+'×'); readout.set('disp',Lab.fmt(P.mtStroke,1)+' → '+Lab.fmt(d2,2)+' cm');
       } else {
         const {p,vol,burst}=btCalc();
-        readout.set('h',(P.btH+0.9).toFixed(2)+' m'); readout.set('pb',(p/1000).toFixed(1)+' kPa');
-        readout.set('vol',vol.toFixed(0)+' mL'); readout.set('st', burst?'ROTTA 💥':'integra');
+        readout.set('h',Lab.fmt((P.btH+0.9),2)+' m'); readout.set('pb',Lab.fmt((p/1000),1)+' kPa');
+        readout.set('vol',Lab.fmt(vol,0)+' mL'); readout.set('st', burst?'ROTTA 💥':'integra');
       }
     }catch(err){ console.error(err); }
     requestAnimationFrame(frame);

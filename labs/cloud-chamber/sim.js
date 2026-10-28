@@ -477,122 +477,46 @@ const GC  = 'rgba(100,170,195,0.55)';   // testo/assi grafici
 const GA  = 'rgba(240,238,218,0.78)';   // colore alpha
 const GB  = 'rgba(185,225,255,0.68)';   // colore beta
 
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = 'rgba(2,8,20,0.92)';
-  ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(100,150,200,0.20)'; ctx.lineWidth = 0.6;
-  ctx.beginPath();
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH);
-  ctx.lineTo(PAD.l + gW, PAD.t + gH);
-  ctx.stroke();
-  return { gW, gH };
+// colori dei grafici leggibili in entrambi i temi (nella camera le tracce restano bianche come le vere scie)
+const GCA = '#ff9d4d', GCB = '#4fb4ff';
+// barre impilate su un riquadro di Lab.panel
+function stackBars(ctx, f, n, a, b) {
+  const bw = (f.R - f.L) / n;
+  for (let i = 0; i < n; i++) {
+    const x = f.L + i * bw + 0.5, ya = f.Y(a[i] + b[i]), yb = f.Y(b[i]);
+    if (a[i] > 0) { ctx.fillStyle = GCA; ctx.fillRect(x, ya, Math.max(1, bw - 1), yb - ya); }
+    if (b[i] > 0) { ctx.fillStyle = GCB; ctx.fillRect(x, yb, Math.max(1, bw - 1), f.B - yb); }
+  }
 }
-
+// 1: tracce comparse al secondo negli ultimi 30 s (il decadimento è casuale: il conteggio fluttua)
 function drawRateGraph() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0]; const W = cv.width, H = cv.height;
-  const PAD = { t: 20, b: 16, l: 24, r: 6 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-
-  const maxVal = Math.max(2, ...rateAlpha.map((a, i) => a + rateBeta[i]));
-  const bw = gW / N_RATE_BINS;
-
-  for (let i = 0; i < N_RATE_BINS; i++) {
-    const x = PAD.l + i * bw;
-    const ha = (rateAlpha[i] / maxVal) * gH;
-    const hb = (rateBeta[i]  / maxVal) * gH;
-    if (ha > 0) { ctx.fillStyle = GA; ctx.fillRect(x + 0.5, PAD.t + gH - ha - hb, Math.max(1, bw - 1), ha); }
-    if (hb > 0) { ctx.fillStyle = GB; ctx.fillRect(x + 0.5, PAD.t + gH - hb,      Math.max(1, bw - 1), hb); }
-  }
-
-  // grid orizzontale
-  ctx.strokeStyle = 'rgba(100,150,200,0.10)'; ctx.lineWidth = 0.5;
-  const yStep = Math.ceil(maxVal / 3);
-  ctx.fillStyle = GC; ctx.font = `8px "Space Mono",monospace`;
-  for (let v = yStep; v <= maxVal; v += yStep) {
-    const y = PAD.t + gH - (v / maxVal) * gH;
-    ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + gW, y); ctx.stroke();
-    ctx.fillText(String(v), 2, y + 3);
-  }
-
-  ctx.fillStyle = GC; ctx.font = `8px "Space Mono",monospace`;
-  ctx.fillText('−30s', PAD.l, H - 2);
-  ctx.fillText('0s', PAD.l + gW - 10, H - 2);
-
-  // legenda
-  ctx.fillStyle = GA; ctx.fillRect(W - 30, 4, 7, 6);
-  ctx.fillStyle = GC; ctx.fillText('α', W - 20, 10);
-  ctx.fillStyle = GB; ctx.fillRect(W - 30, 13, 7, 6);
-  ctx.fillStyle = GC; ctx.fillText('β', W - 20, 19);
+  const mx = Lab.niceMax(Math.max(2, ...rateAlpha.map((a, i) => a + rateBeta[i])));
+  const g = Lab.panel(gCanvas[0], { title: 'Tracce al secondo (ultimi 30 s)', xr: [-30, 0], xStep: 10, yr: [0, mx], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  stackBars(ctx, f, N_RATE_BINS, rateAlpha, rateBeta);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[GCA, 'α'], [GCB, 'β']]);
 }
-
+// 2: lunghezza delle tracce: le α hanno percorso breve e quasi uguale, le β lungo e molto variabile
 function drawRangeGraph() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1]; const W = cv.width, H = cv.height;
-  const PAD = { t: 20, b: 16, l: 24, r: 6 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-
-  // calcola istogramma dai dati storici
-  const binA = new Array(N_RANGE_BINS).fill(0);
-  const binB = new Array(N_RANGE_BINS).fill(0);
-  for (const r of rangeHistory) {
-    const bi = Math.min(Math.floor(r.range / RANGE_MAX * N_RANGE_BINS), N_RANGE_BINS - 1);
-    if (r.type === 'alpha') binA[bi]++;
-    else                    binB[bi]++;
-  }
-  const maxVal = Math.max(1, ...binA, ...binB);
-  const bw = gW / N_RANGE_BINS;
-
-  for (let i = 0; i < N_RANGE_BINS; i++) {
-    const x = PAD.l + i * bw;
-    const ha = (binA[i] / maxVal) * gH;
-    const hb = (binB[i] / maxVal) * gH;
-    if (ha > 0) { ctx.fillStyle = GA; ctx.fillRect(x + 0.5, PAD.t + gH - ha, Math.max(1, bw - 1), ha); }
-    if (hb > 0) { ctx.fillStyle = 'rgba(185,225,255,0.35)'; ctx.fillRect(x + 0.5, PAD.t + gH - hb, Math.max(1, bw - 1), hb); }
-  }
-
-  ctx.fillStyle = GC; ctx.font = `8px "Space Mono",monospace`;
-  ctx.fillText('0', PAD.l - 4, H - 2);
-  ctx.fillText('1R', PAD.l + gW - 10, H - 2);
-  ctx.fillStyle = GA; ctx.fillRect(W - 30, 4, 7, 6);
-  ctx.fillStyle = GC; ctx.fillText('α', W - 20, 10);
-  ctx.fillStyle = GB; ctx.fillRect(W - 30, 13, 7, 6);
-  ctx.fillStyle = GC; ctx.fillText('β', W - 20, 19);
+  const binA = new Array(N_RANGE_BINS).fill(0), binB = new Array(N_RANGE_BINS).fill(0);
+  for (const r of rangeHistory) { const bi = Math.min(Math.floor(r.range / RANGE_MAX * N_RANGE_BINS), N_RANGE_BINS - 1); (r.type === 'alpha' ? binA : binB)[bi]++; }
+  const g = Lab.panel(gCanvas[1], { title: 'Lunghezza delle tracce (conteggi)', xr: [0, 100], xStep: 25, yr: [0, Lab.niceMax(Math.max(2, ...binA.map((a, i) => a + binB[i])))], xLabel: 'lunghezza (% del raggio della camera)' });
+  if (!g) return; const [ctx, f] = g;
+  stackBars(ctx, f, N_RANGE_BINS, binA, binB);
+  Lab.legend(ctx, f.R - 70, f.T + 8, [[GCA, 'α'], [GCB, 'β']]);
 }
-
+// 3: gocce di condensazione attualmente visibili per tipo di particella
 function drawActiveGraph() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2]; const W = cv.width, H = cv.height;
-  const PAD = { t: 20, b: 16, l: 24, r: 6 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-
-  let cntA = 0, cntB = 0;
-  for (const b of beads) { if (b.type === 'alpha') cntA++; else cntB++; }
-
-  const maxC = Math.max(1, cntA + cntB);
-  const rowH = Math.min(Math.floor(gH * 0.32), 16);
-  const midY = PAD.t + gH / 2;
-
-  // barre orizzontali
-  ctx.fillStyle = 'rgba(240,238,218,0.12)';
-  ctx.fillRect(PAD.l, midY - rowH - 3, gW, rowH);
-  ctx.fillStyle = GA;
-  ctx.fillRect(PAD.l, midY - rowH - 3, Math.round((cntA / maxC) * gW), rowH);
-
-  ctx.fillStyle = 'rgba(185,225,255,0.12)';
-  ctx.fillRect(PAD.l, midY + 3, gW, rowH);
-  ctx.fillStyle = GB;
-  ctx.fillRect(PAD.l, midY + 3, Math.round((cntB / maxC) * gW), rowH);
-
-  ctx.fillStyle = 'rgba(10,20,40,0.7)'; ctx.font = `bold 8px "Space Mono",monospace`;
-  ctx.fillStyle = GC;
-  ctx.fillText('α ' + cntA, PAD.l + 4, midY - rowH - 3 + rowH - 3);
-  ctx.fillText('β ' + cntB, PAD.l + 4, midY + 3 + rowH - 3);
-
-  // label total
-  ctx.fillStyle = 'rgba(100,170,195,0.35)'; ctx.font = `8px "Space Mono",monospace`;
-  ctx.fillText('tot ' + (cntA + cntB), PAD.l + gW - 38, PAD.t - 4);
+  let cA = 0, cB = 0; for (const b of beads) { if (b.type === 'alpha') cA++; else cB++; }
+  const g = Lab.panel(gCanvas[2], { title: `Gocce visibili ora (totale ${cA + cB})`, xr: [0, 2], xStep: 1e9, xFmt: () => '', yr: [0, Lab.niceMax(Math.max(10, cA, cB) * 1.15)] });
+  if (!g) return; const [ctx, f] = g;
+  [[cA, GCA, 'da particelle α'], [cB, GCB, 'da particelle β']].forEach(([v, c, l], i) => {
+    const x = f.X(i + 0.25), w = f.X(0.5) - f.X(0), y = f.Y(v);
+    ctx.fillStyle = c; ctx.fillRect(x, y, w, f.B - y);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '9.5px "Space Mono",monospace'; ctx.fillStyle = f.C.title; ctx.fillText(String(v), x + w / 2, Math.max(f.T + 6, y - 8));
+    ctx.font = '9.5px "DM Sans",sans-serif'; ctx.fillStyle = f.C.text; ctx.fillText(l, x + w / 2, f.B + 10);
+  });
 }
 
 function drawGraphs() {
@@ -700,31 +624,9 @@ function initDrag(canvas) {
 
 // ── Graph panel init ───────────────────────────────────────────────────────────
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = [
-    'display:flex', 'flex-direction:row', 'gap:5px',
-    'padding:5px 0 3px', 'height:145px', 'box-sizing:border-box',
-    'border-top:1px solid rgba(100,150,200,0.14)',
-  ].join(';');
-
-  const TITLES = ['Attività (trac/s)', 'Distribuzione range', 'Gocce attive'];
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.80);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-
-    const title = document.createElement('div');
-    title.textContent = TITLES[i];
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-
-    const cv = document.createElement('canvas');
-    cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-
-    panel.appendChild(title);
-    panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i] = cv;
-    gCtx[i]    = cv.getContext('2d');
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
@@ -736,10 +638,10 @@ function init() {
   const simCanvas = document.getElementById('simCanvas');
 
   readout = new Lab.Readout(document.getElementById('readout'), [
-    { key: 'source', label: 'Sorgente' },
-    { key: 'bfield', label: 'Campo B' },
-    { key: 'beads',  label: 'Gocce' },
-    { key: 'hint',   label: '' },
+    { key: 'source', label: 'sorgente' },
+    { key: 'bfield', label: 'campo magnetico B' },
+    { key: 'beads',  label: 'gocce visibili' },
+    { key: 'hint',   label: 'come si usa' },
   ]);
   readout.set('hint', 'trascina ● per spostare la sorgente');
 
@@ -765,15 +667,9 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea');
     const gaH = ga ? ga.offsetHeight : 0;
-    simCanvas.width  = Math.floor(ar.width);
-    simCanvas.height = Math.max(60, Math.floor(ar.height - rb.height - gaH - 4));
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(60, Math.floor(ar.height - rb.height - gaH - 4)));
 
-    for (const cv of gCanvas) {
-      if (!cv) continue;
-      const panel = cv.parentElement;
-      cv.width  = Math.floor(panel.clientWidth);
-      cv.height = Math.floor(panel.clientHeight);
-    }
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -786,8 +682,7 @@ function init() {
     last = now;
     loop(dt);
 
-    const W = simCanvas.width, H = simCanvas.height;
-    const ctx = simCanvas.getContext('2d');
+    const [ctx, W, H] = Lab.ctx2d(simCanvas);
     drawChamber(ctx, W, H);
     drawFineParticles(ctx, W, H);
     if (Math.abs(P.bField) > 0.02) drawBField(ctx, W, H);
@@ -798,7 +693,7 @@ function init() {
 
     readout.set('source', SRC_LABELS[P.sourceType]);
     readout.set('bfield', P.bField === 0 ? '0 T'
-      : `${P.bField > 0 ? '+' : ''}${P.bField.toFixed(1)} T`);
+      : `${P.bField > 0 ? '+' : ''}${Lab.fmt(P.bField,1)} T`);
     readout.set('beads', String(beads.length));
     requestAnimationFrame(frame);
   }

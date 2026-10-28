@@ -20,7 +20,7 @@ const FALL_WRAP  = 1.0;
 const LIGHT_SPEED = 2.6;
 const BEAM_Y0     = 0.48;  // beam entry height (elevator coords, y ∈ [-1,1])
 
-const CLOCK_C2 = 10.0;
+const CLOCK_C2 = 10.0;   // c² ridotto di proposito: con il vero c² la differenza fra gli orologi sarebbe di nanosecondi
 const CLOCK_HH = 0.80;
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -318,7 +318,7 @@ function drawClock(ctx, cx, cy, tau, color, label) {
   ctx.font        = `8px 'Space Mono'`;
   ctx.textAlign   = 'center';
   ctx.fillText(label,          cx, cy + R + 9);
-  ctx.fillText(tau.toFixed(2), cx, cy + R + 18);
+  ctx.fillText(Lab.fmt(tau,2), cx, cy + R + 18);
 }
 
 // ── Gravity panel (left) ──────────────────────────────────────────────────────
@@ -437,8 +437,7 @@ function drawSpacePanel(ctx, W, H) {
 
 function drawMain() {
   const canvas = document.getElementById('simCanvas');
-  const ctx    = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
 
   ctx.clearRect(0, 0, W, H);
   refreshColors();
@@ -482,8 +481,7 @@ function drawMain() {
 function drawGraph() {
   const canvas = document.getElementById('graphCanvas');
   if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.clearRect(0, 0, W, H);
 
   if (graphData.length < 2) return;
@@ -701,7 +699,7 @@ function updateReadout() {
   readout.set('left',  P.isFree ? 'Caduta libera'          : 'A riposo sulla superficie');
   readout.set('right', P.isFree ? 'Deriva — imponderabilità' : 'Razzo in accelerazione');
   const d = tauTop - tauBot;
-  readout.set('delta', (d >= 0 ? '+' : '') + d.toFixed(4) + ' s');
+  readout.set('delta', (d >= 0 ? '+' : '') + Lab.fmt(d,4) + ' s');
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -711,9 +709,9 @@ function init() {
   refreshColors();
 
   readout = new Lab.Readout(document.getElementById('readout'), [
-    { key: 'left',  label: 'Campo g' },
-    { key: 'right', label: 'Spazio' },
-    { key: 'delta', label: 'Δτ cima−base' },
+    { key: 'left',  label: 'ascensore sulla Terra' },
+    { key: 'right', label: 'ascensore nello spazio' },
+    { key: 'delta', label: 'differenza Δτ cima − base' },
   ]);
 
   buildControls();
@@ -738,16 +736,14 @@ function init() {
     if (!area || !simCanvas) return;
     const ar = area.getBoundingClientRect();
     const gh = gArea ? gArea.getBoundingClientRect().height : 190;
-    simCanvas.width  = Math.floor(ar.width);
-    simCanvas.height = Math.floor(simCanvas.clientHeight || ar.height - gh - 56);
-    if (graphCanvas) {
-      graphCanvas.width  = Math.floor(ar.width);
-      graphCanvas.height = Math.floor(gh);
-    }
+    // altezza dal contenitore meno grafici e valori (non da clientHeight, che dopo hidpi resterebbe bloccata)
+    const rb = document.getElementById('readout'), rh = rb ? rb.getBoundingClientRect().height : 56;
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(120, Math.floor(ar.height - gh - rh - 4)));
+    if (graphCanvas) Lab.hidpi(graphCanvas, Math.floor(ar.width), Math.floor(gh));
   }
 
   resize();
-  window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe(simCanvas.parentElement);
 
   let lastTime = null;
   function frame(ts) {

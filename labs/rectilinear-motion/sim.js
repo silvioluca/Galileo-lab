@@ -15,6 +15,7 @@ const Gacc = 9.81;                  // accelerazione di gravità (per l'attrito)
 let tSim=0, running=false, camLeft=0;
 let bodies=[];   // [{x0,v0,F,m,mu,col, x,v,a, ghosts:[], hist:[], ghostAcc}]
 let meetingsList=[], prevD=null;
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout;
 
@@ -101,8 +102,7 @@ function step(dt){
 
 // ═══ Rendering ════════════════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
 
@@ -172,7 +172,7 @@ function draw(canvas){
     // etichette sotto i numeri delle tacche (le palline non le coprono)
     ctx.fillStyle=T.accent; ctx.font='9px "Space Mono",monospace'; ctx.textAlign='center';
     ctx.fillText('incontro', px, cy+58);
-    ctx.fillText(`t=${mt.t.toFixed(1)}s · x=${mt.x.toFixed(1)}m`, px, cy+69);
+    ctx.fillText(`t=${Lab.fmt(mt.t,1)}s · x=${Lab.fmt(mt.x,1)}m`, px, cy+69);
   }
 
   // legenda con valori live
@@ -181,15 +181,15 @@ function draw(canvas){
     const ly=64+bi*16;
     ctx.fillStyle=b.col; ctx.beginPath(); ctx.arc(20,ly-3,5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.txt; ctx.font='10px "Space Mono",monospace';
-    let s=`x=${b.x.toFixed(1)} m   v=${b.v.toFixed(1)} m/s   a=${b.a.toFixed(2)} m/s²   m=${b.m} kg`;
-    if(b.mu>0) s+=`   F_a=${(b.mu*b.m*Gacc).toFixed(1)} N`;
+    let s=`x=${Lab.fmt(b.x,1)} m   v=${Lab.fmt(b.v,1)} m/s   a=${Lab.fmt(b.a,2)} m/s²   m=${b.m} kg`;
+    if(b.mu>0) s+=`   F_a=${Lab.fmt((b.mu*b.m*Gacc),1)} N`;
     ctx.fillText(s, 30, ly);
   });
   // riepilogo incontri (rilevati durante la simulazione)
   if(bodies.length>1 && mts.length){
     const ly=64+bodies.length*16;
     ctx.fillStyle=T.accent; ctx.font='10px "Space Mono",monospace';
-    ctx.fillText('Incontri: '+mts.map(mt=>`t=${mt.t.toFixed(1)}s (x=${mt.x.toFixed(1)}m)`).join('  ·  '), 20, ly);
+    ctx.fillText('Incontri: '+mts.map(mt=>`t=${Lab.fmt(mt.t,1)}s (x=${Lab.fmt(mt.x,1)}m)`).join('  ·  '), 20, ly);
   }
 }
 
@@ -212,57 +212,40 @@ function arrow(ctx,x1,y1,x2,y2,col,lbl){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD,zeroMid){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  if(zeroMid){ ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4; ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t+gH/2); ctx.lineTo(PAD.l+gW,PAD.t+gH/2); ctx.stroke(); }
-  return {gW,gH};
-}
+// Tempo da 0 a 8 s (poi la finestra si allarga); fondo scala "tondo" che non scende mai sotto
+// un minimo fisso, così un corpo lento non riempie artificiosamente il grafico.
 function tWin(){ return Math.max(8, tSim+0.5); }
+const G_MIN = { x: 50, v: 10, a: 2 };
 
-function lineGraph(idx,key,title,signed){
-  const cv=gCanvas[idx]; if(!cv||!cv.width)return;
-  const ctx=gCtx[idx],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:26,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD,false);
-  const hasData=bodies.some(b=>b.hist.length);
-  if(!hasData){ ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.fillText(title,PAD.l+2,PAD.t+7); return; }
-  const win=tWin();
-  let lo=Infinity,hi=-Infinity;
-  for(const b of bodies) for(const h of b.hist){ lo=Math.min(lo,h[key]); hi=Math.max(hi,h[key]); }
-  if(signed){ const mm=Math.max(Math.abs(lo),Math.abs(hi),1e-6); lo=-mm; hi=mm; }
-  else { lo=Math.min(0,lo); hi=Math.max(hi,lo+1e-6); }
-  if(lo<0 && hi>0){ const yz=PAD.t+gH-(0-lo)/(hi-lo)*gH*0.92-gH*0.04;
-    ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4; ctx.beginPath(); ctx.moveTo(PAD.l,yz); ctx.lineTo(PAD.l+gW,yz); ctx.stroke(); }
-  const Y=val=> PAD.t+gH - (val-lo)/((hi-lo)||1)*gH*0.92 - gH*0.04;
+function lineGraph(idx,key,title,unit){
+  let m=G_MIN[key];
+  for(const b of bodies){ m=Math.max(m, Math.abs(key==='x'?b.x0:key==='v'?b.v0:accel0(b))); for(const h of b.hist) m=Math.max(m, Math.abs(h[key])); }
+  m=Lab.niceMax(m*1.05);
+  const g=Lab.panel(gCanvas[idx],{ title:`${title} (${unit})`, xr:[0,tWin()], yr:[-m,m], xLabel:'t (s)' });
+  if(!g) return; const [ctx,f]=g;
   for(const b of bodies){
-    if(!b.hist.length)continue;
-    ctx.strokeStyle=b.col; ctx.lineWidth=1.4; ctx.beginPath();
-    b.hist.forEach((h,i)=>{ const px=PAD.l+h.t/win*gW, py=Y(h[key]); i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); });
-    ctx.stroke();
+    if(!b.hist.length) continue;
+    Lab.plotPts(ctx,f,b.hist.map(h=>[h.t,h[key]]),b.col,2);
     const last=b.hist[b.hist.length-1];
-    ctx.fillStyle=b.col; ctx.beginPath(); ctx.arc(PAD.l+last.t/win*gW, Y(last[key]), 3,0,Math.PI*2); ctx.fill();
+    Lab.dot(ctx,f,last.t,last[key],b.col,3.5);
   }
   // punti d'incontro sul grafico x(t): intersezione delle due curve
   if(key==='x' && bodies.length>1){
     for(const mt of meetings()){
-      if(mt.t>win || mt.t>tSim+1e-6) continue;   // solo dopo l'incontro
-      const px=PAD.l+mt.t/win*gW, py=Y(mt.x);
-      ctx.strokeStyle=T.accent; ctx.lineWidth=0.6; ctx.setLineDash([2,2]);
-      ctx.beginPath(); ctx.moveTo(px,PAD.t); ctx.lineTo(px,PAD.t+gH); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(px,py,3.2,0,Math.PI*2); ctx.fill();
+      if(mt.t>tSim+1e-6) continue;
+      ctx.save(); ctx.strokeStyle=f.C.accent; ctx.setLineDash([2,3]);
+      ctx.beginPath(); ctx.moveTo(f.X(mt.t),f.T); ctx.lineTo(f.X(mt.t),f.B); ctx.stroke(); ctx.restore();
+      Lab.dot(ctx,f,mt.t,mt.x,f.C.accent,4);
     }
   }
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.fillText(title,PAD.l+2,PAD.t+7);
-  ctx.fillText('t',PAD.l+gW-8,PAD.t+gH+11);
 }
+// accelerazione iniziale (per scegliere il fondo scala prima della partenza)
+function accel0(b){ return accel({ ...b, v:b.v0 }); }
 
 function drawGraphs(){
-  lineGraph(0,'x','x (m)',false);
-  lineGraph(1,'v','v (m/s)',true);
-  lineGraph(2,'a','a (m/s²)',true);
+  lineGraph(0,'x','Posizione x','m');
+  lineGraph(1,'v','Velocità v','m/s');
+  lineGraph(2,'a','Accelerazione a','m/s²');
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -297,21 +280,10 @@ function buildControls(){
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Posizione x(t)','Velocità v(t)','Accelerazione a(t)'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -342,10 +314,8 @@ function init(){
     const rb=document.getElementById('readout');
     const gaH=ga?ga.offsetHeight:0, rbH=rb?rb.offsetHeight:0;
     const w=parent.clientWidth, h=Math.max(140,(parent.clientHeight||0)-gaH-rbH);
-    if(w>0){ simCanvas.style.width=w+'px'; simCanvas.style.height=h+'px'; simCanvas.width=w; simCanvas.height=h; }
-    for(const cv of gCanvas){ if(!cv)continue; const p=cv.parentElement;
-      const pw=p.clientWidth, ph=p.clientHeight;
-      if(pw>0&&ph>0){ cv.style.width=pw+'px'; cv.style.height=ph+'px'; cv.width=pw; cv.height=ph; } }
+    if(w>0) Lab.hidpi(simCanvas, w, h);
+    Lab.fitPanels(gCanvas);
     draw(simCanvas); drawGraphs();
   }
   resize();
@@ -362,10 +332,10 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     const b=bodies[0]||{x:0,v:0,a:0};
-    readout.set('t', tSim.toFixed(2)+' s');
-    readout.set('x', b.x.toFixed(2)+' m');
-    readout.set('v', b.v.toFixed(2)+' m/s');
-    readout.set('a', b.a.toFixed(2)+' m/s²');
+    readout.set('t', Lab.fmt(tSim,2)+' s');
+    readout.set('x', Lab.fmt(b.x,2)+' m');
+    readout.set('v', Lab.fmt(b.v,2)+' m/s');
+    readout.set('a', Lab.fmt(b.a,2)+' m/s²');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

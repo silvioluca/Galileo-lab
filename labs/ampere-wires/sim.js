@@ -279,7 +279,6 @@ function draw3D(ctx,W,H){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(){}   // (sostituita da Lab.axes)
 
 // 1: F/L in funzione della distanza, scala log-log fissa: la legge 1/d è una retta di pendenza −1
 function drawFvsD(){
@@ -366,7 +365,7 @@ function init(){
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'force', label:'F/L'},
+    {key:'force', label:'forza per metro F/L'},
     {key:'type',  label:'Interazione'},
     {key:'dist',  label:'Distanza'},
     {key:'hint',  label:'Vista'},

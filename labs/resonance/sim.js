@@ -157,7 +157,7 @@ function drawOscRow(ctx, W, y, rowH, xval, cVal, col, label) {
   ctx.fillStyle = col; ctx.font = `bold ${clamp(rowH * 0.09, 12, 16)}px "Space Mono",monospace`; ctx.textAlign = 'left';
   ctx.fillText(label, wallX, y - rowH / 2 - 8);
   ctx.fillStyle = T.sub; ctx.font = '11px "Space Mono",monospace';
-  ctx.fillText(`c=${cVal.toFixed(2)} kg/s   x=${xval.toFixed(3)} m`, wallX, y + rowH / 2 + 16);
+  ctx.fillText(`c=${Lab.fmt(cVal,2)} kg/s   x=${Lab.fmt(xval,3)} m`, wallX, y + rowH / 2 + 16);
 }
 
 // ── modalità Ponte: interpreta x(t) come deflessione verticale a centro campata di un
@@ -298,7 +298,7 @@ function drawBridgeRow(ctx, W, y, rowH, xval, cVal, col, label) {
   ctx.fillStyle = col; ctx.font = `bold ${clamp(rowH * 0.09, 12, 16)}px "Space Mono",monospace`; ctx.textAlign = 'left';
   ctx.fillText(label, 14, y - rowH / 2 - 8);
   ctx.fillStyle = T.sub; ctx.font = '11px "Space Mono",monospace';
-  ctx.fillText(`c=${cVal.toFixed(2)} kg/s   x=${xval.toFixed(3)} m`, 14, y + rowH / 2 + 16);
+  ctx.fillText(`c=${Lab.fmt(cVal,2)} kg/s   x=${Lab.fmt(xval,3)} m`, 14, y + rowH / 2 + 16);
 }
 
 function drawRow(ctx, W, y, rowH, xval, cVal, col, label) {
@@ -307,8 +307,7 @@ function drawRow(ctx, W, y, rowH, xval, cVal, col, label) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -329,7 +328,7 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText("Risonanza — m·x'' + c·x' + k·x = F₀·cos(ωt)", 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`m=${P.m.toFixed(2)} kg   k=${P.k.toFixed(1)} N/m   F₀=${P.F0.toFixed(2)} N   ω=${P.omega.toFixed(2)} rad/s   ω₀=${w0.toFixed(2)} rad/s   Q₁=${Number.isFinite(Q) ? Q.toFixed(1) : '∞'}`, 14, 40);
+  ctx.fillText(`m=${Lab.fmt(P.m,2)} kg   k=${Lab.fmt(P.k,1)} N/m   F₀=${Lab.fmt(P.F0,2)} N   ω=${Lab.fmt(P.omega,2)} rad/s   ω₀=${Lab.fmt(w0,2)} rad/s   Q₁=${Number.isFinite(Q) ? Lab.fmt(Q,1) : '∞'}`, 14, 40);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText(P.mode === 'ponte'
@@ -338,90 +337,37 @@ function draw(canvas) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-
-// 1: x(t) — transitorio (scala FISSA: ±X_MAX*1.3, finestra FISSA WIN_T)
+// 1: x(t) — transitorio e regime (scala fissa ±1,3·X_MAX, finestra fissa WIN_T)
 function drawXt() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 24, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const zero = PAD.t + gH / 2, yCap = X_MAX * 1.3;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  // NIENTE clamp sul valore prima di mapparlo: il valore vero esce dal rettangolo e viene
-  // ritagliato dal clip qui sopra, così la sinusoide non si appiattisce mai in cima (niente "taglio").
-  const xOf = t => PAD.l + (t - (tSim - WIN_T)) / WIN_T * gW;
-  const yOf = x => zero - x / yCap * (gH * 0.46);
-  [[hist1, COL[0]], ...(P.compare ? [[hist2, COL[1]]] : [])].forEach(([h, col]) => {
-    if (h.length < 2) return;
-    ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.beginPath();
-    h.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.x); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  });
-  ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH + 11);
+  const yCap = Lab.niceMax(X_MAX * 1.3), t0 = Math.max(0, tSim - WIN_T);
+  const g = Lab.panel(gCanvas[0], { title: 'Spostamento x(t) (m)', xr: [t0, t0 + WIN_T], yr: [-yCap, yCap], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  [[hist1, COL[0]], ...(P.compare ? [[hist2, COL[1]]] : [])].forEach(([h, col]) => Lab.plotPts(ctx, f, h.map(p => [p.t, p.x]), col, 1.8));
 }
-
-// 2: A(ω) — curva di risonanza (dominio e scala SEMPRE fissi: OMEGA_MIN..MAX, 0..A_GRAPH_MAX)
+// 2: ampiezza a regime A(ω): il picco è vicino a ω₀ ed è tanto più alto quanto meno è smorzato
 function drawAOmega() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const xOf = w => PAD.l + (w - OMEGA_MIN) / (OMEGA_MAX - OMEGA_MIN) * gW;
-  const yOf = a => PAD.t + gH - clamp(a, 0, A_GRAPH_MAX) / A_GRAPH_MAX * gH * 0.92;
+  const g = Lab.panel(gCanvas[1], { title: 'Ampiezza a regime A(ω) (m)', xr: [OMEGA_MIN, OMEGA_MAX], yr: [0, A_GRAPH_MAX], xLabel: 'ω della forzante (rad/s)' });
+  if (!g) return; const [ctx, f] = g;
   const w0 = omega0(P.m, P.k);
-  if (P.showAnnot) {
-    ctx.strokeStyle = T.ring; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(xOf(w0), PAD.t); ctx.lineTo(xOf(w0), PAD.t + gH); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'center'; ctx.fillText('ω₀', xOf(w0), PAD.t + 8);
-  }
+  if (P.showAnnot) { ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.green; ctx.beginPath(); ctx.moveTo(f.X(w0), f.T); ctx.lineTo(f.X(w0), f.B); ctx.stroke(); ctx.restore(); }
   [[P.c, COL[0]], ...(P.compare ? [[P.c2, COL[1]]] : [])].forEach(([c, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
-    for (let i = 0; i <= 200; i++) { const w = OMEGA_MIN + i / 200 * (OMEGA_MAX - OMEGA_MIN), a = AofOmega(P.m, P.k, c, P.F0, w);
-      i ? ctx.lineTo(xOf(w), yOf(a)) : ctx.moveTo(xOf(w), yOf(a)); }
-    ctx.stroke();
-    const aCur = AofOmega(P.m, P.k, c, P.F0, P.omega);
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(xOf(P.omega), yOf(aCur), 3.2, 0, TWO); ctx.fill();
+    Lab.plot(ctx, f, w => AofOmega(P.m, P.k, c, P.F0, w), [OMEGA_MIN, OMEGA_MAX], col, 2, [], 400);
+    Lab.dot(ctx, f, P.omega, AofOmega(P.m, P.k, c, P.F0, P.omega), col, 4);
   });
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('A', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('ω', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (P.showAnnot) Lab.legend(ctx, f.L + 8, f.T + 8, [[f.C.green, 'ω₀ = √(k/m)', [3, 3]]]);
 }
-
-// 3: φ(ω) — sfasamento (dominio fisso, 0..π)
+// 3: sfasamento φ(ω) fra forzante e risposta: 0 sotto, 90° a ω₀, 180° sopra
 function drawPhiOmega() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const xOf = w => PAD.l + (w - OMEGA_MIN) / (OMEGA_MAX - OMEGA_MIN) * gW;
-  const yOf = p => PAD.t + gH - clamp(p, 0, Math.PI) / Math.PI * gH * 0.9;
+  const g = Lab.panel(gCanvas[2], { title: 'Ritardo di fase φ(ω) (°)', xr: [OMEGA_MIN, OMEGA_MAX], yr: [0, 180], yStep: 45, xLabel: 'ω della forzante (rad/s)' });
+  if (!g) return; const [ctx, f] = g;
   const w0 = omega0(P.m, P.k);
-  if (P.showAnnot) {
-    ctx.strokeStyle = T.ring; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(xOf(w0), PAD.t); ctx.lineTo(xOf(w0), PAD.t + gH); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(PAD.l, yOf(Math.PI / 2)); ctx.lineTo(PAD.l + gW, yOf(Math.PI / 2)); ctx.stroke(); ctx.setLineDash([]);
-  }
+  if (P.showAnnot) { ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.green; ctx.beginPath(); ctx.moveTo(f.X(w0), f.T); ctx.lineTo(f.X(w0), f.B); ctx.stroke(); ctx.restore(); }
   [[P.c, COL[0]], ...(P.compare ? [[P.c2, COL[1]]] : [])].forEach(([c, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
-    for (let i = 0; i <= 200; i++) { const w = OMEGA_MIN + i / 200 * (OMEGA_MAX - OMEGA_MIN), p = phiOfOmega(P.m, P.k, c, w);
-      i ? ctx.lineTo(xOf(w), yOf(p)) : ctx.moveTo(xOf(w), yOf(p)); }
-    ctx.stroke();
-    const pCur = phiOfOmega(P.m, P.k, c, P.omega);
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(xOf(P.omega), yOf(pCur), 3.2, 0, TWO); ctx.fill();
+    Lab.plot(ctx, f, w => phiOfOmega(P.m, P.k, c, w) * 180 / Math.PI, [OMEGA_MIN, OMEGA_MAX], col, 2, [], 400);
+    Lab.dot(ctx, f, P.omega, phiOfOmega(P.m, P.k, c, P.omega) * 180 / Math.PI, col, 4);
   });
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('φ', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('ω', PAD.l + gW - 2, PAD.t + gH - 3);
 }
-function drawGraphs() {
-  const titles = ['x(t) — transitorio', 'A(ω) — curva di risonanza', 'φ(ω) — sfasamento'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawXt(); drawAOmega(); drawPhiOmega();
-}
+function drawGraphs() { drawXt(); drawAOmega(); drawPhiOmega(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 let omegaSliderCtrl;
@@ -468,18 +414,11 @@ function buildReadout() {
   ]);
 }
 
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -503,9 +442,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -528,10 +466,10 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const w0 = omega0(P.m, P.k), Q = Qof(P.m, P.k, P.c);
-      readout.set('t', tSim.toFixed(2) + ' s');
+      readout.set('t', Lab.fmt(tSim,2) + ' s');
       readout.set('x', fmt(x1, ' m'));
       readout.set('w0', fmt(w0, ' rad/s'));
-      readout.set('Q', Number.isFinite(Q) ? Q.toFixed(2) : '∞');
+      readout.set('Q', Number.isFinite(Q) ? Lab.fmt(Q,2) : '∞');
       readout.set('A', fmt(AofOmega(P.m, P.k, P.c, P.F0, P.omega), ' m'));
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

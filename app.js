@@ -26,7 +26,7 @@ const LABS = [
   {
     id: 'free-fall',
     name: 'Caduta Libera',
-    desc: 'Studia il moto di un corpo in caduta, con o senza resistenza dell\'aria. Confronta gravità su pianeti diversi.',
+    desc: 'Studia il moto di un corpo in caduta, con o senza resistenza dell\'aria. Fotografia stroboscopica con le distanze fra i lampi (1 : 3 : 5 : 7, legge di Galileo) e confronto fra la gravità di pianeti diversi.',
     topic: 'cinematica',
     status: 'stable',
     icon: '🪨',
@@ -161,7 +161,7 @@ const LABS = [
   {
     id: 'satellite-orbit',
     name: 'Orbite dei Satelliti',
-    desc: 'Simula il moto orbitale di un satellite attorno a diversi pianeti (Terra, Marte, Giove, Luna). Visualizza i vettori forza di gravità e centrifuga, orbite circolari ed ellittiche, momento angolare L conservato, e l\'orbita geostazionaria. Regola distanza r e velocità (in frazioni di v_circolare).',
+    desc: 'Simula il moto orbitale di un satellite attorno a diversi pianeti (Terra, Marte, Giove, Luna). Visualizza i vettori forza di gravità e centrifuga, orbite circolari ed ellittiche, momento angolare L conservato, e l\'orbita geostazionaria. Regola distanza r e velocità (in frazioni di v_circolare). Dati reali dei pianeti: distanze in km, velocità in km/s e periodi in ore (l’orbita geostazionaria terrestre esce a 42 164 km con periodo di 23,93 h).',
     topic: 'astronomia',
     status: 'beta',
     icon: '🛰️',
@@ -179,7 +179,7 @@ const LABS = [
   {
     id: 'celestial',
     name: 'Moti Celesti',
-    desc: 'Simula il problema dei due corpi con la gravità newtoniana. Scegli masse, velocità e direzione per ottenere orbite circolari, ellittiche, paraboliche o iperboliche.',
+    desc: 'Simula il problema dei due corpi con la gravità newtoniana. In unità astronomiche (masse solari, AU, anni): scegli masse, velocità e direzione per ottenere orbite circolari, ellittiche, paraboliche o iperboliche, con energia e distanza nel tempo.',
     topic: 'dinamica',
     status: 'stable',
     icon: '🪐',
@@ -359,7 +359,7 @@ const LABS = [
   {
     id: 'heat-engines',
     name: 'Macchine Termiche',
-    desc: 'Simula i cicli termodinamici dei principali motori: Otto (benzina), Diesel, Brayton (turbina), Stirling, Ericsson e Carnot. Visualizza il sistema pistone-cilindro animato con il gas colorato per temperatura e il diagramma P-V affiancato, con rendimento, lavoro netto e bilancio energetico Q_in/W/Q_out.',
+    desc: 'Simula i cicli termodinamici dei principali motori: Otto (benzina), Diesel, Brayton (turbina), Stirling, Ericsson e Carnot. Visualizza il sistema pistone-cilindro animato con il gas colorato per temperatura e il diagramma p–V in unità reali (cilindro da 0,5 L), il diagramma T–S, il rendimento al variare del rapporto di compressione confrontato con Carnot e il bilancio energetico per ciclo in joule.',
     topic: 'termodinamica',
     status: 'beta',
     icon: '⚙️',
@@ -368,7 +368,7 @@ const LABS = [
   {
     id: 'refrigerator',
     name: 'Macchina Frigorifera',
-    desc: 'Schema completo di un frigorifero a compressione di vapore: camera fredda, evaporatore (serpentina fredda) interno, condensatore (serpentina calda) esterno, compressore e valvola di espansione, con il refrigerante che circola colorato per fase. Termostato con isteresi, raffreddamento della camera nel tempo, COP confrontato col limite di Carnot e bilancio energetico Q_caldo = Q_freddo + W.',
+    desc: 'Schema completo di un frigorifero a compressione di vapore: camera fredda, evaporatore (serpentina fredda) interno, condensatore (serpentina calda) esterno, compressore e valvola di espansione, con il refrigerante che circola colorato per fase. Termostato con isteresi, raffreddamento della camera nel tempo, COP in funzione della temperatura della camera confrontato col limite di Carnot e bilancio delle potenze Q₂ = Q₁ + W.',
     topic: 'termodinamica',
     status: 'beta',
     icon: '🧊',
@@ -476,7 +476,7 @@ const LABS = [
   {
     id: 'geometric-optics',
     name: 'Ottica Geometrica — Lenti',
-    desc: 'Esplora la formazione delle immagini attraverso lenti convergenti e divergenti. Studia i sei tipi di lente con ray tracing paraxiale, regola curvature, indice di rifrazione e posizione dell\'oggetto.',
+    desc: 'Esplora la formazione delle immagini attraverso lenti convergenti e divergenti. Studia i sei tipi di lente con ray tracing paraxiale, regola curvature, indice di rifrazione e posizione dell’oggetto, con i grafici di q(p) e dell’ingrandimento e il tipo di immagine (reale o virtuale, diritta o capovolta).',
     topic: 'ottica',
     status: 'stable',
     icon: '🔭',
@@ -485,7 +485,7 @@ const LABS = [
   {
     id: 'eye',
     name: 'L\'Occhio Umano',
-    desc: 'Esplora la formazione delle immagini nell\'occhio. Simula miopia, ipermetropia e astigmatismo, varia le diottrie del difetto e posiziona una lente correttiva per simulare occhiali o lenti a contatto.',
+    desc: 'Esplora la formazione delle immagini nell\'occhio. Simula miopia, ipermetropia e astigmatismo, varia le diottrie del difetto e posiziona una lente correttiva per simulare occhiali o lenti a contatto: il fuoco torna sulla retina quando la lente uguaglia la prescrizione, con grafici di fuoco e acuità visiva.',
     topic: 'ottica',
     status: 'stable',
     icon: '👁️',
@@ -494,7 +494,7 @@ const LABS = [
   {
     id: 'refraction',
     name: 'Rifrazione della Luce',
-    desc: 'Esplora la legge di Snell al variare degli indici di rifrazione e dell\'angolo di incidenza. Visualizza la dispersione cromatica con la legge di Cauchy.',
+    desc: 'Esplora la legge di Snell al variare degli indici di rifrazione e dell\'angolo di incidenza. Visualizza la dispersione cromatica con la legge di Cauchy, lo spostamento laterale nella lastra e la luce riflessa secondo Fresnel, con l’angolo di Brewster e la riflessione totale.',
     topic: 'ottica',
     status: 'stable',
     icon: '🔬',
@@ -503,7 +503,7 @@ const LABS = [
   {
     id: 'prism',
     name: 'Prisma Ottico',
-    desc: 'Studia la rifrazione e la dispersione della luce attraverso prismi di diversa forma. Osserva la separazione spettrale con la legge di Cauchy.',
+    desc: 'Studia la rifrazione e la dispersione della luce attraverso prismi di diversa forma. Osserva la separazione spettrale con la legge di Cauchy, la curva della deviazione con il suo minimo e le zone di riflessione totale interna.',
     topic: 'ottica',
     status: 'stable',
     icon: '🔷',
@@ -778,6 +778,15 @@ const LABS = [
     status: 'stable',
     icon: '🎵',
     url: 'labs/battimenti/',
+  },
+  {
+    id: 'quincke',
+    name: 'Tubo di Quincke',
+    desc: 'Interferenza di onde sonore: il suono si divide in due rami e si ricongiunge davanti a un rivelatore. Allunga il ramo scorrevole (come la coulisse di un trombone) e osserva l’intensità passare da massimi a silenzio quando la differenza di cammino Δ = 2d vale mezza lunghezza d’onda. Misura λ dalla distanza fra due minimi e ricava la velocità del suono v = λ·f, anche al variare della temperatura. Onde di pressione animate nei tubi, grafici dell’intensità e dei segnali, e ascolto del suono in uscita.',
+    topic: 'onde',
+    status: 'beta',
+    icon: '🎺',
+    url: 'labs/quincke/',
   },
   {
     id: 'velocity-selector',

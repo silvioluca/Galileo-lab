@@ -171,8 +171,7 @@ function fixedIons(ctx,x0,x1,sign,col){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   geom(W,H);
   if(P.mode==='doping') drawDoping(ctx);
@@ -253,7 +252,7 @@ function drawJunction(ctx){
   ctx.fillText('Giunzione p-n', 14, 24);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
   const stato = P.V>0.05?'polarizzazione DIRETTA → conduce':(P.V<-0.05?'polarizzazione INVERSA → blocca':'equilibrio (nessuna polarizzazione)');
-  ctx.fillText(`V = ${P.V.toFixed(2)} V · ${stato}`, 14, 40);
+  ctx.fillText(`V = ${Lab.fmt(P.V,2)} V · ${stato}`, 14, 40);
   // batteria/contatti
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
   ctx.fillText(P.V>=0?'+':'−', G.x0-4, G.cy+4); ctx.fillText(P.V>=0?'−':'+', G.x1+4, G.cy+4);
@@ -285,104 +284,65 @@ function drawTransistor(ctx){
   ctx.textAlign='left'; ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
   ctx.fillText('Transistor BJT ('+P.btype.toUpperCase()+')', 14, 24);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-  ctx.fillText(`I_C = β·I_B = ${BETA}·${P.Ib}µA = ${(icTransistor()/1000).toFixed(2)} mA   (β=${BETA})`, 14, 40);
+  ctx.fillText(`I_C = β·I_B = ${BETA}·${P.Ib}µA = ${Lab.fmt((icTransistor()/1000),2)} mA   (β=${BETA})`, 14, 40);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD,zeroX){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  if(zeroX!=null){ const zx=PAD.l+gW*zeroX; ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(zx,PAD.t); ctx.lineTo(zx,PAD.t+gH); ctx.stroke(); return {gW,gH,zx}; }
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-function setTitles(){
-  const t = P.mode==='doping' ? ['Livelli energetici','Portatori vs drogaggio','—']
-    : P.mode==='junction' ? ['Caratteristica I–V (diodo)','Larghezza svuotamento W(V)','Barriera di potenziale']
-    : ['Transfer I_C(I_B)','Uscita I_C(V_CE)','Guadagno β'];
-  for(let i=0;i<3;i++) if(gTitle[i]) gTitle[i].textContent=t[i];
-}
+function setTitles(){}   // i titoli sono disegnati dentro i grafici
 function drawGraphs(){ if(P.mode==='doping') gDoping(); else if(P.mode==='junction') gJunction(); else gTransistor(); }
+// testo centrato in un riquadro vuoto
+function noteBox(cv,txt){ if(!cv||!cv._dpr) return; const [ctx,W,H]=Lab.ctx2d(cv), C=Lab.graphColors(); ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=C.text; ctx.font='10.5px "DM Sans",sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(txt,W/2,H/2); }
 
 function gJunction(){
-  // 1: I–V diodo
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH,zx}=gBase(ctx,W,H,PAD,0.6); const Vmin=-1,Vmax=0.85;
-    const xOf=v=>PAD.l+(v-Vmin)/(Vmax-Vmin)*gW, yOf=i=>PAD.t+gH-clamp(i,-0.05,1)*gH*0.85;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let i=0;i<=90;i++){ const v=Vmin+(Vmax-Vmin)*i/90,x=xOf(v),y=yOf(diodeRel(v)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=rgb(T.field); ctx.beginPath(); ctx.arc(xOf(P.V),yOf(diodeRel(P.V)),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('V',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 2: W(V)
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH,zx}=gBase(ctx,W,H,PAD,0.6); const Vmin=-1,Vmax=0.7;
-    const xOf=v=>PAD.l+(v-Vmin)/(Vmax-Vmin)*gW, yOf=w=>PAD.t+gH-clamp(w/2,0,1)*gH*0.9;
-    ctx.strokeStyle=rgb(T.hole); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let i=0;i<=90;i++){ const v=Vmin+(Vmax-Vmin)*i/90,x=xOf(v),y=yOf(deplW(v)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=rgb(T.field); ctx.beginPath(); ctx.arc(xOf(P.V),yOf(deplW(P.V)),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('W',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('V',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 3: barriera di potenziale (Vbi − V)
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:18,l:10,r:10};
-    const {gW,gH}=gBase(ctx,W,H,PAD);
-    const bar=clamp((VBI-P.V)/(VBI+1),0,1);
-    ctx.fillStyle=rgba(T.field,0.8); ctx.fillRect(PAD.l+gW*0.3, PAD.t+gH-bar*gH*0.9, gW*0.4, bar*gH*0.9);
-    ctx.fillStyle=T.gText; ctx.font='8px "Space Mono",monospace'; ctx.textAlign='center';
-    ctx.fillText((VBI-P.V).toFixed(2)+' V', PAD.l+gW*0.5, PAD.t+gH-bar*gH*0.9-4);
-    ctx.fillText('barriera = Vbi−V', PAD.l+gW*0.5, PAD.t+gH+10);
-  }
+  // 1: caratteristica del diodo I = I_s·(e^(V/V_T) − 1): conduce solo in diretta, sopra ~0,6 V
+  let g=Lab.panel(gCanvas[0],{ title:'Corrente nel diodo (% di quella a 0,7 V)', xr:[-1,0.8], xStep:0.2, yr:[0,130], yStep:25, xLabel:'tensione V (volt)' });
+  if(g){ const [ctx,f]=g; Lab.plot(ctx,f,v=>Math.max(0,diodeRel(v))*100,[-1,0.8],T.accent,2,[],300); Lab.dot(ctx,f,P.V,Math.max(0,diodeRel(P.V))*100,rgb(T.field),4.5);
+    ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='left'; ctx.fillText('inversa: corrente ≈ 0',f.L+6,f.B-10); }
+  // 2: la zona di svuotamento si allarga in inversa e si stringe in diretta: W ∝ √(V_bi − V)
+  g=Lab.panel(gCanvas[1],{ title:'Larghezza della zona di svuotamento (relativa)', xr:[-1,0.8], xStep:0.2, yr:[0,2], yStep:0.5, xLabel:'tensione V (volt)' });
+  if(g){ const [ctx,f]=g; Lab.plot(ctx,f,deplW,[-1,0.8],rgb(T.hole),2); Lab.dot(ctx,f,P.V,deplW(P.V),rgb(T.field),4.5); }
+  // 3: barriera di potenziale V_bi − V che gli elettroni devono superare
+  g=Lab.panel(gCanvas[2],{ title:'Barriera di potenziale V_bi − V (volt)', xr:[0,1], xStep:1e9, xFmt:()=> '', yr:[0,2], yStep:0.5 });
+  if(g){ const [ctx,f]=g, v=Math.max(0,VBI-P.V), x0=f.X(0.3), x1=f.X(0.7);
+    ctx.fillStyle=rgba(T.field,0.8); ctx.fillRect(x0,f.Y(v),x1-x0,f.B-f.Y(v));
+    ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=f.C.text; ctx.beginPath(); ctx.moveTo(f.L,f.Y(VBI)); ctx.lineTo(f.R,f.Y(VBI)); ctx.stroke(); ctx.restore();
+    ctx.fillStyle=f.C.title; ctx.font='9.5px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(Lab.fmt(v,2)+' V',(x0+x1)/2,Math.max(f.T+6,f.Y(v)-8));
+    ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='right'; ctx.fillText(`V_bi = ${Lab.fmt(VBI,1)} V (equilibrio)`,f.R-4,f.Y(VBI)-8); }
 }
 function gTransistor(){
-  // 1: transfer Ic(Ib) lineare
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const Ibmax=100;
-    const xOf=i=>PAD.l+i/Ibmax*gW, yOf=ic=>PAD.t+gH-clamp(ic/(BETA*Ibmax),0,1)*gH*0.9;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(Ibmax),yOf(BETA*Ibmax)); ctx.stroke();
-    ctx.fillStyle=rgb(T.field); ctx.beginPath(); ctx.arc(xOf(P.Ib),yOf(icTransistor()),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I_C',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('I_B',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 2: uscita Ic(Vce) — saturazione poi plateau ∝ Ib
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const Vmax=10, Icmax=BETA*100;
-    const xOf=v=>PAD.l+v/Vmax*gW, yOf=ic=>PAD.t+gH-clamp(ic/Icmax,0,1)*gH*0.9;
-    for(const ib of [20,50,100]){ ctx.strokeStyle=ib===P.Ib?T.accent:'rgba(120,140,170,0.4)'; ctx.lineWidth=ib===P.Ib?1.7:1; ctx.beginPath();
-      for(let i=0;i<=60;i++){ const v=Vmax*i/60, plateau=BETA*ib, ic=plateau*clamp(v/0.4,0,1); const x=xOf(v),y=yOf(ic); i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke(); }
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I_C',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('V_CE',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 3: guadagno β (barre Ib vs Ic)
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:16,b:22,l:10,r:10};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const max=BETA*100;
-    const bars=[{v:P.Ib,c:T.hole,l:'I_B'},{v:icTransistor(),c:T.elec,l:'I_C'}]; const bw=gW/2*0.5;
-    bars.forEach((b,i)=>{ const cx=PAD.l+gW*(i+0.5)/2, bh=clamp(b.v/max,0,1)*gH; ctx.fillStyle=rgba(b.c,0.85); ctx.fillRect(cx-bw/2,PAD.t+gH-bh,bw,bh);
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(b.l,cx,PAD.t+gH+10);
-      ctx.fillStyle=rgb(b.c); ctx.fillText((b.v>=1000?(b.v/1000).toFixed(1)+'m':b.v+'µ'), cx, PAD.t+gH-bh-3); });
-    ctx.fillStyle=T.gText; ctx.textAlign='center'; ctx.fillText('β = '+BETA, PAD.l+gW*0.5, PAD.t+8);
-  }
+  // 1: transcaratteristica I_C = β·I_B
+  let g=Lab.panel(gCanvas[0],{ title:`Corrente di collettore I_C = β·I_B (mA), β = ${BETA}`, xr:[0,100], xStep:20, yr:[0,Lab.niceMax(BETA*100/1000)], xLabel:'corrente di base I_B (µA)' });
+  if(g){ const [ctx,f]=g; Lab.plot(ctx,f,ib=>BETA*ib/1000,[0,100],T.accent,2); Lab.dot(ctx,f,P.Ib,icTransistor()/1000,rgb(T.field),4.5); }
+  // 2: caratteristiche d'uscita: dopo la saturazione I_C non dipende più da V_CE ma solo da I_B
+  g=Lab.panel(gCanvas[1],{ title:'Caratteristiche d’uscita I_C (mA)', xr:[0,10], xStep:2, yr:[0,Lab.niceMax(BETA*100/1000)], xLabel:'V_CE (volt)' });
+  if(g){ const [ctx,f]=g;
+    const set=[...new Set([20,50,100,P.Ib])].filter(v=>v>0).sort((a,b)=>a-b);
+    for(const ib of set){ const cur=ib===P.Ib; Lab.plot(ctx,f,v=>BETA*ib*clamp(v/0.4,0,1)/1000,[0,10],cur?T.accent:f.C.text,cur?2.2:1,cur?[]:[3,3]);
+      ctx.fillStyle=cur?T.accent:f.C.text; ctx.font='9px "DM Sans",sans-serif'; ctx.textAlign='right'; ctx.textBaseline='bottom'; ctx.fillText(`${ib} µA`,f.R-4,f.Y(BETA*ib/1000)-2); } }
+  // 3: amplificazione: la corrente di collettore è β volte quella di base (scala logaritmica)
+  g=Lab.panel(gCanvas[2],{ title:'Amplificazione: I_B e I_C (µA, scala log)', xr:[0,2], xStep:1e9, xFmt:()=> '', yr:[1,1e5], yLog:true });
+  if(g){ const [ctx,f]=g;
+    [[P.Ib,T.hole,'base I_B'],[icTransistor(),T.elec,'collettore I_C']].forEach(([v,c,l],i)=>{ const x=f.X(i+0.25), w=f.X(0.5)-f.X(0), y=f.Y(Math.max(1,v));
+      ctx.fillStyle=rgba(c,0.85); ctx.fillRect(x,y,w,f.B-y);
+      ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.font='9.5px "Space Mono",monospace'; ctx.fillStyle=f.C.title; ctx.fillText(Lab.fmt(v,0)+' µA',x+w/2,Math.max(f.T+6,y-8));
+      ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillStyle=f.C.text; ctx.fillText(l,x+w/2,f.B+10); }); }
 }
 function gDoping(){
-  // 1: livelli energetici (donatore vicino a conduzione / accettore vicino a valenza)
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:14,l:10,r:10};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const cB=PAD.t+gH*0.2, vB=PAD.t+gH*0.8;
-    ctx.fillStyle=rgba(T.elec,0.25); ctx.fillRect(PAD.l,cB-6,gW,12); ctx.fillStyle=rgba(T.hole,0.25); ctx.fillRect(PAD.l,vB-6,gW,12);
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('conduzione',PAD.l+2,cB-8); ctx.fillText('valenza',PAD.l+2,vB+14);
-    ctx.setLineDash([3,2]); ctx.strokeStyle=rgb(T.dop||[200,140,255]);
-    if(P.dope==='n'){ const dy=cB+12; ctx.beginPath(); ctx.moveTo(PAD.l+8,dy); ctx.lineTo(PAD.l+gW-8,dy); ctx.stroke(); ctx.fillStyle='rgb(120,170,255)'; ctx.fillText('livello donatori',PAD.l+10,dy-2); }
-    else { const ay=vB-12; ctx.beginPath(); ctx.moveTo(PAD.l+8,ay); ctx.lineTo(PAD.l+gW-8,ay); ctx.stroke(); ctx.fillStyle='rgb(255,140,120)'; ctx.fillText('livello accettori',PAD.l+10,ay-2); }
-    ctx.setLineDash([]);
-  }
-  // 2: portatori vs concentrazione
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD);
-    const xOf=c=>PAD.l+c/10*gW, yOf=v=>PAD.t+gH-clamp(v/10,0,1)*gH*0.9;
-    ctx.strokeStyle=P.dope==='n'?rgb(T.elec):rgb(T.hole); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(10),yOf(10)); ctx.stroke();
-    ctx.fillStyle=rgb(T.field); ctx.beginPath(); ctx.arc(xOf(P.conc),yOf(P.conc),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('maggioritari',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('drogaggio',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  if(gCanvas[2]&&gCanvas[2].width){ const ctx=gCtx[2]; ctx.fillStyle=T.gBg; ctx.fillRect(0,0,gCanvas[2].width,gCanvas[2].height);
-    ctx.fillStyle=T.sub; ctx.font='9px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(P.dope==='n'?'maggioritari: e⁻':'maggioritari: lacune', gCanvas[2].width/2, gCanvas[2].height/2); }
+  // 1: livelli introdotti dal drogante nel gap: donatori sotto la conduzione, accettori sopra la valenza
+  const cv=gCanvas[0];
+  if(cv&&cv._dpr){ const [ctx,W,H]=Lab.ctx2d(cv), C=Lab.graphColors(); ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle=C.text; ctx.font='10.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText('Livelli energetici del drogante',8,11);
+    const cB=H*0.32, vB=H*0.82, x0=12, x1=W-12;
+    ctx.fillStyle=rgba(T.elec,0.3); ctx.fillRect(x0,cB-8,x1-x0,16); ctx.fillStyle=rgba(T.hole,0.3); ctx.fillRect(x0,vB-8,x1-x0,16);
+    ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillStyle=C.text; ctx.fillText('banda di conduzione',x0+4,cB); ctx.fillText('banda di valenza',x0+4,vB);
+    ctx.save(); ctx.setLineDash([4,3]); ctx.lineWidth=1.5;
+    const y=P.dope==='n'?cB+18:vB-18; ctx.strokeStyle=P.dope==='n'?rgb(T.elec):rgb(T.hole); ctx.beginPath(); ctx.moveTo(x0+8,y); ctx.lineTo(x1-8,y); ctx.stroke(); ctx.restore();
+    ctx.fillStyle=P.dope==='n'?rgb(T.elec):rgb(T.hole); ctx.textAlign='right'; ctx.fillText(P.dope==='n'?'livello dei donatori (~0,05 eV sotto)':'livello degli accettori (~0,05 eV sopra)',x1-8,y+(P.dope==='n'?10:-10)); }
+  // 2: i portatori maggioritari crescono in proporzione alla concentrazione di drogante
+  const g=Lab.panel(gCanvas[1],{ title:`Portatori maggioritari (${P.dope==='n'?'elettroni':'lacune'}, relativi)`, xr:[0,10], xStep:2, yr:[0,10], yStep:2, xLabel:'concentrazione del drogante (relativa)' });
+  if(g){ const [ctx,f]=g; Lab.plot(ctx,f,c=>c,[0,10],P.dope==='n'?rgb(T.elec):rgb(T.hole),2); Lab.dot(ctx,f,P.conc,P.conc,rgb(T.field),4.5); }
+  noteBox(gCanvas[2], P.dope==='n'?'tipo n: atomi con 5 elettroni di valenza cedono un elettrone libero':'tipo p: atomi con 3 elettroni di valenza creano una lacuna');
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -410,25 +370,17 @@ function buildControls(){
 }
 function buildReadout(){
   const el=document.getElementById('readout'); el.innerHTML='';
-  const f = P.mode==='doping' ? [{key:'tipo',label:'Tipo'},{key:'elem',label:'Drogante'},{key:'val',label:'Valenza'},{key:'mob',label:'Portatore'}]
-    : P.mode==='junction' ? [{key:'v',label:'Tensione'},{key:'stato',label:'Stato'},{key:'w',label:'Larghezza svuot.'},{key:'i',label:'Corrente (rel.)'},{key:'vbi',label:'Barriera'}]
-    : [{key:'ib',label:'I_B'},{key:'ic',label:'I_C'},{key:'beta',label:'Guadagno β'},{key:'tipo',label:'Tipo'}];
+  const f = P.mode==='doping' ? [{key:'tipo',label:'tipo di drogaggio'},{key:'elem',label:'drogante'},{key:'val',label:'elettroni di valenza'},{key:'mob',label:'portatore maggioritario'}]
+    : P.mode==='junction' ? [{key:'v',label:'tensione applicata'},{key:'stato',label:'polarizzazione'},{key:'w',label:'zona di svuotamento'},{key:'i',label:'corrente (relativa)'},{key:'vbi',label:'barriera V_bi − V'}]
+    : [{key:'ib',label:'corrente di base I_B'},{key:'ic',label:'corrente di collettore I_C'},{key:'beta',label:'guadagno β'},{key:'tipo',label:'tipo di transistor'}];
   readout=new Lab.Readout(el,f);
 }
 
-function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d'); gTitle[i]=title;
-  }
-  setTitles();
+function initGraphs() {
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -445,11 +397,10 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(220,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    geom(simCanvas.width,simCanvas.height);
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    geom(simCanvas.width/(simCanvas._dpr||1),simCanvas.height/(simCanvas._dpr||1));
     if(!inited) initSim();
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -469,13 +420,13 @@ function init(){
         readout.set('val', P.dope==='n'?'+5 (pentavalente)':'+3 (trivalente)');
         readout.set('mob', P.dope==='n'?'elettrone libero':'lacuna');
       } else if(P.mode==='junction'){
-        readout.set('v', P.V.toFixed(2)+' V');
+        readout.set('v', Lab.fmt(P.V,2)+' V');
         readout.set('stato', P.V>0.05?'diretta':(P.V<-0.05?'inversa':'equilibrio'));
-        readout.set('w', deplW(P.V).toFixed(2)+' (rel.)');
-        readout.set('i', (diodeRel(P.V)*100).toFixed(0)+' %');
-        readout.set('vbi', (VBI-P.V).toFixed(2)+' V');
+        readout.set('w', Lab.fmt(deplW(P.V),2)+' (rel.)');
+        readout.set('i', Lab.fmt((diodeRel(P.V)*100),0)+' %');
+        readout.set('vbi', Lab.fmt((VBI-P.V),2)+' V');
       } else {
-        readout.set('ib', P.Ib+' µA'); readout.set('ic', (icTransistor()/1000).toFixed(2)+' mA');
+        readout.set('ib', Lab.fmt(P.Ib,0)+' µA'); readout.set('ic', Lab.fmt((icTransistor()/1000),2)+' mA');
         readout.set('beta', String(BETA)); readout.set('tipo', P.btype.toUpperCase());
       }
     }catch(err){ console.error(err); }

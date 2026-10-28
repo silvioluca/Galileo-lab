@@ -87,24 +87,32 @@ function record(p) {
 }
 
 /* ── Physics step ────────────────────────────────────────────────────────── */
+// Ogni passo è diviso in KSUB sotto-passi: con spostamenti per passo maggiori del diametro due
+// particelle potrebbero attraversarsi senza "vedersi" (urti persi → cammino libero troppo lungo).
+const KSUB = 4;
 function step() {
+  for (let k = 0; k < KSUB; k++) subStep(1 / KSUB);
+  wallStepCount++;
+}
+function subStep(h) {
   const r    = P.r;
   const dmin = 2 * r;
   const N    = particles.length;
 
   // Move + wall bounces
   for (const p of particles) {
-    p.x += p.vx;
-    p.y += p.vy;
-    p.pathLen += Math.hypot(p.vx, p.vy);
+    p.x += p.vx * h;
+    p.y += p.vy * h;
+    p.pathLen += Math.hypot(p.vx, p.vy) * h;
 
-    // Wall bounces are always elastic; accumulate impulse for pressure measurement
-    if (p.x < r)    { wallImpulseAcc += 2*Math.abs(p.vx); p.x = r;    p.vx =  Math.abs(p.vx); record(p); }
-    if (p.x > BW-r) { wallImpulseAcc += 2*Math.abs(p.vx); p.x = BW-r; p.vx = -Math.abs(p.vx); record(p); }
-    if (p.y < r)    { wallImpulseAcc += 2*Math.abs(p.vy); p.y = r;    p.vy =  Math.abs(p.vy); record(p); }
-    if (p.y > BH-r) { wallImpulseAcc += 2*Math.abs(p.vy); p.y = BH-r; p.vy = -Math.abs(p.vy); record(p); }
+    // Rimbalzi elastici sulle pareti (servono alla misura della pressione). NON chiudono un
+    // cammino libero: λ è la distanza media fra due urti con altre molecole; contando anche le
+    // pareti, in una scatola di dimensioni paragonabili a λ, la misura risultava molto più corta.
+    if (p.x < r)    { wallImpulseAcc += 2*Math.abs(p.vx); p.x = r;    p.vx =  Math.abs(p.vx); }
+    if (p.x > BW-r) { wallImpulseAcc += 2*Math.abs(p.vx); p.x = BW-r; p.vx = -Math.abs(p.vx); }
+    if (p.y < r)    { wallImpulseAcc += 2*Math.abs(p.vy); p.y = r;    p.vy =  Math.abs(p.vy); }
+    if (p.y > BH-r) { wallImpulseAcc += 2*Math.abs(p.vy); p.y = BH-r; p.vy = -Math.abs(p.vy); }
   }
-  wallStepCount++;
 
   // Pair collisions O(N²)
   for (let i = 0; i < N - 1; i++) {
@@ -146,8 +154,10 @@ function computeSigma() {
 }
 
 function lambdaTheory() {
-  // 2D hard-disk mean free path: λ = A / (√2 · N · 2r)
-  return (BW * BH) / (Math.SQRT2 * particles.length * 2 * P.r);
+  // Dischi rigidi in 2D: un disco spazza una striscia larga 2d = 4r (urta chi ha il centro a
+  // distanza < d = 2r dalla sua traiettoria); con il fattore √2 delle velocità relative
+  // λ = A / (√2 · N · 2d) = A / (√2 · N · 4r)
+  return (BW * BH) / (Math.SQRT2 * particles.length * 4 * P.r);
 }
 
 function lambdaMeasured() {
@@ -222,298 +232,83 @@ function drawSim() {
 }
 
 /* ── Draw graphs ─────────────────────────────────────────────────────────── */
+// istogramma (conteggi per classe) con la curva teorica attesa sovrapposta
+function histPanel(x, w, o) {
+  const { buf, n, xMax, theory, title, xLabel, marks } = o;
+  const BINS = 30, binW = xMax / BINS, bins = new Float32Array(BINS);
+  let maxBin = 0;
+  for (let i = 0; i < n; i++) {
+    const b = Math.floor(buf[i] / xMax * BINS);
+    if (b >= 0 && b < BINS && ++bins[b] > maxBin) maxBin = bins[b];
+  }
+  const exp = v => n * binW * theory(v);           // conteggio atteso per classe
+  let tMax = 0; for (let i = 0; i <= 60; i++) tMax = Math.max(tMax, exp(xMax * i / 60));
+  const f = Lab.axes(gctx, { x: x + 3, y: 3, w: w - 6, h: GH - 6, xr: [0, xMax], yr: [0, Lab.niceMax(Math.max(maxBin, tMax, 1) * 1.12)],
+    title: `${title}  (n = ${Lab.fmt(o.total, 0)})`, xLabel });
+  const C = f.C;
+  gctx.fillStyle = C.light ? 'rgba(0,100,200,0.42)' : 'rgba(0,212,255,0.45)';
+  for (let b = 0; b < BINS; b++) if (bins[b]) gctx.fillRect(f.X(b * binW), f.Y(bins[b]), f.X((b + 1) * binW) - f.X(b * binW) - 1, f.B - f.Y(bins[b]));
+  if (n < 40) {
+    gctx.fillStyle = C.text; gctx.font = '10.5px "DM Sans",sans-serif'; gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
+    gctx.fillText('raccogliendo dati…', (f.L + f.R) / 2, (f.T + f.B) / 2);
+    return;
+  }
+  Lab.plot(gctx, f, exp, [binW * 0.02, xMax], C.amber, 1.8);
+  for (const [v, col] of marks) {
+    if (!(v > 0 && v < xMax)) continue;
+    gctx.save(); gctx.setLineDash([3, 3]); gctx.strokeStyle = col; gctx.lineWidth = 1;
+    gctx.beginPath(); gctx.moveTo(f.X(v), f.T); gctx.lineTo(f.X(v), f.B); gctx.stroke(); gctx.restore();
+  }
+  Lab.legend(gctx, (f.L + f.R) / 2, f.T + 8,
+    [[C.amber, 'teoria'], ...marks.map(([, col, lbl]) => [col, lbl, [3, 3]])]);
+}
+
 function drawGraphs() {
   if (!GW || !GH) return;
-  const dark  = dk();
-  const PAD     = { t: 22, b: 28, l: 44, r: 10 };
-  const panW    = Math.floor(GW / 3);   // three equal panels
-  const amber   = dark ? '#ffb830' : '#c07000';
-  const axCol   = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)';
-  const lblCol  = dark ? 'rgba(255,255,255,0.50)' : 'rgba(0,0,0,0.44)';
-  const barFill = dark ? 'rgba(0,212,255,0.48)' : 'rgba(0,100,200,0.42)';
+  gctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  gctx.clearRect(0, 0, GW, GH);
+  const C = Lab.graphColors(), green = C.light ? 'rgba(0,120,0,0.8)' : 'rgba(150,255,150,0.8)';
+  const panW = GW / 3;
+  const sig = computeSigma(), lam = lambdaTheory();
 
-  gctx.clearRect(0, 0, gc.width, gc.height);
+  // 1: cammini liberi, distribuzione esponenziale P(ℓ) = (1/λ)·e^(−ℓ/λ)
+  histPanel(0, panW, { buf: pathBuf, n: Math.min(nPath, NBUF), total: nPath, xMax: Lab.niceMax(lam * 4.5),
+    theory: l => Math.exp(-l / lam) / lam, title: 'Cammini liberi ℓ', xLabel: 'ℓ (u)', marks: [[lam, C.amber, 'λ']] });
 
-  const sig = computeSigma();
-  const lam = lambdaTheory();
-  const nP  = Math.min(nPath,  NBUF);
-  const nS  = Math.min(nSpeed, NBUF);
+  // 2: velocità, distribuzione di Maxwell–Boltzmann in 2D f(v) = (v/σ²)·e^(−v²/2σ²)
+  histPanel(panW, panW, { buf: speedBuf, n: Math.min(nSpeed, NBUF), total: nSpeed, xMax: Lab.niceMax(sig * 4.5),
+    theory: v => v / (sig * sig) * Math.exp(-v * v / (2 * sig * sig)), title: 'Velocità v', xLabel: 'v (u/passo)',
+    marks: [[sig * Math.sqrt(Math.PI / 2), green, '⟨v⟩']] });
 
-  /* ── Panel 1: Path length distribution P(ℓ) ─────────────────────────── */
-  {
-    const iW = panW - PAD.l - PAD.r;
-    const iH = GH   - PAD.t  - PAD.b;
-
-    gctx.fillStyle = dark ? 'rgba(0,212,255,0.03)' : 'rgba(0,120,200,0.04)';
-    gctx.fillRect(0, 0, panW * DPR, GH * DPR);
-
-    const BINS = 30;
-    const xMax = lam * 4.5;
-    const binW = xMax / BINS;
-    const bins = new Float32Array(BINS);
-    let maxBin = 0;
-
-    for (let i = 0; i < nP; i++) {
-      const b = Math.floor(pathBuf[i] / xMax * BINS);
-      if (b >= 0 && b < BINS) { bins[b]++; if (bins[b] > maxBin) maxBin = bins[b]; }
-    }
-
-    // theoretical peak at ℓ=0: n * (binW/λ)
-    const yMax = Math.max(maxBin, nP * (binW / Math.max(lam, 1)), 1) * 1.12;
-
-    const mX  = v => (PAD.l + v / xMax * iW)       * DPR;
-    const mY  = y => (PAD.t + (1 - y / yMax) * iH) * DPR;
-    const mY0 = (PAD.t + iH) * DPR;
-
-    // Bars
-    for (let b = 0; b < BINS; b++) {
-      if (!bins[b]) continue;
-      gctx.fillStyle = barFill;
-      gctx.fillRect(mX(b * binW), mY(bins[b]), mX((b + 1) * binW) - mX(b * binW) - 1, mY0 - mY(bins[b]));
-    }
-
-    // Theoretical exponential: P(ℓ) = (1/λ) e^{-ℓ/λ}
-    if (nP >= 40 && lam > 0) {
-      gctx.strokeStyle = amber; gctx.lineWidth = 1.8 * DPR;
-      gctx.beginPath();
-      for (let px = 0; px <= iW; px++) {
-        const l = px / iW * xMax;
-        const y = nP * (binW / lam) * Math.exp(-l / lam);
-        const sx = (PAD.l + px) * DPR;
-        px === 0 ? gctx.moveTo(sx, mY(y)) : gctx.lineTo(sx, mY(y));
-      }
-      gctx.stroke();
-    }
-
-    // λ dashed marker
-    if (lam > 0 && lam < xMax) {
-      const lx = mX(lam);
-      gctx.strokeStyle = amber; gctx.lineWidth = DPR; gctx.setLineDash([3, 3]);
-      gctx.beginPath(); gctx.moveTo(lx, PAD.t * DPR); gctx.lineTo(lx, mY0); gctx.stroke();
-      gctx.setLineDash([]);
-      gctx.fillStyle = amber;
-      gctx.font = `${9 * DPR}px Space Mono, monospace`;
-      gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-      gctx.fillText('λ', lx, (PAD.t + iH + 3) * DPR);
-    }
-
-    // Axes
-    gctx.strokeStyle = axCol; gctx.lineWidth = DPR;
-    gctx.beginPath();
-    gctx.moveTo(PAD.l * DPR, PAD.t * DPR); gctx.lineTo(PAD.l * DPR, mY0);
-    gctx.moveTo(PAD.l * DPR, mY0);         gctx.lineTo((PAD.l + iW) * DPR, mY0);
-    gctx.stroke();
-
-    // Title
-    gctx.fillStyle = lblCol; gctx.font = `${10 * DPR}px Space Mono, monospace`;
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    gctx.fillText('Cammini liberi  P(ℓ) = (1/λ) e^{-ℓ/λ}', (PAD.l + iW / 2) * DPR, 4 * DPR);
-
-    // Sample count
-    gctx.fillStyle = dark ? 'rgba(0,212,255,0.70)' : 'rgba(0,80,180,0.70)';
-    gctx.font = `${9 * DPR}px Space Mono, monospace`;
-    gctx.textAlign = 'left'; gctx.textBaseline = 'top';
-    gctx.fillText(`n = ${nPath}`, PAD.l * DPR, 4 * DPR);
-
-    if (nP < 40) {
-      gctx.fillStyle = lblCol; gctx.font = `${10 * DPR}px Space Mono, monospace`;
-      gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-      gctx.fillText('raccogliendo dati…', (PAD.l + iW / 2) * DPR, (PAD.t + iH / 2) * DPR);
-    }
-  }
-
-  /* ── Panel 2: Speed distribution f(v) [Maxwell-Boltzmann 2D] ────────── */
-  {
-    const ox  = panW;
-    const iW  = panW - PAD.l - PAD.r;
-    const iH  = GH   - PAD.t  - PAD.b;
-
-    gctx.fillStyle = dark ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.02)';
-    gctx.fillRect(ox * DPR, 0, panW * DPR, GH * DPR);
-
-    // Panel divider
-    gctx.strokeStyle = axCol; gctx.lineWidth = DPR;
-    gctx.beginPath(); gctx.moveTo(ox * DPR, 0); gctx.lineTo(ox * DPR, GH * DPR); gctx.stroke();
-
-    const BINS  = 30;
-    const vMax  = sig * 4.5;
-    const binW  = vMax / BINS;
-    const bins  = new Float32Array(BINS);
-    let maxBin  = 0;
-
-    for (let i = 0; i < nS; i++) {
-      const b = Math.floor(speedBuf[i] / vMax * BINS);
-      if (b >= 0 && b < BINS) { bins[b]++; if (bins[b] > maxBin) maxBin = bins[b]; }
-    }
-
-    // 2D Maxwell-Boltzmann peak at v=σ: n * binW * (1/σ) * exp(-1/2)
-    const mbPeak = nS * binW * Math.exp(-0.5) / Math.max(sig, 0.01);
-    const yMax   = Math.max(maxBin, mbPeak, 1) * 1.12;
-
-    const mX  = v => (ox + PAD.l + v / vMax * iW)  * DPR;
-    const mY  = y => (PAD.t + (1 - y / yMax) * iH) * DPR;
-    const mY0 = (PAD.t + iH) * DPR;
-
-    // Bars
-    for (let b = 0; b < BINS; b++) {
-      if (!bins[b]) continue;
-      gctx.fillStyle = barFill;
-      gctx.fillRect(mX(b * binW), mY(bins[b]), mX((b + 1) * binW) - mX(b * binW) - 1, mY0 - mY(bins[b]));
-    }
-
-    // Theoretical 2D MB: f(v) = (v/σ²) exp(−v²/2σ²)  [Rayleigh]
-    if (nS >= 40 && sig > 0) {
-      gctx.strokeStyle = amber; gctx.lineWidth = 1.8 * DPR;
-      gctx.beginPath();
-      for (let px = 1; px <= iW; px++) {
-        const v  = px / iW * vMax;
-        const y  = nS * binW * (v / (sig * sig)) * Math.exp(-v * v / (2 * sig * sig));
-        const sx = (ox + PAD.l + px) * DPR;
-        px === 1 ? gctx.moveTo(sx, mY(y)) : gctx.lineTo(sx, mY(y));
-      }
-      gctx.stroke();
-    }
-
-    // v̂ = σ (mode of 2D MB distribution)
-    if (sig < vMax) {
-      const vx = mX(sig);
-      gctx.strokeStyle = amber; gctx.lineWidth = DPR; gctx.setLineDash([3, 3]);
-      gctx.beginPath(); gctx.moveTo(vx, PAD.t * DPR); gctx.lineTo(vx, mY0); gctx.stroke();
-      gctx.setLineDash([]);
-      gctx.fillStyle = amber;
-      gctx.font = `${9 * DPR}px Space Mono, monospace`;
-      gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-      gctx.fillText('v̂=σ', vx, (PAD.t + iH + 3) * DPR);
-    }
-
-    // v_mean = σ√(π/2)
-    const vmean = sig * Math.sqrt(Math.PI / 2);
-    if (vmean < vMax) {
-      const vx = mX(vmean);
-      gctx.strokeStyle = dark ? 'rgba(180,255,180,0.60)' : 'rgba(0,120,0,0.55)';
-      gctx.lineWidth = DPR; gctx.setLineDash([2, 4]);
-      gctx.beginPath(); gctx.moveTo(vx, PAD.t * DPR); gctx.lineTo(vx, mY0); gctx.stroke();
-      gctx.setLineDash([]);
-      gctx.fillStyle = dark ? 'rgba(180,255,180,0.80)' : 'rgba(0,120,0,0.80)';
-      gctx.font = `${9 * DPR}px Space Mono, monospace`;
-      gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-      gctx.fillText('⟨v⟩', vx, (PAD.t + iH + 3) * DPR);
-    }
-
-    // Axes
-    gctx.strokeStyle = axCol; gctx.lineWidth = DPR;
-    gctx.beginPath();
-    gctx.moveTo((ox + PAD.l) * DPR, PAD.t * DPR); gctx.lineTo((ox + PAD.l) * DPR, mY0);
-    gctx.moveTo((ox + PAD.l) * DPR, mY0);         gctx.lineTo((ox + PAD.l + iW) * DPR, mY0);
-    gctx.stroke();
-
-    // Title
-    gctx.fillStyle = lblCol; gctx.font = `${10 * DPR}px Space Mono, monospace`;
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    gctx.fillText('Velocità  f(v) = (v/σ²) e^{−v²/2σ²}', (ox + PAD.l + iW / 2) * DPR, 4 * DPR);
-
-    // Sample count
-    gctx.fillStyle = dark ? 'rgba(0,212,255,0.70)' : 'rgba(0,80,180,0.70)';
-    gctx.font = `${9 * DPR}px Space Mono, monospace`;
-    gctx.textAlign = 'left'; gctx.textBaseline = 'top';
-    gctx.fillText(`n = ${nSpeed}`, (ox + PAD.l) * DPR, 4 * DPR);
-
-    if (nS < 40) {
-      gctx.fillStyle = lblCol; gctx.font = `${10 * DPR}px Space Mono, monospace`;
-      gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
-      gctx.fillText('raccogliendo dati…', (ox + PAD.l + iW / 2) * DPR, (PAD.t + iH / 2) * DPR);
-    }
-  }
-
-  /* ── Panel 3: Temperature history σ(t) ──────────────────────────────── */
-  {
-    const ox  = 2 * panW;
-    const iW  = GW - ox - PAD.l - PAD.r;
-    const iH  = GH - PAD.t - PAD.b;
-
-    gctx.fillStyle = dark ? 'rgba(255,180,50,0.025)' : 'rgba(180,100,0,0.03)';
-    gctx.fillRect(ox * DPR, 0, (GW - ox) * DPR, GH * DPR);
-
-    // Panel divider
-    gctx.strokeStyle = axCol; gctx.lineWidth = DPR;
-    gctx.beginPath(); gctx.moveTo(ox * DPR, 0); gctx.lineTo(ox * DPR, GH * DPR); gctx.stroke();
-
-    const sigMax  = Math.max(P.sigma * 1.6, sig * 1.6, 1);
-    const nT      = Math.min(tempIdx, NTEMP);
-    const startI  = tempIdx >= NTEMP ? tempIdx % NTEMP : 0;
-
-    const mX  = k => (ox + PAD.l + k / NTEMP * iW)       * DPR;
-    const mY  = v => (PAD.t + (1 - v / sigMax) * iH)     * DPR;
-    const mY0 = (PAD.t + iH) * DPR;
-
-    // Target σ = P.sigma dashed line (amber)
-    gctx.strokeStyle = amber; gctx.lineWidth = DPR; gctx.setLineDash([3, 3]);
-    gctx.beginPath();
-    gctx.moveTo((ox + PAD.l) * DPR, mY(P.sigma));
-    gctx.lineTo((ox + PAD.l + iW) * DPR, mY(P.sigma));
-    gctx.stroke(); gctx.setLineDash([]);
-    gctx.fillStyle = amber; gctx.font = `${9 * DPR}px Space Mono, monospace`;
-    gctx.textAlign = 'left'; gctx.textBaseline = 'bottom';
-    gctx.fillText('σ₀', (ox + PAD.l + 2) * DPR, mY(P.sigma) - 1);
-
-    // σ(t) line (cyan)
-    if (nT > 1) {
-      gctx.strokeStyle = dark ? '#00d4ff' : '#0080c0'; gctx.lineWidth = 1.5 * DPR;
-      gctx.beginPath();
-      for (let k = 0; k < nT; k++) {
-        const v  = tempBuf[(startI + k) % NTEMP];
-        const sx = mX(k);
-        k === 0 ? gctx.moveTo(sx, mY(v)) : gctx.lineTo(sx, mY(v));
-      }
-      gctx.stroke();
-    }
-
-    // y-axis tick at current σ
-    gctx.fillStyle = dark ? 'rgba(0,212,255,0.70)' : 'rgba(0,80,180,0.70)';
-    gctx.font = `${9 * DPR}px Space Mono, monospace`;
-    gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
-    gctx.fillText(sig.toFixed(2), (ox + PAD.l - 2) * DPR, mY(sig));
-
-    // Axes
-    gctx.strokeStyle = axCol; gctx.lineWidth = DPR;
-    gctx.beginPath();
-    gctx.moveTo((ox + PAD.l) * DPR, PAD.t * DPR); gctx.lineTo((ox + PAD.l) * DPR, mY0);
-    gctx.moveTo((ox + PAD.l) * DPR, mY0);         gctx.lineTo((ox + PAD.l + iW) * DPR, mY0);
-    gctx.stroke();
-
-    // Title
-    gctx.fillStyle = lblCol; gctx.font = `${10 * DPR}px Space Mono, monospace`;
-    gctx.textAlign = 'center'; gctx.textBaseline = 'top';
-    gctx.fillText('Temperatura  σ(t)', (ox + PAD.l + iW / 2) * DPR, 4 * DPR);
-
-    // Thermostat badge
-    if (P.thermostat) {
-      gctx.fillStyle = dark ? 'rgba(255,180,50,0.85)' : 'rgba(180,100,0,0.85)';
-      gctx.font = `bold ${9 * DPR}px Space Mono, monospace`;
-      gctx.textAlign = 'right'; gctx.textBaseline = 'top';
-      gctx.fillText('THERM ON', (ox + PAD.l + iW) * DPR, 4 * DPR);
-    }
-  }
+  // 3: agitazione termica σ negli ultimi ~5 s (con il termostato resta su σ₀)
+  const nT = Math.min(tempIdx, NTEMP), startI = tempIdx >= NTEMP ? tempIdx % NTEMP : 0, tWin = NTEMP / 60;
+  const f = Lab.axes(gctx, { x: 2 * panW + 3, y: 3, w: GW - 2 * panW - 6, h: GH - 6, xr: [-tWin, 0], xStep: 1,
+    yr: [0, Lab.niceMax(Math.max(P.sigma, sig) * 1.6)], title: 'Agitazione termica σ (∝ √T)' + (P.thermostat ? ' · termostato attivo' : ''), xLabel: 't (s)' });
+  gctx.save(); gctx.setLineDash([3, 3]); gctx.strokeStyle = C.amber;
+  gctx.beginPath(); gctx.moveTo(f.L, f.Y(P.sigma)); gctx.lineTo(f.R, f.Y(P.sigma)); gctx.stroke(); gctx.restore();
+  const pts = []; for (let k = 0; k < nT; k++) pts.push([(k - nT + 1) / 60, tempBuf[(startI + k) % NTEMP]]);
+  if (pts.length > 1) Lab.plotPts(gctx, f, pts, C.accent, 1.8);
+  Lab.legend(gctx, f.L + 8, f.B - 10, [[C.accent, 'σ misurata'], [C.amber, 'σ₀ impostata', [3, 3]]]);
 }
 
 /* ── Readout ─────────────────────────────────────────────────────────────── */
 function updateReadout() {
   const sig   = computeSigma();
-  const lT    = lambdaTheory().toFixed(1);
-  const lM    = lambdaMeasured().toFixed(1);
-  const pct   = (particles.length * Math.PI * P.r * P.r / (BW * BH) * 100).toFixed(1);
-  const vmean = (sig * Math.sqrt(Math.PI / 2)).toFixed(2);
-  const pT = pressureTheory().toFixed(4);
-  const pM = measuredP.toFixed(4);
+  const lT    = Lab.fmt(lambdaTheory(),1);
+  const lM    = Lab.fmt(lambdaMeasured(),1);
+  const pct   = Lab.fmt((particles.length * Math.PI * P.r * P.r / (BW * BH) * 100),1);
+  const vmean = Lab.fmt((sig * Math.sqrt(Math.PI / 2)),2);
+  const pT = Lab.fmt(pressureTheory(),4);
+  const pM = Lab.fmt(measuredP,4);
   const items = [
     { label: 'λ teorico',  value: `${lT} u` },
     { label: 'λ misurato', value: `${lM} u` },
-    { label: 'σ',          value: sig.toFixed(2) },
+    { label: 'agitazione σ (∝ √T)', value: Lab.fmt(sig, 2) },
     { label: 'P = Nσ²/A',  value: pT },
     { label: 'P misurata', value: pM },
   ];
   document.getElementById('readout').innerHTML = items.map(it =>
-    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(it.label)}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
 }
 
@@ -616,5 +411,5 @@ function init() {
   requestAnimationFrame(loop);
 }
 
-window.addEventListener('resize', resizeCanvases);
+new ResizeObserver(resizeCanvases).observe(sc.parentElement);
 init();

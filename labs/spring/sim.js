@@ -340,7 +340,7 @@ function draw() {
     ctx.fillStyle = dk ? '#ff9090' : '#bb1515';
     ctx.font = '700 12px "Space Mono",monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`W = ${f.W.toFixed(1)} N`, cx + 10, mCY + wLen * 0.55);
+    ctx.fillText(`W = ${Lab.fmt(f.W,1)} N`, cx + 10, mCY + wLen * 0.55);
 
     /* Spring force Fs (up when extended, down when compressed) */
     if (Math.abs(f.Fs) > 0.05) {
@@ -350,7 +350,7 @@ function draw() {
       ctx.fillStyle = dk ? '#80e880' : '#106010';
       ctx.font = '700 12px "Space Mono",monospace';
       ctx.textAlign = 'right';
-      ctx.fillText(`Fs = ${Math.abs(f.Fs).toFixed(1)} N`, cx - 10, mCY + fsDir * fsLen * 0.55);
+      ctx.fillText(`Fs = ${Lab.fmt(Math.abs(f.Fs),1)} N`, cx - 10, mCY + fsDir * fsLen * 0.55);
     }
 
     /* Net force Fnet (offset to the right) */
@@ -362,7 +362,7 @@ function draw() {
       ctx.fillStyle = dk ? '#70e8ff' : '#005070';
       ctx.font = '700 12px "Space Mono",monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(`Fnet = ${Math.abs(f.Fnet).toFixed(1)} N`,
+      ctx.fillText(`Fnet = ${Lab.fmt(Math.abs(f.Fnet),1)} N`,
         ox + 10, mCY + fnetDir * fnetLen * 0.5 - 6);
     }
   }
@@ -384,7 +384,7 @@ function draw() {
     ctx.font = '9px "Space Mono",monospace';
     ctx.textAlign = 'right';
     const sign = sim.x >= 0 ? '+' : '';
-    ctx.fillText(`${sign}${sim.x.toFixed(2)} m`, rx - 7, (yA + yB) / 2 + 4);
+    ctx.fillText(`${sign}${Lab.fmt(sim.x,2)} m`, rx - 7, (yA + yB) / 2 + 4);
   }
 
   /* ── spring constant annotation ── */
@@ -401,7 +401,7 @@ function draw() {
   ctx.fillStyle = dk ? 'rgba(100,165,225,0.60)' : 'rgba(20,60,120,0.58)';
   ctx.font = '700 10px "Space Mono",monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(`T = ${sim.period.toFixed(3)} s`, 8, 18);
+  ctx.fillText(`T = ${Lab.fmt(sim.period,3)} s`, 8, 18);
 }
 
 /* ── graphs ──────────────────────────────────────────────────────── */
@@ -542,22 +542,22 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, label, dark, series, yFixed, tFixe
 
 /* ── readout ─────────────────────────────────────────────────────── */
 const readout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 't',  label: 't'        },
-  { key: 'x',  label: 'x'        },
-  { key: 'v',  label: 'v'        },
-  { key: 'a',  label: 'a'        },
-  { key: 'Fs', label: 'Fs'       },
-  { key: 'T',  label: 'T (per.)' },
+  { key: 't',  label: 'tempo t'        },
+  { key: 'x',  label: 'spostamento x'        },
+  { key: 'v',  label: 'velocità v'        },
+  { key: 'a',  label: 'accelerazione a'        },
+  { key: 'Fs', label: 'forza elastica'       },
+  { key: 'T',  label: 'periodo T' },
 ]);
 
 function updateReadout() {
   const f = sim.forces;
-  readout.set('t',  sim.t.toFixed(2) + ' s');
-  readout.set('x',  (sim.x >= 0 ? '+' : '') + sim.x.toFixed(3) + ' m');
-  readout.set('v',  (sim.v >= 0 ? '+' : '') + sim.v.toFixed(3) + ' m/s');
-  readout.set('a',  (sim.accel(sim.x, sim.v) >= 0 ? '+' : '') + sim.accel(sim.x, sim.v).toFixed(2) + ' m/s²');
-  readout.set('Fs', f.Fs.toFixed(1) + ' N');
-  readout.set('T',  sim.period.toFixed(3) + ' s');
+  readout.set('t',  Lab.fmt(sim.t,2) + ' s');
+  readout.set('x',  (sim.x >= 0 ? '+' : '') + Lab.fmt(sim.x,3) + ' m');
+  readout.set('v',  (sim.v >= 0 ? '+' : '') + Lab.fmt(sim.v,3) + ' m/s');
+  readout.set('a',  (sim.accel(sim.x, sim.v) >= 0 ? '+' : '') + Lab.fmt(sim.accel(sim.x, sim.v),2) + ' m/s²');
+  readout.set('Fs', Lab.fmt(f.Fs,1) + ' N');
+  readout.set('T',  Lab.fmt(sim.period,3) + ' s');
 }
 
 /* ── controls ────────────────────────────────────────────────────── */
@@ -641,7 +641,7 @@ function fmtTick(v) {
   if (v === 0) return '0';
   const a = Math.abs(v);
   const s = a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : a >= 1 ? v.toFixed(1) : v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 /* ── resize handle ───────────────────────────────────────────────── */

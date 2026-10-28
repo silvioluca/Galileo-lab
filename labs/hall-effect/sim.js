@@ -428,7 +428,7 @@ function init(){
   readout=new Lab.Readout(document.getElementById('readout'),[
     {key:'car', label:'Portatori'},
     {key:'vd',  label:'v deriva'},
-    {key:'vh',  label:'V Hall'},
+    {key:'vh',  label:'tensione di Hall'},
     {key:'eh',  label:'Campo E_H'},
     {key:'sel', label:'Selettore v=E/B'},
     {key:'side',label:'Accumulo bordo sup.'},

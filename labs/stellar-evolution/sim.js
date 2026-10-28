@@ -81,7 +81,7 @@ function buildTrack(M) {
   if (cat === 'dwarf') {
     points = [{
       name: 'Sequenza Principale', logT: lT, logL: lL, animDur: 10, realGyr: tMS,
-      note: `una nana rossa così poco massiccia brucia idrogeno lentissimamente: resterà qui ~${tMS.toFixed(0)} Gyr, più a lungo dell'età dell'universo (13.8 Gyr) — non la vedremo mai lasciare la sequenza principale`,
+      note: `una nana rossa così poco massiccia brucia idrogeno lentissimamente: resterà qui ~${Lab.fmt(tMS,0)} Gyr, più a lungo dell'età dell'universo (13.8 Gyr) — non la vedremo mai lasciare la sequenza principale`,
     }];
     return { cat, tMS, points: finalizeTrack(points), sliding: true, slideWin: 12 };
   }
@@ -160,16 +160,16 @@ function realGyrElapsed() {
   return sum;
 }
 function fmtGyr(g) {
-  if (g >= 1) return g.toFixed(2) + ' Gyr';
-  if (g >= 1e-3) return (g * 1000).toFixed(1) + ' Myr';
-  if (g >= 1e-6) return (g * 1e6).toFixed(0) + ' kyr';
-  if (g >= 1e-9) return (g * 1e9).toFixed(0) + ' yr';
+  if (g >= 1) return Lab.fmt(g,2) + ' Gyr';
+  if (g >= 1e-3) return Lab.fmt((g * 1000),1) + ' Myr';
+  if (g >= 1e-6) return Lab.fmt((g * 1e6),0) + ' kyr';
+  if (g >= 1e-9) return Lab.fmt((g * 1e9),0) + ' yr';
   return '~0';
 }
 function fmtNum(x, d = 2) {
   if (!Number.isFinite(x)) return '—';
-  if (x >= 1000 || (x > 0 && x < 0.01)) return x.toExponential(1);
-  return x.toFixed(d);
+  if (x >= 1000 || (x > 0 && x < 0.01)) return Lab.sci(x,2);
+  return Lab.fmt(x,d);
 }
 
 function trimHist() {
@@ -309,7 +309,7 @@ function drawAxes(ctx) {
   ctx.fillStyle = T.sub; ctx.font = '7px "Space Mono",monospace';
   [-0.3, 0, 0.4, 0.8, 1.2, 1.6, 2.0].forEach(bv => {
     const x = xOf(bv); if (x < x0 || x > x1) return;
-    ctx.fillText(bv.toFixed(1), x, y1 + 12);
+    ctx.fillText(Lab.fmt(bv,1), x, y1 + 12);
   });
   ctx.fillText('Colore (B-V)', (x0 + x1) / 2, y1 + 24);
 
@@ -318,7 +318,7 @@ function drawAxes(ctx) {
   for (let lp = -5; lp <= 5; lp += 1) {
     const y = yOf(lp); if (y < y0 || y > y1) continue;
     ctx.fillStyle = T.sub; ctx.fillText('10' + toSuper(lp), x0 - 6, y + 3);
-    ctx.textAlign = 'left'; ctx.fillText((4.74 - 2.5 * lp).toFixed(0), x1 + 6, y + 3); ctx.textAlign = 'right';
+    ctx.textAlign = 'left'; ctx.fillText(Lab.fmt((4.74 - 2.5 * lp),0), x1 + 6, y + 3); ctx.textAlign = 'right';
   }
   ctx.save(); ctx.translate(16, (y0 + y1) / 2); ctx.rotate(-Math.PI / 2); ctx.textAlign = 'center'; ctx.fillStyle = T.sub; ctx.font = '8px "Space Mono",monospace'; ctx.fillText('Luminosità (L☉)', 0, 0); ctx.restore();
   ctx.save(); ctx.translate(G.plot.x1 + 40, (y0 + y1) / 2); ctx.rotate(Math.PI / 2); ctx.textAlign = 'center'; ctx.fillStyle = T.sub; ctx.font = '8px "Space Mono",monospace'; ctx.fillText('Magnitudine assoluta', 0, 0); ctx.restore();
@@ -372,8 +372,7 @@ function drawPopulationLabels(ctx) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -458,7 +457,7 @@ function draw(canvas) {
   ctx.fillText('Evoluzione Stellare — diagramma H-R', 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
   const catName = track ? CAT_LABEL[track.cat] : '';
-  ctx.fillText(`M=${P.mass.toFixed(2)} M☉  (${catName})   fase: ${curInto ? curInto.name : '—'}`, 14, 36);
+  ctx.fillText(`M=${Lab.fmt(P.mass,2)} M☉  (${catName})   fase: ${curInto ? curInto.name : '—'}`, 14, 36);
 
   drawStarModelPanel(ctx);
 
@@ -516,44 +515,18 @@ function drawStarModelPanel(ctx) {
 
 // ═══ Grafici (3 pannelli): L(t), Teff(t), R(t) — assi FISSI, mai riscalati sui dati ═══
 function graphDomainT() { return track.sliding ? { t0: Math.max(0, animT - track.slideWin), t1: Math.max(animT, track.slideWin) } : { t0: 0, t1: track.points._totalDur }; }
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-function drawLogGraph(idx, label, color, valueOf, vmin, vmax, fmtTick) {
-  const cv = gCanvas[idx]; if (!cv || !cv.width || !track) return;
-  const ctx = gCtx[idx], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
+// grandezze della stella nel tempo (scale logaritmiche): asse dei tempi non lineare, le fasi brevi sono dilatate
+function drawLogGraph(idx, title, color, valueOf, vmin, vmax) {
+  if (!track) return;
   const { t0, t1 } = graphDomainT();
-  const xOfT = t => PAD.l + clamp((t - t0) / (t1 - t0 || 1), 0, 1) * gW;
-  const yOfV = v => PAD.t + gH - clamp((Math.log10(Math.max(v, 1e-9)) - vmin) / (vmax - vmin), 0, 1) * gH;
-
-  // tacche dell'asse y in scala logaritmica (3 livelli: minimo, medio, massimo) — senza queste
-  // etichette il grafico è log solo "internamente", ma non si legge come tale a colpo d'occhio
-  ctx.font = '6px "Space Mono",monospace'; ctx.textAlign = 'right';
-  for (let i = 0; i <= 2; i++) {
-    const lv = vmin + (vmax - vmin) * i / 2;
-    const y = PAD.t + gH - (i / 2) * gH;
-    ctx.strokeStyle = T.grid; ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + gW, y); ctx.stroke();
-    ctx.fillStyle = T.gText; ctx.fillText(fmtTick(lv), PAD.l - 2, y + (i === 0 ? -1 : i === 2 ? 5 : 2));
-  }
-
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath();
-  hist.forEach((p, i) => { const x = xOfT(p.t), y = yOfV(valueOf(p)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke(); ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText(label, PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[idx], { title, xr: [t0, t1 || 1], xStep: 1e9, xFmt: () => '', yr: [Math.pow(10, vmin), Math.pow(10, vmax)], yLog: true, xLabel: 'evoluzione →' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, Math.max(valueOf(p), Math.pow(10, vmin))]), color, 2);
 }
 function drawGraphs() {
-  const titles = ['L(t) — luminosità', 'Teff(t) — temperatura', 'R(t) — raggio'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawLogGraph(0, 'L (L☉)', '#00d4ff', p => p.L, LMIN, LMAX, v => '10' + toSuper(Math.round(v)));
-  drawLogGraph(1, 'Teff (K)', '#ff9d4d', p => p.T, TMIN, TMAX, v => { const t = Math.pow(10, v); return t >= 1000 ? (t / 1000).toFixed(0) + 'k' : t.toFixed(0); });
-  drawLogGraph(2, 'R (R☉)', '#7fe0a0', p => p.R, RMIN, RMAX, v => '10' + toSuper(Math.round(v)));
+  drawLogGraph(0, 'Luminosità L (L☉)', '#00d4ff', p => p.L, LMIN, LMAX);
+  drawLogGraph(1, 'Temperatura superficiale (K)', '#ff9d4d', p => p.T, TMIN, TMAX);
+  drawLogGraph(2, 'Raggio R (R☉)', '#7fe0a0', p => p.R, RMIN, RMAX);
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -589,27 +562,20 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'fase', label: 'Fase' },
-    { key: 'T', label: 'Temperatura superficiale' },
-    { key: 'L', label: 'Luminosità' },
-    { key: 'R', label: 'Raggio' },
-    { key: 'tempo', label: 'Tempo reale trascorso' },
-    { key: 'stato', label: 'Stato' },
+    { key: 'fase', label: 'fase' },
+    { key: 'T', label: 'temperatura superficiale' },
+    { key: 'L', label: 'luminosità' },
+    { key: 'R', label: 'raggio' },
+    { key: 'tempo', label: 'età della stella' },
+    { key: 'stato', label: 'stato' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -632,9 +598,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));

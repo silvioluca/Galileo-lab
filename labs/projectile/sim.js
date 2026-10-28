@@ -1,10 +1,10 @@
 /* ── Projectile Motion Simulation ─────────────────────────── */
 
 const PLANETS = [
-  { value: 'luna',  label: 'Luna',  hint: '1.62 m/s²', g: 1.62  },
-  { value: 'marte', label: 'Marte', hint: '3.72 m/s²', g: 3.72  },
-  { value: 'terra', label: 'Terra', hint: '9.81 m/s²', g: 9.81  },
-  { value: 'giove', label: 'Giove', hint: '24.79 m/s²', g: 24.79 },
+  { value: 'luna',  label: 'Luna',  hint: '1,62 m/s²', g: 1.62  },
+  { value: 'marte', label: 'Marte', hint: '3,72 m/s²', g: 3.72  },
+  { value: 'terra', label: 'Terra', hint: '9,81 m/s²', g: 9.81  },
+  { value: 'giove', label: 'Giove', hint: '24,79 m/s²', g: 24.79 },
 ];
 
 const COLORS     = ['#00d4ff', '#ff4757', '#2ecc71', '#ffb400'];
@@ -58,10 +58,12 @@ class SimInstance {
         ay += -k * vMag * this.state.vy;
       }
     }
+    // passo esatto per accelerazione costante nell'intervallo: x += v·dt + ½·a·dt²
+    const y0 = this.state.y, t0 = this.state.t;
+    this.state.x  += this.state.vx * dt + 0.5 * ax * dt * dt;
+    this.state.y  += this.state.vy * dt + 0.5 * ay * dt * dt;
     this.state.vx += ax * dt;
     this.state.vy += ay * dt;
-    this.state.x  += this.state.vx * dt;
-    this.state.y  += this.state.vy * dt;
     this.state.t  += dt;
 
     this.trail.push({ x: this.state.x, y: this.state.y });
@@ -75,7 +77,13 @@ class SimInstance {
     }
 
     if (this.state.y <= 0 && this.state.t > 0.05) {
+      // punto d'atterraggio interpolato dentro il passo: la gittata coincide con quella teorica
+      const f = y0 / (y0 - this.state.y);
+      this.state.x -= this.state.vx * dt * (1 - f);
+      this.state.t  = t0 + f * dt;
       this.state.y = 0; this.state.done = true;
+      const last = this.trail[this.trail.length - 1];
+      if (last) { last.x = this.state.x; last.y = 0; }
     }
   }
 }
@@ -281,7 +289,7 @@ function drawScaleAxes(dark) {
     ctx.strokeStyle = axClr;
     ctx.beginPath(); ctx.moveTo(PL - 3, cy); ctx.lineTo(PL + 2, cy); ctx.stroke();
     ctx.fillStyle = lblClr;
-    ctx.fillText(fmtNum(y) + 'm', PL - 6, cy + 3.5);
+    ctx.fillText(fmtNum(y) + ' m', PL - 6, cy + 3.5);
   }
 
   ctx.textAlign = 'center';
@@ -290,7 +298,7 @@ function drawScaleAxes(dark) {
     ctx.strokeStyle = axClr;
     ctx.beginPath(); ctx.moveTo(cx, ch - PB); ctx.lineTo(cx, ch - PB + 3); ctx.stroke();
     ctx.fillStyle = lblClr;
-    ctx.fillText(fmtNum(x) + 'm', cx, ch - PB + 15);
+    ctx.fillText(fmtNum(x) + ' m', cx, ch - PB + 15);
   }
 
   // Axis labels
@@ -430,7 +438,7 @@ function drawRangeMarker(inst, idx, dark) {
 
   ctx.font = '700 8px "Space Mono",monospace';
   ctx.textAlign = 'center'; ctx.fillStyle = inst.color;
-  const lbl = inst.range >= 100 ? inst.range.toFixed(0) : inst.range.toFixed(1);
+  const lbl = 'gittata ' + Lab.fmt(inst.range, inst.range >= 100 ? 0 : 1);
   ctx.fillText(lbl + ' m', rx, gy - 10);
   ctx.globalAlpha = 1;
 }
@@ -621,7 +629,7 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
     gctx.beginPath(); gctx.moveTo(gx, oy + pt + iH); gctx.lineTo(gx, oy + pt + iH + 4); gctx.stroke();
     if (tv > tRange * 0.03) {
       gctx.fillStyle = tickClr;
-      gctx.fillText(fmtTick(tv) + 's', gx, oy + pt + iH + 16);
+      gctx.fillText(fmtTick(tv) + ' s', gx, oy + pt + iH + 16);
     }
   });
 
@@ -660,23 +668,23 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
 
 /* ── Readout ──────────────────────────────────────────────── */
 const readout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 't',  label: 't'   },
-  { key: 'x',  label: 'x'   },
-  { key: 'y',  label: 'y'   },
-  { key: 'v',  label: '|v|' },
-  { key: 'vx', label: 'vx'  },
-  { key: 'vy', label: 'vy'  },
+  { key: 't',  label: 'tempo t'   },
+  { key: 'x',  label: 'distanza x'   },
+  { key: 'y',  label: 'altezza y'   },
+  { key: 'v',  label: 'velocità |v|' },
+  { key: 'vx', label: 'v_x'  },
+  { key: 'vy', label: 'v_y'  },
 ]);
 
 function updateReadout() {
   const s = instances[0].state;
   const v = Math.hypot(s.vx, s.vy);
-  readout.set('t',  s.t.toFixed(2)  + ' s');
-  readout.set('x',  s.x.toFixed(1)  + ' m');
-  readout.set('y',  s.y.toFixed(1)  + ' m');
-  readout.set('v',  v.toFixed(1)    + ' m/s');
-  readout.set('vx', s.vx.toFixed(1) + ' m/s');
-  readout.set('vy', (s.vy >= 0 ? '+' : '') + s.vy.toFixed(1) + ' m/s');
+  readout.set('t',  Lab.fmt(s.t,2)  + ' s');
+  readout.set('x',  Lab.fmt(s.x,1)  + ' m');
+  readout.set('y',  Lab.fmt(s.y,1)  + ' m');
+  readout.set('v',  Lab.fmt(v,1)    + ' m/s');
+  readout.set('vx', Lab.fmt(s.vx,1) + ' m/s');
+  readout.set('vy', (s.vy >= 0 ? '+' : '') + Lab.fmt(s.vy,1) + ' m/s');
 }
 
 /* ── Controls ─────────────────────────────────────────────── */
@@ -875,11 +883,11 @@ btnPlay.addEventListener('click',  () => { if (allDone()) return; simRunning ? p
 btnReset.addEventListener('click', resetSim);
 
 /* ── Utilities ────────────────────────────────────────────── */
+// etichette compatte con la virgola: 20 m, 2,5 m (senza zeri inutili)
 function fmtNum(v) {
   const abs = Math.abs(v);
-  if (abs >= 100) return v.toFixed(0);
-  if (abs >= 10)  return v.toFixed(1);
-  return v.toFixed(2);
+  const s = abs >= 100 ? v.toFixed(0) : abs >= 10 ? v.toFixed(1) : v.toFixed(2);
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',');
 }
 
 function niceTicks(min, max, n = 4) {
@@ -901,7 +909,7 @@ function fmtTick(v) {
   if (v === 0) return '0';
   const abs = Math.abs(v);
   const s = abs >= 100 ? v.toFixed(0) : abs >= 10 ? v.toFixed(1) : abs >= 1 ? v.toFixed(1) : v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 function hexToRgba(hex, alpha) {

@@ -504,7 +504,7 @@ function drawMain(C) {
         ctx.font         = '9px Space Mono, monospace';
         ctx.textAlign    = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText('z = ' + ((1 / Math.max(1e-9, fRatio) - 1).toFixed(2)),
+        ctx.fillText('z = ' + (Lab.fmt((1 / Math.max(1e-9, fRatio) - 1),2)),
                      fp.sx + sR + 4, fp.sy);
         ctx.textBaseline = 'alphabetic';
       }
@@ -525,15 +525,15 @@ function drawMain(C) {
     const nearP = project3D(nCX, nCY, zAt(nCX, nCY, Rs, Rs2, orbX, orbY));
     const farP  = project3D(fCX, fCY, zAt(fCX, fCY, Rs, Rs2, orbX, orbY));
     if (farP)  drawClock(farP.sx,  farP.sy,  clockR, tauFar,  C.accent, C,
-      'r = ' + (rFar / Rs).toFixed(1) + ' Rs');
+      'r = ' + Lab.fmt((rFar / Rs),1) + ' Rs');
     if (nearP) drawClock(nearP.sx, nearP.sy, clockR, tauNear, C.spCol,  C,
-      'r = ' + (rNear / Rs).toFixed(1) + ' Rs');
+      'r = ' + Lab.fmt((rNear / Rs),1) + ' Rs');
   }
 
   // ── Labels ──────────────────────────────────────────────────────────────────
   ctx.fillStyle = C.muted; ctx.font = '10px Space Mono, monospace';
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText('Rs = ' + Rs.toFixed(2), 12, 12);
+  ctx.fillText('Rs = ' + Lab.fmt(Rs,2), 12, 12);
   ctx.fillStyle = C.light ? 'rgba(180,140,0,0.90)' : 'rgba(255,200,0,0.90)';
   ctx.textAlign = 'right';
   ctx.fillText('r = 1.5 Rs  sfera fotonica', SW - 12, 12);
@@ -628,7 +628,7 @@ function drawTimeDilation(C, x0, pw) {
     gctx.strokeStyle = C.grid; gctx.lineWidth = 0.5;
     gctx.beginPath(); gctx.moveTo(ax, ty(tv)); gctx.lineTo(ax + iw, ty(tv)); gctx.stroke();
     gctx.fillStyle = C.muted; gctx.font = '7px Space Mono, monospace';
-    gctx.textAlign = 'right'; gctx.textBaseline = 'middle'; gctx.fillText(tv.toFixed(2), ax - 3, ty(tv));
+    gctx.textAlign = 'right'; gctx.textBaseline = 'middle'; gctx.fillText(Lab.fmt(tv,2), ax - 3, ty(tv));
   });
   gctx.strokeStyle = C.accent; gctx.lineWidth = 2; gctx.beginPath();
   let first = true;
@@ -644,7 +644,7 @@ function drawTimeDilation(C, x0, pw) {
     gctx.beginPath(); gctx.arc(rx(rc), ty(tv), 4.5, 0, Math.PI * 2); gctx.fill(); gctx.stroke();
     gctx.fillStyle = C.spCol; gctx.font = '8px Space Mono, monospace';
     gctx.textAlign = rc > rMax * 0.6 ? 'right' : 'left'; gctx.textBaseline = 'bottom';
-    gctx.fillText(tv.toFixed(3), rx(rc) + (rc > rMax * 0.6 ? -6 : 6), ty(tv) - 3);
+    gctx.fillText(Lab.fmt(tv,3), rx(rc) + (rc > rMax * 0.6 ? -6 : 6), ty(tv) - 3);
   }
   // Show infall position on time-dilation curve
   if (P.showFall && fall.r > Rs && fall.r < rMax) {
@@ -704,7 +704,7 @@ function drawDeflection(C, x0, pw) {
   [1, 2, 3, 4, 5].forEach(n => {
     const xx = bx(n * bc);
     if (xx > ax && xx < ax + iw) {
-      gctx.fillText((n * 2.598).toFixed(1), xx, ay + 5);
+      gctx.fillText(Lab.fmt((n * 2.598),1), xx, ay + 5);
       gctx.strokeStyle = C.grid; gctx.lineWidth = 0.5;
       gctx.beginPath(); gctx.moveTo(xx, ay); gctx.lineTo(xx, ay + 3); gctx.stroke();
     }
@@ -723,12 +723,12 @@ function drawDeflection(C, x0, pw) {
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(readoutEl, [
-  { key: 'Rs',     label: 'Rs' },
-  { key: 'rClock', label: 'r orologio' },
-  { key: 'tau',    label: 'τ locale' },
-  { key: 'ratio',  label: 'dτ/dt' },
-  { key: 'rOrb',   label: 'r orbita' },
-  { key: 'rFall',  label: 'r caduta' },
+  { key: 'Rs',     label: 'raggio di Schwarzschild Rs' },
+  { key: 'rClock', label: 'distanza dell’orologio' },
+  { key: 'tau',    label: 'tempo proprio τ' },
+  { key: 'ratio',  label: 'ritmo dτ/dt = √(1 − Rs/r)' },
+  { key: 'rOrb',   label: 'raggio dell’orbita' },
+  { key: 'rFall',  label: 'distanza in caduta' },
   { key: 'zShift', label: 'redshift z' },
 ]);
 
@@ -849,13 +849,13 @@ function loop(ts) {
 
   // Readout
   const fRatio = P.showFall ? fallFreqRatio(fall.r, Rs, fall.E) : null;
-  readout.set('Rs',     Rs.toFixed(3) + ' u');
-  readout.set('rClock', rc.toFixed(3) + ' u  (' + (rc / Rs).toFixed(2) + ' Rs)');
-  readout.set('tau',    (coordT * tf).toFixed(3));
-  readout.set('ratio',  tf.toFixed(4));
-  readout.set('rOrb',   rOrb.toFixed(3) + ' u  (' + (rOrb / Rs).toFixed(1) + ' Rs)');
-  readout.set('rFall',  P.showFall ? fall.r.toFixed(3) + ' u  (' + (fall.r / Rs).toFixed(2) + ' Rs)' : '—');
-  readout.set('zShift', fRatio !== null ? (1 / Math.max(1e-9, fRatio) - 1).toFixed(3) : '—');
+  readout.set('Rs',     '1 Rs = 2GM/c²');
+  readout.set('rClock', Lab.fmt(rc / Rs, 2) + ' Rs');
+  readout.set('tau',    Lab.fmt(coordT * tf, 3));
+  readout.set('ratio',  Lab.fmt(tf, 4));
+  readout.set('rOrb',   Lab.fmt(rOrb / Rs, 1) + ' Rs');
+  readout.set('rFall',  P.showFall ? Lab.fmt(fall.r / Rs, 2) + ' Rs' : '—');
+  readout.set('zShift', fRatio !== null ? Lab.fmt(1 / Math.max(1e-9, fRatio) - 1, 3) : '—');
 
   const C = getColors();
   drawMain(C);
@@ -867,7 +867,7 @@ Lab.initTheme('themeToggle');
 resetSim();
 resize();
 buildControls();
-window.addEventListener('resize', resize);
+new ResizeObserver(resize).observe(canvas.parentElement);
 document.getElementById('btnPlay').addEventListener('click',  () => setRunning(!running));
 document.getElementById('btnReset').addEventListener('click', resetSim);
 requestAnimationFrame(loop);

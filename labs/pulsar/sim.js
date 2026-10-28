@@ -314,8 +314,7 @@ function drawStarHalo(ctx, sx, sy, r) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -354,55 +353,34 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Pulsar — rotatore obliquo con campo di dipolo', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`P=${(TWO / omegaAt(tPhys) * 1000).toFixed(2)} ms   α=${P.alphaDeg.toFixed(0)}°   M=${P.mass.toFixed(2)} M☉   θ_pc=${(D.thetaPC * 180 / Math.PI).toFixed(1)}°`, 14, 40);
+  ctx.fillText(`P=${Lab.fmt((TWO / omegaAt(tPhys) * 1000),2)} ms   α=${Lab.fmt(P.alphaDeg,0)}°   M=${Lab.fmt(P.mass,2)} M☉   θ_pc=${Lab.fmt((D.thetaPC * 180 / Math.PI),1)}°`, 14, 40);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText('linea tratteggiata verde = verso l\'osservatore — trascina per ruotare la vista', W / 2, H - 10);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
+// 1–2: profilo dell'impulso su due giri: un picco a ogni passaggio del fascio sulla linea di vista
+function drawPulseGraph(idx, fn, color, title) {
+  if (!D) return;
+  const g = Lab.panel(gCanvas[idx], { title, xr: [0, 720], xStep: 180, yr: [0, 2], yStep: 0.5, xLabel: 'fase di rotazione (°, due giri)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, a => fn(a * Math.PI / 180), [0, 720], color, 1.8, [], 480);
+  const ph = ((visualPsi % TWO) + TWO) % TWO;
+  Lab.dot(ctx, f, ph * 180 / Math.PI, fn(ph), '#ff9d4d', 4); Lab.dot(ctx, f, ph * 180 / Math.PI + 360, fn(ph), '#ff9d4d', 4);
 }
-function drawPulseGraph(idx, fn, color, label) {
-  const cv = gCanvas[idx]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[idx], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const psiMax = 2 * TWO;
-  const xOf = ps => PAD.l + clamp(ps / psiMax, 0, 1) * gW;
-  const yOf = v => PAD.t + gH - clamp(v / 2, 0, 1) * gH;
-  ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 240; i++) { const ps = psiMax * i / 240; const v = fn(ps); const x = xOf(ps), y = yOf(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const psiNow = visualPsi;                                        // stessa fase (limitata) usata per il disegno 3D, così il marker resta coerente con ciò che si vede ruotare
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(psiNow), yOf(fn(psiNow)), 3, 0, TWO); ctx.fill();
-  ctx.beginPath(); ctx.arc(xOf(psiNow + TWO), yOf(fn(psiNow)), 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText(label, PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('fase (2 giri)', PAD.l + gW - 2, PAD.t + gH - 3);
-}
+// 3: il periodo cresce perché la stella perde energia di rotazione irradiando (rallentamento esagerato)
 function drawGraphSpindown() {
-  const cv = gCanvas[2]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = Math.max(tPhys * 1.15, 20), pMax = D.periodMs0 * 3;
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW;
-  const yOf = p => PAD.t + gH - clamp(p / pMax, 0, 1) * gH;
-  ctx.strokeStyle = '#7fe0a0'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 200; i++) { const t = tMax * i / 200; const p = TWO / omegaAt(t) * 1000; const x = xOf(t), y = yOf(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(tPhys), yOf(TWO / omegaAt(tPhys) * 1000), 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('periodo (ms)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t (s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!D) return;
+  const tMax = Lab.niceMax(Math.max(tPhys * 1.15, 20));
+  const g = Lab.panel(gCanvas[2], { title: 'Periodo di rotazione (ms) — rallentamento esagerato', xr: [0, tMax], yr: [0, Lab.niceMax(D.periodMs0 * 3)], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, t => TWO / omegaAt(t) * 1000, [0, tMax], '#7fe0a0', 2);
+  Lab.dot(ctx, f, tPhys, TWO / omegaAt(tPhys) * 1000, '#ff9d4d', 4);
 }
 function drawGraphs() {
-  const titles = ['Profilo impulso radio', 'Profilo impulso gamma', 'Rallentamento (esagerato)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawPulseGraph(0, radioIntensity, '#00d4ff', 'intensità radio');
-  drawPulseGraph(1, gammaIntensity, '#c86eff', 'intensità gamma');
+  drawPulseGraph(0, radioIntensity, '#00d4ff', 'Impulso radio ricevuto (intensità relativa)');
+  drawPulseGraph(1, gammaIntensity, '#c86eff', 'Impulso gamma ricevuto (intensità relativa)');
   drawGraphSpindown();
 }
 
@@ -432,27 +410,20 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'period', label: 'Periodo' },
-    { key: 'freq', label: 'Frequenza' },
-    { key: 'rstar', label: 'Raggio stella' },
-    { key: 'rlc', label: 'Raggio cilindro di luce' },
-    { key: 'thetapc', label: 'Angolo calotta polare' },
-    { key: 'mass', label: 'Massa' },
+    { key: 'period', label: 'periodo' },
+    { key: 'freq', label: 'frequenza di rotazione' },
+    { key: 'rstar', label: 'raggio della stella' },
+    { key: 'rlc', label: 'cilindro di luce c/Ω' },
+    { key: 'thetapc', label: 'calotta polare' },
+    { key: 'mass', label: 'massa' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -495,9 +466,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -512,12 +482,12 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const omega = omegaAt(tPhys), periodMs = TWO / omega * 1000;
-      readout.set('period', periodMs.toFixed(2) + ' ms');
-      readout.set('freq', (omega / TWO).toFixed(2) + ' Hz');
-      readout.set('rstar', (D.Rstar / 1000).toFixed(2) + ' km');
-      readout.set('rlc', (D.Rlc / 1000).toFixed(0) + ' km');
-      readout.set('thetapc', (D.thetaPC * 180 / Math.PI).toFixed(1) + '°');
-      readout.set('mass', D.M.toFixed(2) + ' M☉');
+      readout.set('period', Lab.fmt(periodMs,2) + ' ms');
+      readout.set('freq', Lab.fmt((omega / TWO),2) + ' Hz');
+      readout.set('rstar', Lab.fmt((D.Rstar / 1000),2) + ' km');
+      readout.set('rlc', Lab.fmt((D.Rlc / 1000),0) + ' km');
+      readout.set('thetapc', Lab.fmt((D.thetaPC * 180 / Math.PI),1) + '°');
+      readout.set('mass', Lab.fmt(D.M,2) + ' M☉');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

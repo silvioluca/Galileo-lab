@@ -225,7 +225,7 @@ function drawSim() {
   // ── 5. Impact-parameter lines (b lines, positive side only for clarity) ───
   const shownBs = new Set();
   for (const p of particles) {
-    const bAbs = Math.abs(p.b0).toFixed(2);
+    const bAbs = Lab.fmt(Math.abs(p.b0),2);
     if (p.b0 <= 0 || shownBs.has(bAbs)) continue;
     shownBs.add(bAbs);
     const yb = sy(p.b0);
@@ -236,7 +236,7 @@ function drawSim() {
     ctx.setLineDash([]);
     ctx.fillStyle = dark ? 'rgba(255,200,80,0.40)' : 'rgba(160,100,0,0.55)';
     ctx.font = `8px 'Space Mono', monospace`; ctx.textAlign = 'left';
-    ctx.fillText(`b=${p.b0.toFixed(1)}D`, beamSrcX + 10, yb - 3);
+    ctx.fillText(`b=${Lab.fmt(p.b0,1)}D`, beamSrcX + 10, yb - 3);
   }
 
   // ── 6. Particle trails ─────────────────────────────────────────────────────
@@ -303,7 +303,7 @@ function drawSim() {
   ctx.lineWidth = 1.5; ctx.stroke();
   // "Au" text
   ctx.fillStyle = '#1a0800';
-  ctx.font = `bold ${Math.max(8, nucVisPx * 0.65).toFixed(0)}px 'DM Sans', sans-serif`;
+  ctx.font = `bold ${Lab.fmt(Math.max(8, nucVisPx * 0.65),0)}px 'DM Sans', sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(elemSym(), CX, CY); ctx.textBaseline = 'alphabetic';
   // Nuclear radius annotation
@@ -313,7 +313,7 @@ function drawSim() {
   ctx.setLineDash([]);
   ctx.fillStyle = dark ? 'rgba(255,210,60,0.65)' : 'rgba(160,100,0,0.65)';
   ctx.font = `8px 'Space Mono', monospace`; ctx.textAlign = 'left';
-  ctx.fillText(`R_nuc ≈ ${R_nuc_fm_.toFixed(1)} fm`, CX + nucVisPx + 20, CY - 18);
+  ctx.fillText(`R_nuc ≈ ${Lab.fmt(R_nuc_fm_,1)} fm`, CX + nucVisPx + 20, CY - 18);
 
   // ── 9. D reference ring ────────────────────────────────────────────────────
   ctx.beginPath(); ctx.arc(CX, CY, pxPerD, 0, 2*Math.PI);
@@ -321,7 +321,7 @@ function drawSim() {
   ctx.lineWidth = 1; ctx.setLineDash([3, 4]); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle = dark ? 'rgba(255,200,80,0.48)' : 'rgba(140,90,0,0.55)';
   ctx.font = `8px 'Space Mono', monospace`; ctx.textAlign = 'left';
-  ctx.fillText(`D=${D_fm().toFixed(1)} fm`, CX + pxPerD + 4, CY - 3);
+  ctx.fillText(`D=${Lab.fmt(D_fm(),1)} fm`, CX + pxPerD + 4, CY - 3);
 
   // ── 10. Angle arcs + θ labels for scattered particles ─────────────────────
   for (const p of particles) {
@@ -339,7 +339,7 @@ function drawSim() {
     const midAng = sign * th * 0.5;
     ctx.fillStyle = dark ? 'rgba(255,200,80,0.70)' : 'rgba(160,100,0,0.70)';
     ctx.font = `8px 'Space Mono', monospace`; ctx.textAlign = 'left';
-    ctx.fillText(`${(th * 180 / Math.PI).toFixed(0)}°`,
+    ctx.fillText(`${Lab.fmt((th * 180 / Math.PI),0)}°`,
       CX + (arcR + 7) * Math.cos(midAng), CY + (arcR + 7) * Math.sin(midAng) + 3);
   }
 
@@ -352,7 +352,7 @@ function drawSim() {
   ctx.beginPath(); ctx.moveTo(sbX+pxPerD, sbY-4); ctx.lineTo(sbX+pxPerD, sbY+4); ctx.stroke();
   ctx.fillStyle = dark ? 'rgba(255,255,255,0.48)' : 'rgba(0,0,0,0.48)';
   ctx.font = `8px 'Space Mono', monospace`; ctx.textAlign = 'left';
-  ctx.fillText(`1D = ${D_fm().toFixed(1)} fm`, sbX + pxPerD + 5, sbY + 3);
+  ctx.fillText(`1D = ${Lab.fmt(D_fm(),1)} fm`, sbX + pxPerD + 5, sbY + 3);
 
   // ── 12. Top-left info ─────────────────────────────────────────────────────
   ctx.textAlign = 'left'; ctx.font = `10px 'Space Mono', monospace`;
@@ -517,15 +517,15 @@ function updateReadout() {
   const thMn = rutTheta(P.bMax) * 180 / Math.PI;
   const ds90 = dSigma(Math.PI / 2);
   document.getElementById('readout').innerHTML = [
-    { label: 'Bersaglio', value: `${elemSym()} (Z=${P.Z2}, A=${massNum()})` },
-    { label: 'E_α',       value: `${P.E_MeV} MeV` },
-    { label: 'D',         value: `${D.toFixed(2)} fm` },
-    { label: 'R_nuc',     value: `${R_nuc_fm().toFixed(1)} fm  (${(R_nuc_fm()/D).toFixed(3)} D)` },
-    { label: 'R_atom',    value: `${atomR_pm()} pm  (≈${Math.round(atomD_ratio())} D)` },
-    { label: 'θ_min',     value: `${thMn.toFixed(1)}°` },
-    { label: 'dσ/dΩ|90°', value: `${ds90.toFixed(3)} D²/sr` },
+    { label: 'bersaglio', value: `${elemSym()} (Z=${P.Z2}, A=${massNum()})` },
+    { label: 'energia α', value: `${P.E_MeV} MeV` },
+    { label: 'minima distanza D (urto frontale)', value: `${Lab.fmt(D,2)} fm` },
+    { label: 'raggio del nucleo', value: `${Lab.fmt(R_nuc_fm(),1)} fm  (${Lab.fmt((R_nuc_fm()/D),3)} D)` },
+    { label: 'raggio dell’atomo', value: `${atomR_pm()} pm  (≈${Math.round(atomD_ratio())} D)` },
+    { label: 'deflessione minima', value: `${Lab.fmt(thMn,1)}°` },
+    { label: 'sezione d’urto a 90°', value: `${Lab.fmt(ds90,3)} D²/sr` },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 
@@ -617,7 +617,7 @@ function loop(ts) {
 function init() {
   resize();
   buildControls();
-  window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe(sc.parentElement);
   requestAnimationFrame(loop);
 }
 

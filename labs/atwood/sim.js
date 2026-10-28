@@ -142,14 +142,13 @@ function roundRect(ctx,x,y,w,h,r){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   const PXM=Math.min(H,520)*0.42;                 // px per metro (corsa + raggio)
   const rpx=clamp(P.r*PXM,16,60), ang=s/P.r;
 
   const tx=panX + W/2*(1-zoom), ty=panY + H/2*(1-zoom);   // zoom + pan
-  ctx.save(); ctx.setTransform(zoom,0,0,zoom,tx,ty);
+  ctx.save(); { const d=canvas._dpr||1; ctx.setTransform(d*zoom,0,0,d*zoom,d*tx,d*ty); }   // zoom e spostamento, sopra la scala dello schermo
   drawGridInf(ctx,tx,ty,zoom,W,H);
   if(P.mode==='multi') drawMulti(ctx,W,H,PXM,rpx,ang);
   else if(P.mode==='piano') drawPiano(ctx,W,H,PXM,rpx,ang);
@@ -300,10 +299,10 @@ function drawMulti(ctx,W,H,PXM,rpx,ang){
   // ── sforzo Fm all'estremo libero (verticale, scende) ──
   arrow(ctx, vx(n), freeY, vx(n), freeY+clamp(P.Feff*0.6,22,64), rgb(T.m2c), 3.2);
   ctx.fillStyle=rgb(T.m2c); ctx.font='bold 11px "Space Mono",monospace'; ctx.textAlign='center';
-  ctx.fillText('Fm = '+P.Feff.toFixed(0)+' N', vx(n), freeY-6);
+  ctx.fillText('Fm = '+Lab.fmt(P.Feff,0)+' N', vx(n), freeY-6);
   // etichette
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='left';
-  ctx.fillText('T = P/'+n+' = '+(P.m2*G/n).toFixed(1)+' N', bx1+10, movY);
+  ctx.fillText('T = P/'+n+' = '+Lab.fmt((P.m2*G/n),1)+' N', bx1+10, movY);
   ctx.fillText('vantaggio '+n+'×   ·   F_eq = M·g/n   ·   sforzo = n·h', cx-110, ly+hL+24);
   // ── forze (toggle) ──
   if(P.showForces){
@@ -315,39 +314,31 @@ function drawMulti(ctx,W,H,PXM,rpx,ang){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-const TITLES=['Posizione  s(t)','Velocità  v(t)','Forze / Tensioni (N)'];
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-function lineG(ctx,Wd,Hd,arr,mx,col){
-  const PAD={t:14,b:16,l:24,r:8}; const {gW,gH}=gBase(ctx,Wd,Hd,PAD); const n=arr.length;
-  const yOf=val=>PAD.t+gH/2 - clamp(val/mx,-1,1)*gH*0.44;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4; ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t+gH/2); ctx.lineTo(PAD.l+gW,PAD.t+gH/2); ctx.stroke();
-  if(n>1){ ctx.strokeStyle=col; ctx.lineWidth=1.6; ctx.beginPath();
-    for(let i=0;i<n;i++){ const x=PAD.l+i/(n-1)*gW, y=yOf(arr[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke(); }
-  return {PAD,gW,gH};
-}
+// campioni ogni 0,04 s: asse dei tempi in secondi; posizione con fondo scala fisso (la corsa)
+const H_DT=0.04;
+function histPts(arr){ return arr.map((v_,i)=>[i*H_DT,v_]); }
 function drawGraphs(){
-  for(let i=0;i<3;i++) if(gTitle[i]) gTitle[i].textContent=TITLES[i];
-  if(gCanvas[0].width){ const g=lineG(gCtx[0],gCanvas[0].width,gCanvas[0].height,hsS,SMAX,rgb(T.m1c));
-    gCtx[0].fillStyle=T.gText; gCtx[0].font='7px "Space Mono",monospace'; gCtx[0].textAlign='left'; gCtx[0].fillText('s',g.PAD.l+2,g.PAD.t+7); gCtx[0].textAlign='right'; gCtx[0].fillText('t',g.PAD.l+g.gW-2,g.PAD.t+g.gH-3); }
-  if(gCanvas[1].width){ const mxv=Math.max(0.5,...hsV.map(Math.abs)); const g=lineG(gCtx[1],gCanvas[1].width,gCanvas[1].height,hsV,mxv,rgb(T.m2c));
-    gCtx[1].fillStyle=T.gText; gCtx[1].font='7px "Space Mono",monospace'; gCtx[1].textAlign='left'; gCtx[1].fillText('v',g.PAD.l+2,g.PAD.t+7); gCtx[1].textAlign='right'; gCtx[1].fillText('t',g.PAD.l+g.gW-2,g.PAD.t+g.gH-3); }
-  if(gCanvas[2].width){ const ctx=gCtx[2],Wd=gCanvas[2].width,Hd=gCanvas[2].height,PAD={t:16,b:18,l:10,r:8};
-    const {gW,gH}=gBase(ctx,Wd,Hd,PAD); const t=tensions();
-    let vals=[],labs=[],cols=[];
-    if(P.mode==='uno'){ vals=[P.m1*G,t.T]; labs=['P','T']; cols=[rgb(T.m1c),T.accent]; }
-    else if(P.mode==='due'){ vals=[P.m1*G,P.m2*G,t.T1,t.T2]; labs=['P₁','P₂','T₁','T₂']; cols=[rgb(T.m1c),rgb(T.m2c),T.accent,T.accent]; }
-    else if(P.mode==='piano'){ vals=[P.m1*G,t.fr,t.T1,t.T2]; labs=['P₁','attr','T₁','T₂']; cols=[rgb(T.m1c),rgb(FCOL.attr),rgb(FCOL.tens),rgb(FCOL.tens)]; }
-    else { vals=[P.Feff,P.m2*G/P.n,P.m2*G,t.F1]; labs=['F','F_eq','M·g','F₁']; cols=[rgb(FCOL.peso),rgb([150,180,210]),rgb(T.m2c),rgb(FCOL.norm)]; }
-    const mx=Math.max(...vals,1e-6), n=vals.length;
-    vals.forEach((vv,i)=>{ const cxb=PAD.l+gW*(i+0.5)/n, bw=gW/n*0.5, bh=clamp(vv/mx,0,1)*gH*0.8;
-      ctx.fillStyle=cols[i]; ctx.fillRect(cxb-bw/2,PAD.t+gH-bh,bw,bh);
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(labs[i],cxb,PAD.t+gH+9); ctx.fillText(Math.round(vv)+'',cxb,PAD.t+gH-bh-3); });
+  const C=Lab.graphColors(), tMax=Math.max(4,hsS.length*H_DT);
+  let g=Lab.panel(gCanvas[0],{ title:'Posizione s (m)', xr:[0,tMax], yr:[-0.6,0.6], yStep:0.2, xLabel:'t (s)' });
+  if(g){ const [c,f]=g; Lab.plotPts(c,f,histPts(hsS),rgb(T.m1c),2); }
+  const vm=Lab.niceMax(Math.max(1,...hsV.map(Math.abs))*1.05);
+  g=Lab.panel(gCanvas[1],{ title:`Velocità v (m/s) · a = ${Lab.fmt(accel(),2)} m/s²`, xr:[0,tMax], yr:[-vm,vm], xLabel:'t (s)' });
+  if(g){ const [c,f]=g; Lab.plotPts(c,f,histPts(hsV),rgb(T.m2c),2); }
+  // forze e tensioni (N)
+  const t=tensions();
+  let vals=[],labs=[],cols=[];
+  if(P.mode==='uno'){ vals=[P.m1*G,t.T]; labs=['peso P','tensione T']; cols=[rgb(T.m1c),T.accent]; }
+  else if(P.mode==='due'){ vals=[P.m1*G,P.m2*G,t.T1,t.T2]; labs=['P₁','P₂','T₁','T₂']; cols=[rgb(T.m1c),rgb(T.m2c),T.accent,T.accent]; }
+  else if(P.mode==='piano'){ vals=[P.m1*G,t.fr,t.T1,t.T2]; labs=['P₁','attrito','T₁','T₂']; cols=[rgb(T.m1c),rgb(FCOL.attr),rgb(FCOL.tens),rgb(FCOL.tens)]; }
+  else { vals=[P.Feff,P.m2*G/P.n,P.m2*G,t.F1]; labs=['F','F di equilibrio','M·g','F₁']; cols=[rgb(FCOL.peso),rgb([150,180,210]),rgb(T.m2c),rgb(FCOL.norm)]; }
+  const mx=Lab.niceMax(Math.max(...vals,1)*1.1);
+  g=Lab.panel(gCanvas[2],{ title:'Forze e tensioni (N)', xr:[0,vals.length], xStep:1e9, xFmt:()=> '', yr:[0,mx] });
+  if(g){ const [c,f]=g, gap=(f.R-f.L)/vals.length, bw=gap*0.55;
+    vals.forEach((vv,i)=>{ const x=f.L+gap*i+(gap-bw)/2, y=f.Y(Math.max(0,vv));
+      c.fillStyle=cols[i]; c.fillRect(x,y,bw,f.B-y);
+      c.font='9.5px "Space Mono",monospace'; c.textAlign='center'; c.textBaseline='middle';
+      c.fillStyle=f.C.title; c.fillText(Lab.fmt(vv,1),x+bw/2,y-8);
+      c.fillStyle=f.C.text; c.font='9.5px "DM Sans",sans-serif'; c.fillText(labs[i],x+bw/2,f.B+10); });
   }
 }
 
@@ -382,17 +373,10 @@ function buildControls(){
 }
 
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d'); gTitle[i]=title;
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -429,9 +413,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(240,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -449,7 +432,7 @@ function init(){
       readout.set('a', fmt(a,' m/s²'));
       readout.set('v', fmt(v,' m/s'));
       readout.set('T', P.mode==='due' ? 'T₁='+fmt(t.T1)+'  T₂='+fmt(t.T2)+' N' : fmt(t.T||0,' N'));
-      readout.set('info', P.mode==='multi' ? ('vantaggio '+P.n+'×') : P.mode==='piano' ? ('μ='+P.mu.toFixed(2)) : 'I=½M r²');
+      readout.set('info', P.mode==='multi' ? ('vantaggio '+P.n+'×') : P.mode==='piano' ? ('μ='+Lab.fmt(P.mu,2)) : 'I=½M r²');
     }catch(err){ console.error(err); }
     requestAnimationFrame(frame);
   }

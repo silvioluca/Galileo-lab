@@ -232,7 +232,7 @@ const lerp = (a, b, k) => a + (b - a) * k;
 const clamp01 = x => x < 0 ? 0 : x > 1 ? 1 : x;
 const ease = x => { x = clamp01(x); return x * x * (3 - 2 * x); };
 const seg = (p, a, b) => ease((p - a) / (b - a));     // avanzamento 0→1 nel tratto [a, b]
-const fmt = (v, d = 0) => v.toFixed(d).replace('.', ',');
+const fmt = (v, d = 0) => Lab.fmt(v, d);
 const SUP = { 1: '', 2: '²', 3: '³' };
 
 function getCSSVar(name) {
@@ -1232,7 +1232,6 @@ function loop(ts) {
 Lab.initTheme('themeToggle');
 resize();
 buildControls();
-window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(canvas.parentElement);
 
 document.getElementById('btnPlay').addEventListener('click', () => setRunning(!running));

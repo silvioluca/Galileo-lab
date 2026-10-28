@@ -3,7 +3,7 @@
 // ═══ Dati: righe spettrali (λ in nm, intensità relativa 0–1) ═══════════════════
 // Comprende UV (<380), visibile (380–750) e IR (>750). Valori didattici NIST.
 const ELEMENTS = {
-  H:  { Z:1,  name:'Idrogeno', lines:[[656.3,1.0],[486.1,0.42],[434.0,0.22],[410.2,0.12],[397.0,0.06],[364.6,0.05],[121.6,1.0],[102.6,0.35],[97.3,0.18]] },
+  H:  { Z:1,  name:'Idrogeno', lines:[[656.3,1.0],[486.1,0.42],[434.0,0.22],[410.2,0.12],[397.0,0.06],[388.9,0.04],[121.6,1.0],[102.6,0.35],[97.3,0.18]] },
   He: { Z:2,  name:'Elio',     lines:[[587.6,1.0],[447.1,0.5],[667.8,0.5],[501.6,0.45],[471.3,0.3],[492.2,0.3],[706.5,0.35],[728.1,0.2],[388.9,0.5],[1083.0,1.0],[318.8,0.2]] },
   Li: { Z:3,  name:'Litio',    lines:[[670.8,1.0],[610.4,0.4],[460.3,0.2],[323.3,0.2],[812.6,0.3]] },
   Na: { Z:11, name:'Sodio',    lines:[[589.0,1.0],[589.6,0.95],[568.8,0.15],[615.4,0.1],[330.3,0.3],[819.5,0.5],[818.3,0.45]] },
@@ -84,8 +84,7 @@ function windowLines(){ return ELEMENTS[P.el].lines.filter(([l])=>l>=WMIN()&&l<=
 
 // ═══ Rendering ════════════════════════════════════════════════════════════════
 function draw(canvas) {
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width, H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
 
   const el=ELEMENTS[P.el];
@@ -113,7 +112,7 @@ function draw(canvas) {
     ctx.beginPath(); ctx.moveTo(hx,58); ctx.lineTo(hx,y-14); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle=T.txt; ctx.font='11px "Space Mono",monospace';
     const reg = hoverLambda<VIS_MIN?' (UV)':hoverLambda>VIS_MAX?' (IR)':'';
-    ctx.fillText(`${hoverLambda.toFixed(1)} nm${reg}`, Math.min(hx+5,W-92), 54);
+    ctx.fillText(`${Lab.fmt(hoverLambda,1)} nm${reg}`, Math.min(hx+5,W-92), 54);
   }
 }
 
@@ -214,94 +213,34 @@ function drawRuler(ctx, x0, y, w) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-
-// Grafico 1: spettro a righe I(λ) con asse Y intensità
+// 1: spettro a righe I(λ): altezza = intensità relativa
 function drawLineSpectrum() {
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:16,b:20,l:30,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-
-  // asse Y: 0, 0.5, 1.0
-  ctx.fillStyle=T.gText; ctx.font='8px "Space Mono",monospace';
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4;
-  for (const iv of [0,0.5,1.0]) {
-    const yy=PAD.t+gH-iv*gH;
-    ctx.beginPath(); ctx.moveTo(PAD.l,yy); ctx.lineTo(PAD.l+gW,yy); ctx.stroke();
-    ctx.fillText(iv.toFixed(1), 4, yy+3);
-  }
-  ctx.fillText('I', 4, PAD.t-4);
-
+  const g=Lab.panel(gCanvas[0],{ title:`Spettro a righe di ${ELEMENTS[P.el].name}: intensità relativa`, xr:[WMIN(),WMAX()], xStep:P.fullRange?100:50, yr:[0,1], yStep:0.25, xLabel:'λ (nm)' });
+  if(!g) return; const [ctx,f]=g;
   for (const [l,inten] of windowLines()) {
-    const x=PAD.l+(l-WMIN())/(WMAX()-WMIN())*gW;
-    const [r,g,b]=colorForLine(l);
-    ctx.strokeStyle=`rgb(${r},${g},${b})`; ctx.lineWidth=1.4;
-    ctx.beginPath(); ctx.moveTo(x,PAD.t+gH); ctx.lineTo(x,PAD.t+gH-inten*gH); ctx.stroke();
+    const [r,gg,b]=colorForLine(l);
+    ctx.strokeStyle=`rgb(${r},${gg},${b})`; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(f.X(l),f.B); ctx.lineTo(f.X(l),f.Y(inten)); ctx.stroke();
   }
-  ctx.fillStyle=T.gText;
-  ctx.fillText(`${WMIN()}`,PAD.l,PAD.t+gH+11);
-  ctx.fillText(`${WMAX()} nm`,PAD.l+gW-34,PAD.t+gH+11);
 }
 
-// Grafico 2: energia delle transizioni E=hc/λ — righe orizzontali posizionate
-// per energia, dipendenti dall'elemento selezionato.
+// 2: energia del fotone E = hc/λ (≈ 1240 eV·nm / λ): righe blu e viola portano più energia
 function drawEnergyLevels() {
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:16,b:16,l:34,r:34};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-
-  const lines=windowLines().map(([l,inten])=>({l,inten,E:1240/l}));
-  if(!lines.length)return;
-  let Emin=Math.min(...lines.map(o=>o.E)), Emax=Math.max(...lines.map(o=>o.E));
-  const pad=Math.max(0.15,(Emax-Emin)*0.08); Emin-=pad; Emax+=pad;
-  const yOf=E=>PAD.t + (Emax-E)/(Emax-Emin)*gH;
-
-  // asse Y: tacche energia
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4;
-  const eStep=(Emax-Emin)/3;
-  for(let k=0;k<=3;k++){
-    const E=Emin+k*eStep, y=yOf(E);
-    ctx.beginPath(); ctx.moveTo(PAD.l,y); ctx.lineTo(PAD.l+gW,y); ctx.stroke();
-    ctx.fillText(E.toFixed(1), 3, y+3);
+  const lines=windowLines();
+  const g=Lab.panel(gCanvas[1],{ title:'Energia del fotone E = hc/λ (eV)', xr:[WMIN(),WMAX()], xStep:P.fullRange?100:50,
+    yr:[0,P.fullRange?14:4], yStep:P.fullRange?2:1, xLabel:'λ (nm)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,l=>1240/l,[WMIN(),WMAX()],f.C.text,1.2,[4,3]);
+  let lastX=-99;
+  for (const [l,inten] of [...lines].sort((a,b)=>b[1]-a[1])) {
+    const [r,gg,b]=colorForLine(l), E=1240/l;
+    Lab.dot(ctx,f,l,E,`rgb(${r},${gg},${b})`,2.5+2*inten);
   }
-  ctx.fillText('eV', 3, PAD.t-4);
-
-  const yGround=PAD.t+gH;   // stato di arrivo (riferimento basso)
-
-  // livello di arrivo
-  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4;
-  ctx.beginPath(); ctx.moveTo(PAD.l,yGround); ctx.lineTo(PAD.l+gW,yGround); ctx.stroke();
-
-  // frecce: dal livello di partenza (energia E) giù verso l'arrivo
-  const sorted=[...lines].sort((a,b)=>a.E-b.E);
-  const n=sorted.length;
-  let k=0, lastLabelX=-99;
-  for(const o of sorted){
-    const y=yOf(o.E);
-    const x=PAD.l+gW*(0.10+0.8*(n>1?k/(n-1):0.5)); k++;
-    const [r,g,b]=colorForLine(o.l);
-    // livello di partenza (tacca orizzontale)
-    ctx.strokeStyle=`rgb(${r},${g},${b})`; ctx.lineWidth=0.8+o.inten*1.5;
-    ctx.beginPath(); ctx.moveTo(x-7,y); ctx.lineTo(x+7,y); ctx.stroke();
-    // freccia verso il basso
-    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,yGround); ctx.stroke();
-    ctx.fillStyle=`rgb(${r},${g},${b})`;
-    ctx.beginPath(); ctx.moveTo(x,yGround); ctx.lineTo(x-3,yGround-5); ctx.lineTo(x+3,yGround-5); ctx.closePath(); ctx.fill();
-    // etichetta λ in cima, se non si sovrappone
-    if(o.inten>=0.25 && Math.abs(x-lastLabelX)>16){
-      lastLabelX=x;
-      ctx.font='7px "Space Mono",monospace';
-      ctx.fillText(`${o.l.toFixed(0)}`, x-8, y-3);
-    }
+  ctx.font='9px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle=f.C.title;
+  for (const [l,inten] of [...lines].sort((a,b)=>a[0]-b[0])) {
+    if (inten<0.3 || Math.abs(f.X(l)-lastX)<40) continue;
+    lastX=f.X(l); const E=1240/l;
+    if (f.Y(E)>f.T+14) ctx.fillText(Lab.fmt(E,2),f.X(l),f.Y(E)-10);
   }
 }
 
@@ -362,21 +301,8 @@ function initHover(canvas) {
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs() {
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:205px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Spettro a righe I(λ)','Transizioni: livelli → arrivo'];
-  for(let i=0;i<2;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 2, 205);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -387,10 +313,10 @@ function init() {
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'el',    label:'Elemento'},
-    {key:'lines', label:'Righe'},
-    {key:'strong',label:'Riga principale'},
-    {key:'hint',  label:''},
+    {key:'el',    label:'elemento'},
+    {key:'lines', label:'righe mostrate'},
+    {key:'strong',label:'riga più intensa'},
+    {key:'hint',  label:'bande'},
   ]);
 
   document.getElementById('btnMode').addEventListener('click',()=>{
@@ -413,9 +339,8 @@ function init() {
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea');
     const gaH=ga?ga.offsetHeight:0;
-    simCanvas.width=Math.floor(ar.width);
-    simCanvas.height=Math.max(120,Math.floor(ar.height-rb.height-gaH-4));
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(120,Math.floor(ar.height-rb.height-gaH-4)));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -428,7 +353,7 @@ function init() {
     const strong=lines.reduce((a,b)=>b[1]>a[1]?b:a,[0,0]);
     readout.set('el', `${P.el} · ${ELEMENTS[P.el].name}`);
     readout.set('lines', String(lines.length));
-    readout.set('strong', strong[0]?`${strong[0].toFixed(1)} nm`:'—');
+    readout.set('strong', strong[0]?`${Lab.fmt(strong[0],1)} nm · ${Lab.fmt(1240/strong[0],2)} eV`:'—');
     readout.set('hint', P.bothBands?'emissione + assorbimento':(P.mode==='emission'?'emissione':'assorbimento'));
     requestAnimationFrame(frame);
   }

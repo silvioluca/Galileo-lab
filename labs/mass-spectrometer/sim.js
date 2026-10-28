@@ -310,12 +310,12 @@ function drawGraphs() {
 function updateReadout() {
   const dr = Math.abs(r2 - r1);
   document.getElementById('readout').innerHTML = [
-    { label: 'r₁',  value: Lab.fmt((r1 * 100),2) + ' cm' },
-    { label: 'r₂',  value: Lab.fmt((r2 * 100),2) + ' cm' },
-    { label: 'Δr',  value: Lab.fmt((dr * 100),2) + ' cm' },
-    { label: 'Δx',  value: Lab.fmt((dr * 200),2) + ' cm' },
+    { label: 'raggio isotopo 1', value: Lab.fmt((r1 * 100),2) + ' cm' },
+    { label: 'raggio isotopo 2', value: Lab.fmt((r2 * 100),2) + ' cm' },
+    { label: 'differenza dei raggi', value: Lab.fmt((dr * 100),2) + ' cm' },
+    { label: 'distanza sulla lastra', value: Lab.fmt((dr * 200),2) + ' cm' },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 

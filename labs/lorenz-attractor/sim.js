@@ -171,8 +171,7 @@ function drawDot(ctx, p, hi, base) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -189,98 +188,48 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Attrattore di Lorenz', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`σ=${P.sigma.toFixed(1)}   ρ=${P.rho.toFixed(1)}   β=${P.beta.toFixed(2)}   t=${animT.toFixed(1)} s`, 14, 40);
+  ctx.fillText(`σ=${Lab.fmt(P.sigma,1)}   ρ=${Lab.fmt(P.rho,1)}   β=${Lab.fmt(P.beta,2)}   t=${Lab.fmt(animT,1)} s`, 14, 40);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText(regimeText() + ' — trascina per ruotare la vista', W / 2, H - 10);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: x(t) delle due traiettorie sovrapposte — finestra scorrevole FISSA (12s, mai ricalcolata sui
-// parametri): mostra le due curve identiche all'inizio, poi improvvisamente divergenti
+// Le equazioni di Lorenz sono adimensionali: tempi e coordinate non hanno unità.
+// 1: x(t) delle due traiettorie, finestra scorrevole fissa di 12: identiche all'inizio, poi divergono
 const GRAPH_WIN_T = 12;
 function drawGraphXY_t() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const XMAX = 26, zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  const xOf = t => PAD.l + (t - (animT - GRAPH_WIN_T)) / GRAPH_WIN_T * gW;
-  const yOf = v => zero - clamp(v / XMAX, -1, 1) * (gH * 0.46);
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  const drawSeries = (trail, col) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.3; ctx.beginPath();
-    let started = false;
-    for (let i = 0; i < trail.length; i++) { const p = trail[i]; if (p.t < animT - GRAPH_WIN_T) continue; const x = xOf(p.t), y = yOf(p.x); started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true; }
-    ctx.stroke();
-  };
-  drawSeries(trailA, '#00d4ff');
-  if (P.twin) drawSeries(trailB, '#ff9d4d');
-  ctx.restore();
-  ctx.fillStyle = '#00d4ff'; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('x(t)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t (s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const t0 = Math.max(0, animT - GRAPH_WIN_T);
+  const g = Lab.panel(gCanvas[0], { title: 'x(t): le due traiettorie a confronto', xr: [t0, t0 + GRAPH_WIN_T], yr: [-25, 25], yStep: 10, xLabel: 't' });
+  if (!g) return; const [ctx, f] = g;
+  const ser = tr => tr.filter(p => p.t >= t0).map(p => [p.t, p.x]);
+  Lab.plotPts(ctx, f, ser(trailA), '#00d4ff', 1.6);
+  if (P.twin) Lab.plotPts(ctx, f, ser(trailB), '#ff9d4d', 1.6);
 }
-// 2: distanza fra le due traiettorie gemelle, scala logaritmica — dominio X che cresce con animT
-// (accettabile: non è il parametro esplorato a determinarlo, è il tempo trascorso; l'effetto di
-// σ/ρ/β resta sempre visibile come pendenza/forma della curva, mai nascosto). Asse Y log FISSO
-// da 10⁻⁶ (perturbazione minima ammessa) al diametro tipico dell'attrattore.
+// 2: distanza fra le gemelle in scala log: cresce in modo esponenziale (retta) fino a saturare
 function drawGraphDivergence() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
+  const tMax = Math.max(animT, 1);
+  const g = Lab.panel(gCanvas[1], { title: 'Distanza fra le traiettorie gemelle (scala log)', xr: [0, tMax], yr: [1e-6, 100], yLog: true, xLabel: 't', yFmt: v => Lab.sci(v, 1) });
+  if (!g) return; const [ctx, f] = g;
   if (!P.twin) {
-    gBase(ctx, W, H, PAD);
-    ctx.fillStyle = T.gText; ctx.font = '8px "Space Mono",monospace'; ctx.textAlign = 'center';
-    ctx.fillText('attiva la traiettoria gemella', W / 2, H / 2);
+    ctx.fillStyle = f.C.text; ctx.font = '10.5px "DM Sans",sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('attiva la traiettoria gemella', (f.L + f.R) / 2, (f.T + f.B) / 2);
     return;
   }
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = Math.max(animT, 1), DMIN = 1e-6, DMAX = 60;
-  const logMin = Math.log10(DMIN), logMax = Math.log10(DMAX);
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW;
-  const yOf = d => PAD.t + gH - clamp((Math.log10(Math.max(d, DMIN)) - logMin) / (logMax - logMin), 0, 1) * gH;
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.3; ctx.beginPath();
-  const n = Math.min(trailA.length, trailB.length);
-  for (let i = 0; i < n; i++) {
-    const a = trailA[i], b = trailB[i];
-    const d = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-    const x = xOf(a.t), y = yOf(d);
-    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-  }
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('distanza fra gemelle (log)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t (s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const n = Math.min(trailA.length, trailB.length), pts = [];
+  for (let i = 0; i < n; i++) { const a = trailA[i], b = trailB[i]; pts.push([a.t, Math.max(1e-6, Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z))]); }
+  Lab.plotPts(ctx, f, pts, '#ff9d4d', 1.6);
 }
-// 3: proiezione pulita x–z, il classico profilo "a farfalla" — assi FISSI (range tipico del caso
-// ρ=28), coerente con la scelta di non riscalare la vista 3D sui parametri esplorati
+// 3: proiezione x–z, la classica "farfalla" (assi fissi del caso ρ = 28)
 function drawGraphButterfly() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 14, r: 10 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const XMAX = 26, ZMAX = 50;
-  const xOf = x => PAD.l + (x + XMAX) / (2 * XMAX) * gW;
-  const yOf = z => PAD.t + gH - clamp(z / ZMAX, 0, 1) * gH;
-  const drawSeries = (trail, col) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath();
-    trail.forEach((p, i) => { const x = xOf(p.x), y = yOf(p.z); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  };
-  drawSeries(trailA, 'rgba(0,212,255,0.7)');
-  if (P.twin) drawSeries(trailB, 'rgba(255,157,77,0.6)');
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('x', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('z', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[2], { title: 'Proiezione x–z (farfalla)', xr: [-25, 25], xStep: 10, yr: [0, 50], yStep: 10, xLabel: 'x' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, trailA.map(p => [p.x, p.z]), 'rgba(0,212,255,0.75)', 1);
+  if (P.twin) Lab.plotPts(ctx, f, trailB.map(p => [p.x, p.z]), 'rgba(255,157,77,0.65)', 1);
+  ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('z', f.L + 4, f.T + 8);
 }
-function drawGraphs() {
-  const titles = ['x(t): traiettorie a confronto', 'Divergenza fra le gemelle', 'Proiezione x–z (farfalla)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphXY_t(); drawGraphDivergence(); drawGraphButterfly();
-}
+function drawGraphs() { drawGraphXY_t(); drawGraphDivergence(); drawGraphButterfly(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -314,18 +263,11 @@ function buildReadout() {
   ]);
 }
 
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -368,9 +310,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -384,11 +325,11 @@ function init() {
     if (!P.paused) step(dt * P.speed);
     try {
       draw(simCanvas); drawGraphs();
-      readout.set('sigma', P.sigma.toFixed(1));
-      readout.set('rho', P.rho.toFixed(1));
-      readout.set('beta', P.beta.toFixed(2));
-      readout.set('dist', P.twin ? Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]).toExponential(2) : '—');
-      readout.set('t', animT.toFixed(1) + ' s');
+      readout.set('sigma', Lab.fmt(P.sigma,1));
+      readout.set('rho', Lab.fmt(P.rho,1));
+      readout.set('beta', Lab.fmt(P.beta,2));
+      readout.set('dist', P.twin ? Lab.sci(Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]),3) : '—');
+      readout.set('t', Lab.fmt(animT,1) + ' (adim.)');
       readout.set('regime', regimeShort());
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

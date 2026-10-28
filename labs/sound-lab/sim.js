@@ -184,7 +184,7 @@ function card(x, y, w, h, title, right) {
   text(title, x + 12, y + 14, { size: 10.5, color: C.muted });
   if (right) text(right, x + w - 12, y + 14, { size: 10.5, color: C.muted, align: 'right', mono: true });
 }
-const fmt = (v, d) => v.toFixed(d).replace('.', ',');
+const fmt = (v, d) => Lab.fmt(v, d);
 const fmtHz = f => f >= 1000 ? fmt(f / 1000, f >= 10000 ? 1 : 2) + ' kHz' : fmt(f, f < 100 ? 1 : 0) + ' Hz';
 
 // Scala delle frequenze (log o lineare) fra F_MIN e F_MAX
@@ -439,11 +439,11 @@ function drawScene() {
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(readoutEl, [
-  { key: 'src',  label: 'Sorgente' },
-  { key: 'dom',  label: 'Frequenza' },
-  { key: 'per',  label: 'Periodo' },
-  { key: 'lam',  label: 'λ nell\'aria' },
-  { key: 'lev',  label: 'Livello' },
+  { key: 'src',  label: 'sorgente' },
+  { key: 'dom',  label: 'frequenza dominante' },
+  { key: 'per',  label: 'periodo' },
+  { key: 'lam',  label: 'λ nell\'aria (343 m/s)' },
+  { key: 'lev',  label: 'livello' },
 ]);
 function updateReadout() {
   const on = audio && running;

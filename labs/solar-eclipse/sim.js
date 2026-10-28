@@ -494,11 +494,11 @@ function draw(canvas) {
   const d = jdToYMDH(jd);
   const hh = Math.floor(d.h), mm = Math.floor((d.h - hh) * 60), ss2 = Math.floor(((d.h - hh) * 60 - mm) * 60);
   const pad = v => String(v).padStart(2, '0');
-  ctx.fillText(`${d.y}-${pad(d.m)}-${pad(Math.floor(d.d))}  ${pad(hh)}:${pad(mm)}:${pad(ss2)} UT   lat ${P.lat.toFixed(1)}°  lon ${P.lon.toFixed(1)}°   copertura ${(ev.coverage * 100).toFixed(1)}%`, 14, 40);
+  ctx.fillText(`${d.y}-${pad(d.m)}-${pad(Math.floor(d.d))}  ${pad(hh)}:${pad(mm)}:${pad(ss2)} UT   lat ${Lab.fmt(P.lat,1)}°  lon ${Lab.fmt(P.lon,1)}°   copertura ${Lab.fmt((ev.coverage * 100),1)}%`, 14, 40);
   ctx.textAlign = 'right';
   ctx.fillText('vista dell\'osservatore · zenit in alto', W - 14, 22);
   ctx.fillStyle = '#dfe6f0'; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
-  ctx.fillText(`separazione Sole–Luna: ${ev.sep.toFixed(3)}°   raggio ang. Sole: ${ev.sunR.toFixed(3)}°   raggio ang. Luna: ${ev.moonR.toFixed(3)}° (dist. ${ev.moonDistTopo.toFixed(0)} km)`, cx, H - 8);
+  ctx.fillText(`separazione Sole–Luna: ${Lab.fmt(ev.sep,3)}°   raggio ang. Sole: ${Lab.fmt(ev.sunR,3)}°   raggio ang. Luna: ${Lab.fmt(ev.moonR,3)}° (dist. ${Lab.fmt(ev.moonDistTopo,0)} km)`, cx, H - 8);
   ctx.restore();
   return ev;
 }
@@ -533,59 +533,43 @@ const PRESETS = [
 ];
 
 // ═══ Grafici: tre curve statiche sull'intera giornata scelta (0-24h UT), con marcatore mobile ═══
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
 function dayCurve() {
   const jd0 = JD(P.year, P.month, P.day, 0);
   const pts = [];
   for (let k = 0; k <= 144; k++) { const h = k / 144 * 24; pts.push({ h, ev: eventAt(jd0 + h / 24, P.lat, P.lon) }); }
   return pts;
 }
+// ora UT del giorno scelto: asse comune ai tre grafici, con la linea dell'istante attuale
+const HX = { xr: [0, 24], xStep: 3, xLabel: 'ora UT' };
+function nowLine(ctx, f) { ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.text; ctx.beginPath(); ctx.moveTo(f.X(P.hour), f.T); ctx.lineTo(f.X(P.hour), f.B); ctx.stroke(); ctx.restore(); }
+// 1: altezza sull'orizzonte di Sole e Luna nel corso del giorno
 function drawGraphAltitudes(pts) {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 12, b: 14, l: 24, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const xOf = h => PAD.l + h / 24 * gW, yOf = a => PAD.t + gH - (clamp(a, -90, 90) + 90) / 180 * gH;
-  ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.beginPath(); ctx.moveTo(PAD.l, yOf(0)); ctx.lineTo(PAD.l + gW, yOf(0)); ctx.stroke();
-  ctx.strokeStyle = '#ffd24d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  pts.forEach((p, i) => { const x = xOf(p.h), y = yOf(p.ev.sunAlt); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
-  ctx.strokeStyle = '#9fb4ff'; ctx.lineWidth = 1.2; ctx.beginPath();
-  pts.forEach((p, i) => { const x = xOf(p.h), y = yOf(p.ev.moonAlt); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('alt°', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('h UT', PAD.l + gW - 2, PAD.t + gH - 3);
-  const cx = xOf(P.hour); ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.moveTo(cx, PAD.t); ctx.lineTo(cx, PAD.t + gH); ctx.stroke();
+  const g = Lab.panel(gCanvas[0], { ...HX, title: 'Altezza sull’orizzonte (°)', yr: [-90, 90], yStep: 30 });
+  if (!g) return; const [ctx, f] = g;
+  ctx.fillStyle = f.C.light ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)'; ctx.fillRect(f.L, f.Y(0), f.R - f.L, f.B - f.Y(0));
+  nowLine(ctx, f);
+  Lab.plotPts(ctx, f, pts.map(p => [p.h, p.ev.sunAlt]), '#ffb400', 2);
+  Lab.plotPts(ctx, f, pts.map(p => [p.h, p.ev.moonAlt]), '#9fb4ff', 1.6);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['#ffb400', 'Sole'], ['#9fb4ff', 'Luna']]);
 }
+// 2: distanza angolare fra i centri: c'è eclissi quando scende sotto la somma dei raggi apparenti (~0,5°)
 function drawGraphSeparation(pts) {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 12, b: 14, l: 24, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const maxSep = Math.max(0.6, ...pts.map(p => p.ev.sep)) * 1.08;
-  const xOf = h => PAD.l + h / 24 * gW, yOf = s => PAD.t + gH - clamp(s / maxSep, 0, 1) * gH;
-  ctx.strokeStyle = '#4dff9d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  pts.forEach((p, i) => { const x = xOf(p.h), y = yOf(p.ev.sep); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('sep°', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('h UT', PAD.l + gW - 2, PAD.t + gH - 3);
-  const cx = xOf(P.hour); ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.moveTo(cx, PAD.t); ctx.lineTo(cx, PAD.t + gH); ctx.stroke();
+  const g = Lab.panel(gCanvas[1], { ...HX, title: 'Distanza angolare Sole–Luna (°)', yr: [0, 15], yStep: 3 });
+  if (!g) return; const [ctx, f] = g;
+  ctx.fillStyle = 'rgba(255,157,77,0.18)'; ctx.fillRect(f.L, f.Y(0.53), f.R - f.L, f.B - f.Y(0.53));
+  nowLine(ctx, f);
+  Lab.plotPts(ctx, f, pts.map(p => [p.h, p.ev.sep]), '#4dff9d', 2);
+  ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('sotto ~0,5°: i dischi si sovrappongono', f.R - 4, f.T + 8);
 }
+// 3: frazione del disco solare coperta dalla Luna
 function drawGraphCoverage(pts) {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 12, b: 14, l: 24, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const xOf = h => PAD.l + h / 24 * gW, yOf = c => PAD.t + gH - clamp(c, 0, 1) * gH;
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  pts.forEach((p, i) => { const x = xOf(p.h), y = yOf(p.ev.coverage); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('copertura', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('h UT', PAD.l + gW - 2, PAD.t + gH - 3);
-  const cx = xOf(P.hour); ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.moveTo(cx, PAD.t); ctx.lineTo(cx, PAD.t + gH); ctx.stroke();
+  const g = Lab.panel(gCanvas[2], { ...HX, title: 'Copertura del disco solare (%)', yr: [0, 100], yStep: 25 });
+  if (!g) return; const [ctx, f] = g;
+  nowLine(ctx, f);
+  Lab.plotPts(ctx, f, pts.map(p => [p.h, p.ev.coverage * 100]), '#ff9d4d', 2);
 }
 function drawGraphs() {
-  const titles = ['Altezza Sole/Luna (giorno)', 'Separazione angolare (giorno)', 'Copertura del Sole (giorno)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
   const pts = dayCurve();
   drawGraphAltitudes(pts); drawGraphSeparation(pts); drawGraphCoverage(pts);
 }
@@ -646,7 +630,7 @@ function buildControls() {
     if (res) {
       const d = jdToYMDH(res.jd);
       P.year = d.y; P.month = d.m; P.day = Math.floor(d.d); P.hour = Math.round(d.h * 100) / 100;
-      lastSearchMsg = `${d.y}-${String(d.m).padStart(2, '0')}-${String(Math.floor(d.d)).padStart(2, '0')} ${d.h.toFixed(1)}h UT — eclissi ${res.ev.type} (copertura ${(res.ev.coverage * 100).toFixed(0)}%)`;
+      lastSearchMsg = `${d.y}-${String(d.m).padStart(2, '0')}-${String(Math.floor(d.d)).padStart(2, '0')} ${Lab.fmt(d.h,1)}h UT — eclissi ${res.ev.type} (copertura ${Lab.fmt((res.ev.coverage * 100),0)}%)`;
     } else {
       lastSearchMsg = 'nessuna eclissi trovata da qui nell\'orizzonte di ricerca';
     }
@@ -662,27 +646,20 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'data', label: 'Data e ora (UT)' },
-    { key: 'tipo', label: 'Tipo di eclissi' },
-    { key: 'copertura', label: 'Copertura del Sole' },
-    { key: 'sep', label: 'Separazione angolare' },
-    { key: 'altSole', label: 'Altezza del Sole' },
-    { key: 'distLuna', label: 'Distanza della Luna' },
+    { key: 'data', label: 'data e ora (UT)' },
+    { key: 'tipo', label: 'tipo di eclissi' },
+    { key: 'copertura', label: 'copertura del Sole' },
+    { key: 'sep', label: 'distanza angolare Sole–Luna' },
+    { key: 'altSole', label: 'altezza del Sole' },
+    { key: 'distLuna', label: 'distanza della Luna' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -697,7 +674,7 @@ function init() {
   if (first) {
     const d = jdToYMDH(first.jd);
     P.year = d.y; P.month = d.m; P.day = Math.floor(d.d); P.hour = Math.round(d.h * 100) / 100;
-    lastSearchMsg = `${d.y}-${String(d.m).padStart(2, '0')}-${String(Math.floor(d.d)).padStart(2, '0')} ${d.h.toFixed(1)}h UT — eclissi ${first.ev.type} (copertura ${(first.ev.coverage * 100).toFixed(0)}%)`;
+    lastSearchMsg = `${d.y}-${String(d.m).padStart(2, '0')}-${String(Math.floor(d.d)).padStart(2, '0')} ${Lab.fmt(d.h,1)}h UT — eclissi ${first.ev.type} (copertura ${Lab.fmt((first.ev.coverage * 100),0)}%)`;
     buildControls();
   }
 
@@ -721,9 +698,8 @@ function init() {
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width * dpr); simCanvas.height = Math.floor(h * dpr);
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -743,12 +719,12 @@ function init() {
     try {
       const ev = draw(simCanvas); drawGraphs();
       const d = jdToYMDH(currentJD());
-      readout.set('data', `${d.y}-${String(d.m).padStart(2, '0')}-${String(Math.floor(d.d)).padStart(2, '0')} ${d.h.toFixed(2)}h`);
+      readout.set('data', `${String(Math.floor(d.d)).padStart(2, '0')}/${String(d.m).padStart(2, '0')}/${d.y} ${String(Math.floor(d.h)).padStart(2, '0')}:${String(Math.floor((d.h % 1) * 60)).padStart(2, '0')}`);
       readout.set('tipo', ev.type);
-      readout.set('copertura', (ev.coverage * 100).toFixed(1) + '%');
-      readout.set('sep', ev.sep.toFixed(3) + '°');
-      readout.set('altSole', ev.sunAlt.toFixed(1) + '°');
-      readout.set('distLuna', ev.moonDistTopo.toFixed(0) + ' km');
+      readout.set('copertura', Lab.fmt(ev.coverage * 100, 1) + ' %');
+      readout.set('sep', Lab.fmt(ev.sep, 3) + '°');
+      readout.set('altSole', Lab.fmt(ev.sunAlt, 1) + '°');
+      readout.set('distLuna', Lab.fmt(ev.moonDistTopo, 0) + ' km');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

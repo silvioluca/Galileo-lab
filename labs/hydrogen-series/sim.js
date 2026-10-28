@@ -81,8 +81,7 @@ function activeTransitions(){
 
 // ═══ Diagramma principale ═════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx,W,H]=Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
 
   if(P.view==='orbits'){ drawOrbits(ctx,W,H); if(P.formulas) drawFormulas(ctx,W,H); return; }
@@ -94,16 +93,20 @@ function draw(canvas){
 
   // ── livelli energetici ──
   ctx.font='10px "Space Mono",monospace';
+  // i livelli alti si addensano verso E = 0: si etichettano solo quelli distanti almeno 12 px
+  let lastLabY=Infinity;
   for(let n=1;n<=P.niMax;n++){
     const y=yOf(En(n));
     ctx.strokeStyle=T.level; ctx.lineWidth = n===1?1.3:0.8;
     ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    if(lastLabY-y<12 || y-yOf(0)<12) continue;
+    lastLabY=y;
     ctx.fillStyle=T.sub; ctx.textAlign='right';
     ctx.fillText(`n=${n}`, padL-8, y+3);
     // energia a destra
     ctx.textAlign='left';
-    const val = P.energyUnit==='eV' ? En(n).toFixed(2)+' eV'
-                                    : (En(n)*eV_to_J*1e19).toFixed(2)+'×10⁻¹⁹ J';
+    const val = P.energyUnit==='eV' ? Lab.fmt(En(n),2)+' eV'
+                                    : Lab.fmt(En(n)*eV_to_J*1e19,2)+'·10⁻¹⁹ J';
     ctx.fillStyle=T.tick; ctx.fillText(val, W-padR+8, y+3);
   }
   // continuo n=∞ (E=0)
@@ -111,7 +114,7 @@ function draw(canvas){
   ctx.beginPath(); ctx.moveTo(padL,yOf(0)); ctx.lineTo(W-padR,yOf(0)); ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle=T.sub; ctx.textAlign='right'; ctx.fillText('n=∞', padL-8, yOf(0)+3);
   ctx.textAlign='left'; ctx.fillStyle=T.tick;
-  ctx.fillText(P.energyUnit==='eV'?'0.00 eV':'0.00 J', W-padR+8, yOf(0)+3);
+  ctx.fillText(P.energyUnit==='eV'?'0,00 eV':'0 J', W-padR+8, yOf(0)+3);
   ctx.textAlign='left';
 
   // ── colonne delle serie ──
@@ -145,8 +148,8 @@ function draw(canvas){
   });
   ctx.textAlign='left';
 
-  // ── formule ──
-  if(P.formulas) drawFormulas(ctx,W,H);
+  // ── formule: nello spazio libero fra n = 2 e n = 1, a destra delle frecce di Lyman ──
+  if(P.formulas) drawFormulas(ctx,W,H, padL+colW*1.15, (yOf(En(2))+yOf(En(1)))/2-40);
 }
 
 // ═══ Vista "orbite" (modello di Bohr) ════════════════════════════════════════
@@ -194,7 +197,7 @@ function drawOrbits(ctx,W,H){
       ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
       // etichetta λ all'estremo esterno
       ctx.fillStyle=T.txt; ctx.font='8px "Space Mono",monospace';
-      const fmt=tr.l>=1000?(tr.l/1000).toFixed(0)+'µm':tr.l.toFixed(0)+'nm';
+      const fmt=tr.l>=1000?Lab.fmt(tr.l/1000,2)+' µm':Lab.fmt(tr.l,0)+' nm';
       ctx.fillText(fmt, x1+Math.cos(a)*4-6, y1+Math.sin(a)*4);
     });
     // nome serie al bordo del ventaglio
@@ -207,17 +210,17 @@ function drawOrbits(ctx,W,H){
   }
 }
 
-function drawFormulas(ctx,W,H){
+function drawFormulas(ctx,W,H,bx,by){
   const lines=[
     'Formula di Rydberg:',
     '  1/λ = R_H ( 1/n_f² − 1/n_i² )',
-    '  R_H = 1.097×10⁷ m⁻¹',
+    '  R_H = 1,097·10⁷ m⁻¹',
     'Energia livelli:',
-    '  E_n = −13.6 / n²  eV',
+    '  E_n = −13,6 / n²  eV',
     'Energia fotone emesso:',
     '  ΔE = E_i − E_f = h c / λ',
   ];
-  const x=14, y0=H-lines.length*13-12, w=232, h=lines.length*13+10;
+  const x=bx??14, y0=by??H-lines.length*13-12, w=232, h=lines.length*13+10;
   ctx.save();
   ctx.fillStyle=T.box;
   ctx.fillRect(x-6,y0-12,w,h);
@@ -230,63 +233,41 @@ function drawFormulas(ctx,W,H){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
+// asse λ logaritmico: le righe vanno da ~91 nm (Lyman) a ~7,5 µm (Pfund)
+const L_MIN=80, L_MAX=10000;
+const fmtL=v=>v>=1000?Lab.fmt(v/1000,0)+' µm':Lab.fmt(v,0)+' nm';
+function spectrumPanel(i,title){
+  const g=Lab.panel(gCanvas[i],{ title, xr:[L_MIN,L_MAX], xLog:true, xFmt:fmtL, yr:[0,1], yStep:1e9, yFmt:()=>'', padL:14, padR:22 });
+  if(!g) return null; const [ctx,f]=g;
+  ctx.fillStyle='#04060c'; ctx.fillRect(f.L,f.T,f.R-f.L,f.B-f.T);
+  return g;
 }
-
-// Grafico 1: spettro di emissione (le righe abilitate), scala log su λ
+function visBand(ctx,f,full){
+  for(let x=Math.floor(f.X(VIS_MIN)); x<f.X(VIS_MAX); x++){
+    const l=Math.pow(10, Math.log10(L_MIN)+(x-f.L)/(f.R-f.L)*Math.log10(L_MAX/L_MIN));
+    const [r,g,b]=nmToRgb(l); ctx.fillStyle=full?`rgb(${r},${g},${b})`:`rgba(${r},${g},${b},0.12)`; ctx.fillRect(x,f.T,1.5,f.B-f.T);
+  }
+}
+// 1: spettro di emissione — righe colorate su fondo nero; la fascia tenue è il visibile
 function drawSpectrum(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  ctx.fillStyle='#04060c'; ctx.fillRect(0,0,W,H);
-  const x0=8,w=W-16,y=18,h=H-40;
-  // scala log perché va da ~90nm (Lyman) a ~7000nm (Pfund)
-  const lmin=90,lmax=7500;
-  const xOf=l=>x0+(Math.log10(l)-Math.log10(lmin))/(Math.log10(lmax)-Math.log10(lmin))*w;
-  // banda visibile evidenziata
-  ctx.fillStyle='rgba(255,255,255,0.06)';
-  ctx.fillRect(xOf(VIS_MIN),y,xOf(VIS_MAX)-xOf(VIS_MIN),h);
-  for(const t of activeTransitions()){
-    const x=xOf(t.l); const [r,g,b]=lineColor(t.l);
-    ctx.strokeStyle=`rgb(${r},${g},${b})`; ctx.lineWidth=1.2;
-    ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x,y+h); ctx.stroke();
-  }
-  ctx.fillStyle='rgba(205,218,238,0.75)'; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center';
-  for(const l of [100,200,500,1000,2000,5000]) ctx.fillText(l>=1000?(l/1000)+'µm':l+'', xOf(l), H-4);
-  ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,0.5)';
-  ctx.fillText('visibile', xOf(480)-12, 12);
+  const g=spectrumPanel(0,'Spettro di emissione (scala logaritmica)'); if(!g) return; const [ctx,f]=g;
+  visBand(ctx,f,false);
+  for(const t of activeTransitions()){ const [r,gg,b]=lineColor(t.l); ctx.strokeStyle=`rgb(${r},${gg},${b})`; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(f.X(t.l),f.T); ctx.lineTo(f.X(t.l),f.B); ctx.stroke(); }
+  ctx.fillStyle='rgba(255,255,255,0.7)'; ctx.font='9px "DM Sans",sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('visibile',(f.X(VIS_MIN)+f.X(VIS_MAX))/2,f.T+8);
 }
-
-// Grafico 2: spettro di assorbimento (continuo + righe scure)
+// 2: spettro di assorbimento — luce continua con righe scure alle stesse λ dell'emissione
 function drawAbsorption(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  ctx.fillStyle='#04060c'; ctx.fillRect(0,0,W,H);
-  const x0=8,w=W-16,y=18,h=H-40;
-  const lmin=90,lmax=7500;
-  const xOf=l=>x0+(Math.log10(l)-Math.log10(lmin))/(Math.log10(lmax)-Math.log10(lmin))*w;
-  // continuo arcobaleno solo nel visibile, grigio altrove
-  for(let px=0;px<w;px++){
-    const l=Math.pow(10, Math.log10(lmin)+(px/w)*(Math.log10(lmax)-Math.log10(lmin)));
-    if(l>=VIS_MIN&&l<=VIS_MAX){ const [r,g,b]=nmToRgb(l); ctx.fillStyle=`rgb(${r},${g},${b})`; }
-    else ctx.fillStyle='#11151c';
-    ctx.fillRect(x0+px,y,1,h);
-  }
-  // righe scure di assorbimento
+  const g=spectrumPanel(1,'Spettro di assorbimento (scala logaritmica)'); if(!g) return; const [ctx,f]=g;
+  ctx.fillStyle='#1a2230'; ctx.fillRect(f.L,f.T,f.R-f.L,f.B-f.T);
+  visBand(ctx,f,true);
   for(const t of activeTransitions()){
-    const x=xOf(t.l);
-    if(t.l>=VIS_MIN&&t.l<=VIS_MAX) ctx.fillStyle='rgba(0,0,0,0.9)';
-    else { const [r,g,b]=lineColor(t.l); ctx.fillStyle=`rgb(${r},${g},${b})`; }
-    ctx.fillRect(x-0.7,y,1.4,h);
+    const x=f.X(t.l);
+    if(t.l>=VIS_MIN&&t.l<=VIS_MAX) ctx.fillStyle='rgba(0,0,0,0.92)';
+    else { const [r,gg,b]=lineColor(t.l); ctx.fillStyle=`rgba(${r},${gg},${b},0.9)`; }
+    ctx.fillRect(x-0.8,f.T,1.6,f.B-f.T);
   }
-  ctx.strokeStyle='rgba(150,180,210,0.35)'; ctx.strokeRect(x0,y,w,h);
-  ctx.fillStyle='rgba(205,218,238,0.75)'; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center';
-  for(const l of [100,200,500,1000,2000,5000]) ctx.fillText(l>=1000?(l/1000)+'µm':l+'', xOf(l), H-4);
-  ctx.textAlign='left';
 }
 
 function drawGraphs(){ drawSpectrum(); drawAbsorption(); }
@@ -320,21 +301,8 @@ function buildControls(){
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:120px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Spettro emissione (log λ)','Spettro assorbimento (log λ)'];
-  for(let i=0;i<2;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 2, 120);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -345,10 +313,10 @@ function init(){
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'series', label:'Serie attive'},
-    {key:'lines',  label:'Righe mostrate'},
-    {key:'range',  label:'Regioni'},
-    {key:'hint',   label:''},
+    {key:'series', label:'serie attive'},
+    {key:'lines',  label:'righe mostrate'},
+    {key:'range',  label:'regioni'},
+    {key:'hint',   label:'riga Hα (3 → 2)'},
   ]);
 
   document.getElementById('btnFormulas').addEventListener('click',()=>{ P.formulas=!P.formulas; buildControls(); });
@@ -364,9 +332,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea');
     const gaH=ga?ga.offsetHeight:0;
-    simCanvas.width=Math.floor(ar.width);
-    simCanvas.height=Math.max(160,Math.floor(ar.height-rb.height-gaH-4));
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(160,Math.floor(ar.height-rb.height-gaH-4)));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -381,7 +348,7 @@ function init(){
     readout.set('series', String(activeSeries.size));
     readout.set('lines', String(trans.length));
     readout.set('range', regs.join(' · ')||'—');
-    readout.set('hint', 'frecce: transizioni n_i → n_f');
+    readout.set('hint', `${Lab.fmt(lambdaNm(2,3),1)} nm · ${Lab.fmt(En(3)-En(2),2)} eV`);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

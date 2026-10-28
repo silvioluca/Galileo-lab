@@ -75,7 +75,7 @@ function noteInfo(m) {
   return { m, k, f, c, dev: c - ET[k], frac: t.fracs ? t.fracs[k] : null, ratio: Math.pow(2, c / 1200) };
 }
 const noteName = m => (P.english ? NAMES_EN : NAMES_IT)[m % 12] + (Math.floor(m / 12) - 1);
-const fmt = (v, d) => v.toFixed(d).replace('.', ',');
+const fmt = (v, d) => Lab.fmt(v, d);
 const signed = (v, d) => (v > 0.005 ? '+' : v < -0.005 ? '−' : '±') + fmt(Math.abs(v), d);
 
 // ── Audio ────────────────────────────────────────────────────────────────────
@@ -636,11 +636,11 @@ function drawBottom() {
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(readoutEl, [
-  { key: 'temp',  label: 'Temperamento' },
-  { key: 'tonic', label: 'Tonica' },
+  { key: 'temp',  label: 'temperamento' },
+  { key: 'tonic', label: 'tonica' },
   { key: 'a4',    label: 'La4 effettivo' },
-  { key: 'fifth', label: 'Quinta (vs 3/2)' },
-  { key: 'third', label: 'Terza magg. (vs 5/4)' },
+  { key: 'fifth', label: 'quinta (rispetto a 3/2)' },
+  { key: 'third', label: 'terza maggiore (rispetto a 5/4)' },
 ]);
 function updateReadout() {
   const t = TEMPERAMENTS[P.temp];

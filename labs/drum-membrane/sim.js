@@ -198,8 +198,7 @@ function drawMembrane(ctx, t) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -213,81 +212,44 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Membrana Vibrante — onde stazionarie su un tamburo circolare', 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`modo (m=${D.m}, n=${D.n})   f=${D.freq.toFixed(1)} Hz   ${D.n - 1} linee nodali circolari, ${D.m} diametrali`, 14, 36);
+  ctx.fillText(`modo (m=${D.m}, n=${D.n})   f = ${Lab.fmt(D.freq, 1)} Hz   ${D.n - 1} linee nodali circolari, ${D.m} diametrali`, 14, 36);
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText('trascina per ruotare, rotellina per zoomare — la cadenza mostrata è rallentata per essere visibile (un tamburo vero vibra a decine/centinaia di Hz)', W / 2, H - 8);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: forma radiale del modo — J_m(j_mn·ρ), forma chiusa. Inviluppo statico tratteggiato +
-// forma istantanea (scalata dalla fase corrente) in evidenza, con le linee nodali marcate.
+// 1: forma radiale del modo J_m(j_mn·r/R): tratteggiato l'inviluppo, pieno la forma istantanea; i punti sono i nodi
 function drawGraphProfile() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 20, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   const N = 160, vals = []; let maxAbs = 1e-6;
   for (let i = 0; i <= N; i++) { const v = besselJ(D.m, D.jmn * (i / N)); vals.push(v); maxAbs = Math.max(maxAbs, Math.abs(v)); }
-  const xOf = rho => PAD.l + rho * gW;
-  const yOf = v => PAD.t + gH / 2 - clamp(v / maxAbs, -1, 1) * (gH / 2 - 2);
-  ctx.setLineDash([2, 2]); ctx.strokeStyle = 'rgba(150,180,210,0.4)'; ctx.lineWidth = 1;
-  ctx.beginPath(); vals.forEach((v, i) => { const x = xOf(i / N), y = yOf(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
-  ctx.setLineDash([]);
-  const phase = Math.cos(TWO * VISUAL_FREQ * animT);
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.6;
-  ctx.beginPath(); vals.forEach((v, i) => { const x = xOf(i / N), y = yOf(v * phase); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,157,77,0.9)';
-  D.nodalRadii.concat([1]).forEach(rho => { const x = xOf(rho); ctx.beginPath(); ctx.arc(x, PAD.t + gH / 2, 2, 0, TWO); ctx.fill(); });
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('forma radiale', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('ρ=r/R', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[0], { title: `Forma radiale del modo: J${D.m}(j·r/R)`, xr: [0, 1], xStep: 0.25, yr: [-1, 1], yStep: 0.5, xLabel: 'r/R' });
+  if (!g) return; const [ctx, f] = g;
+  const phase = Math.cos(TWO * VISUAL_FREQ * animT), at = r => vals[Math.round(r * N)] / maxAbs;
+  Lab.plot(ctx, f, at, [0, 1], f.C.text, 1, [3, 3], N);
+  Lab.plot(ctx, f, r => at(r) * phase, [0, 1], '#00d4ff', 2, [], N);
+  D.nodalRadii.concat([1]).forEach(rho => Lab.dot(ctx, f, rho, 0, '#ff9d4d', 3.5));
 }
-// 2: spostamento nel tempo in un punto di riferimento (l'antinodo del modo corrente) — la classica onda stazionaria "che respira" in un punto fisso
+// 2: spostamento nel tempo nell'antinodo: l'onda stazionaria "respira" in un punto fisso
 function drawGraphTime() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 20, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const WIN = 10, t0 = Math.max(0, animT - WIN);
-  const xOf = t => PAD.l + clamp((t - t0) / WIN, 0, 1) * gW;
-  const yOf = u => PAD.t + gH / 2 - clamp(u / VISUAL_AMPLITUDE, -1, 1) * (gH / 2 - 2);
-  ctx.strokeStyle = 'rgba(150,180,210,0.25)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t + gH / 2); ctx.lineTo(PAD.l + gW, PAD.t + gH / 2); ctx.stroke();
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.u); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke(); ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('spostamento nel punto di riferimento', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const WIN = 10, t1 = Math.max(animT, WIN);
+  const g = Lab.panel(gCanvas[1], { title: 'Spostamento nel punto di massima ampiezza', xr: [t1 - WIN, t1], xStep: 2, xFmt: () => '', yr: [-1, 1], yStep: 0.5, xLabel: 'tempo (rallentato) →' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.u / VISUAL_AMPLITUDE]), '#ff9d4d', 1.8);
 }
-// 3: spettro dei modi — a differenza di una corda (armoniche a multipli interi della fondamentale),
-// le frequenze proprie di un tamburo sono fissate dagli zeri delle funzioni di Bessel: NON cadono
-// su multipli interi. Grafico FISSO (dipende solo dalla geometria, non da R/T/σ), col modo corrente in evidenza.
+// 3: spettro dei modi — a differenza di una corda, le frequenze del tamburo NON sono multipli interi
+//    della fondamentale (sono fissate dagli zeri di Bessel). Le linee tratteggiate sono le armoniche intere.
 function drawGraphSpectrum() {
-  const cv = gCanvas[2]; if (!cv || !cv.width || !SPECTRUM_MODES.length) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 20, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
+  if (!SPECTRUM_MODES.length) return;
   const j01 = SPECTRUM_MODES.find(s => s.m === 0 && s.n === 1).jmn;
-  const maxRatio = Math.max(...SPECTRUM_MODES.map(s => s.jmn / j01)) * 1.08;
-  const xOf = r => PAD.l + clamp(r / maxRatio, 0, 1) * gW;
-  const yOf = m => PAD.t + gH - (m / 4) * gH;
-  SPECTRUM_MODES.forEach(s => {
-    const isCur = s.m === P.m && s.n === P.n, x = xOf(s.jmn / j01), y = yOf(s.m);
-    ctx.fillStyle = isCur ? '#ff9d4d' : 'rgba(0,212,255,0.55)';
-    ctx.beginPath(); ctx.arc(x, y, isCur ? 4 : 2.4, 0, TWO); ctx.fill();
-  });
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('righe = m, non armonico', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('f/f₀₁', PAD.l + gW - 2, PAD.t + gH - 3);
+  const maxR = Math.ceil(Math.max(...SPECTRUM_MODES.map(s => s.jmn / j01)) + 0.2);
+  const g = Lab.panel(gCanvas[2], { title: 'Frequenze dei modi f/f₀₁ (non armoniche)', xr: [0, maxR], xStep: 1, yr: [-0.5, 4.5], yStep: 1, xLabel: 'f / f₀₁', yFmt: v => 'm=' + Lab.fmt(v, 0), padL: 40 });
+  if (!g) return; const [ctx, f] = g;
+  ctx.save(); ctx.setLineDash([2, 3]); ctx.strokeStyle = f.C.amber; ctx.globalAlpha = 0.5;
+  for (let k = 1; k <= maxR; k++) { ctx.beginPath(); ctx.moveTo(f.X(k), f.T); ctx.lineTo(f.X(k), f.B); ctx.stroke(); }
+  ctx.restore();
+  SPECTRUM_MODES.forEach(s => { const cur = s.m === P.m && s.n === P.n; Lab.dot(ctx, f, s.jmn / j01, s.m, cur ? '#ff9d4d' : 'rgba(0,212,255,0.7)', cur ? 5 : 3); });
 }
-function drawGraphs() {
-  const titles = ['Forma radiale del modo', 'Oscillazione nel tempo', 'Spettro dei modi'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphProfile(); drawGraphTime(); drawGraphSpectrum();
-}
+function drawGraphs() { drawGraphProfile(); drawGraphTime(); drawGraphSpectrum(); }
 
 // ═══ Passo di simulazione ═══════════════════════════════════════════════════
 function step(dt) {
@@ -317,27 +279,20 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'modo', label: 'Modo (m,n)' },
-    { key: 'freq', label: 'Frequenza propria' },
-    { key: 'nota', label: 'Nota più vicina' },
-    { key: 'c', label: 'Velocità onda' },
-    { key: 'nodCirc', label: 'Linee nodali circolari' },
-    { key: 'nodDiam', label: 'Linee nodali diametrali' },
+    { key: 'modo', label: 'modo (m, n)' },
+    { key: 'freq', label: 'frequenza propria' },
+    { key: 'nota', label: 'nota più vicina' },
+    { key: 'c', label: 'velocità delle onde' },
+    { key: 'nodCirc', label: 'cerchi nodali' },
+    { key: 'nodDiam', label: 'diametri nodali' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -380,9 +335,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -397,9 +351,9 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       readout.set('modo', `m=${D.m}, n=${D.n}`);
-      readout.set('freq', D.freq.toFixed(1) + ' Hz');
+      readout.set('freq', Lab.fmt(D.freq, 1) + ' Hz');
       readout.set('nota', noteName(D.freq));
-      readout.set('c', D.c.toFixed(0) + ' m/s');
+      readout.set('c', Lab.fmt(D.c, 0) + ' m/s');
       readout.set('nodCirc', String(D.n - 1));
       readout.set('nodDiam', String(D.m));
     } catch (err) { console.error(err); }

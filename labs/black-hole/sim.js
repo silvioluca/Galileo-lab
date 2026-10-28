@@ -34,7 +34,9 @@ function loadMilkyway() {
     tmp.width = W; tmp.height = H;
     const tc = tmp.getContext('2d');
     tc.drawImage(img, 0, 0, W, H);
-    const id = tc.getImageData(0, 0, W, H);
+    // aprendo la pagina da file:// il browser vieta di leggere i pixel dell'immagine: si resta sul fondo stellato
+    let id;
+    try { id = tc.getImageData(0, 0, W, H); } catch (e) { return; }
     mwData = { px: id.data, W, H };
     invalidateLens();
     if (SW > 0 && GW > 0) draw();
@@ -286,7 +288,7 @@ function drawLightRay(c, M, cx, cy, scale) {
     const [ex, ey] = pts[pts.length - 1];
     const sx = cx + ex*scale, sy_ = cy - ey*scale;
     if (!isNaN(alpha_r) && sx > 0 && sx < SW && sy_ > 0 && sy_ < SH) {
-      const deg = (alpha_r * 180 / Math.PI).toFixed(1);
+      const deg = Lab.fmt((alpha_r * 180 / Math.PI),1);
       c.font = '9px Space Mono'; c.fillStyle = dark?'rgba(255,228,55,0.80)':'rgba(140,100,0,0.80)';
       c.textAlign = 'left'; c.textBaseline = 'middle';
       c.fillText(`α = ${deg}°`, sx+7, sy_);
@@ -476,8 +478,8 @@ function drawScene() {
     ctx.fillText('ergosfera', cx + rergo*scale + 5, cy);
   }
   ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillStyle = 'rgba(200,220,255,0.45)';
-  ctx.fillText(`ombra  r_s = ${RS(M).toFixed(0)} M`, SW-10, SH-10);
-  ctx.fillText(`anello fotonico  b_c = ${bc.toFixed(2)} M`, SW-10, SH-22);
+  ctx.fillText(`ombra  r_s = ${Lab.fmt(RS(M),0)} M`, SW-10, SH-10);
+  ctx.fillText(`anello fotonico  b_c = ${Lab.fmt(bc,2)} M`, SW-10, SH-22);
 
   ctx.restore();
 
@@ -485,11 +487,11 @@ function drawScene() {
   if (orbitState) {
     const [r,,rdot] = orbitState, vphi = OP.L*M/(r*r);
     document.getElementById('readout').innerHTML =
-      `<span class="readout-cell"><span class="readout-label">r</span><span class="readout-value">${r.toFixed(2)} M</span></span>`+
-      `<span class="readout-cell"><span class="readout-label">ṙ</span><span class="readout-value">${rdot.toFixed(3)}</span></span>`+
-      `<span class="readout-cell"><span class="readout-label">v_φ</span><span class="readout-value">${vphi.toFixed(4)}</span></span>`+
-      `<span class="readout-cell"><span class="readout-label">L</span><span class="readout-value">${OP.L.toFixed(2)} M</span></span>`+
-      `<span class="readout-cell"><span class="readout-label">E²</span><span class="readout-value">${OP.E2.toFixed(3)}</span></span>`;
+      `<span class="readout-cell"><span class="readout-label">distanza r</span><span class="readout-value">${Lab.fmt(r,2)} M</span></span>`+
+      `<span class="readout-cell"><span class="readout-label">velocità radiale dr/dτ</span><span class="readout-value">${Lab.fmt(rdot,3)}</span></span>`+
+      `<span class="readout-cell"><span class="readout-label">velocità angolare d<span class="nc">φ</span>/d<span class="nc">τ</span></span><span class="readout-value">${Lab.fmt(vphi,4)}</span></span>`+
+      `<span class="readout-cell"><span class="readout-label">momento angolare L</span><span class="readout-value">${Lab.fmt(OP.L,2)} M</span></span>`+
+      `<span class="readout-cell"><span class="readout-label">energia E²</span><span class="readout-value">${Lab.fmt(OP.E2,3)}</span></span>`;
   } else {
     document.getElementById('readout').innerHTML = '';
   }
@@ -525,9 +527,9 @@ function drawDeflGraph(x0, panelW) {
   gctx.beginPath();gctx.moveTo(x0+panelW-0.5,4);gctx.lineTo(x0+panelW-0.5,GH-4);gctx.stroke();
   gctx.font='8px Space Mono'; gctx.fillStyle=dark?'#80a0c0':'#506080';
   gctx.textAlign='right'; gctx.textBaseline='middle';
-  [0,.5,1].forEach(t=>{const a=alphaMax*(1-t); gctx.fillText(a<0.01?'0':a.toFixed(2),x0+pad.l-3,pad.t+H*t);});
+  [0,.5,1].forEach(t=>{const a=alphaMax*(1-t); gctx.fillText(a<0.01?'0':Lab.fmt(a,2),x0+pad.l-3,pad.t+H*t);});
   gctx.textAlign='center'; gctx.textBaseline='top';
-  gctx.fillText('b_cr',xB(bMin),pad.t+H+3); gctx.fillText(`${bMax.toFixed(0)} M`,x0+pad.l+W,pad.t+H+3);
+  gctx.fillText('b_cr',xB(bMin),pad.t+H+3); gctx.fillText(`${Lab.fmt(bMax,0)} M`,x0+pad.l+W,pad.t+H+3);
   gctx.fillStyle=dark?'#608090':'#405060'; gctx.fillText('α(b)  [rad]',x0+pad.l+W/2,pad.t-2);
   gctx.restore();
 }
@@ -572,9 +574,9 @@ function drawOrbitGraph(x0, panelW) {
   gctx.beginPath();gctx.moveTo(x0+pad.l,pad.t);gctx.lineTo(x0+pad.l,pad.t+H);gctx.lineTo(x0+pad.l+W,pad.t+H);gctx.stroke();
   gctx.font='8px Space Mono'; gctx.fillStyle=dark?'#80a0c0':'#506080';
   gctx.textAlign='right'; gctx.textBaseline='middle';
-  [0,.5,1].forEach(t=>{const v=v2Max*(1-t); gctx.fillText(v.toFixed(2),x0+pad.l-3,pad.t+H*t);});
+  [0,.5,1].forEach(t=>{const v=v2Max*(1-t); gctx.fillText(Lab.fmt(v,2),x0+pad.l-3,pad.t+H*t);});
   gctx.fillStyle=dark?'rgba(0,255,120,0.85)':'rgba(0,160,60,0.85)'; gctx.textAlign='left'; gctx.textBaseline='middle';
-  gctx.fillText(`E²=${E2.toFixed(3)}`,x0+pad.l+4,yE2-6);
+  gctx.fillText(`E²=${Lab.fmt(E2,3)}`,x0+pad.l+4,yE2-6);
   gctx.fillStyle=dark?'#608090':'#405060'; gctx.textAlign='center'; gctx.textBaseline='top';
   gctx.fillText('V²eff(r)',x0+pad.l+W/2,pad.t-2);
   gctx.restore();
@@ -650,7 +652,7 @@ function drawFlammGraph(x0, panelW) {
   const tp = project(rs, 0);
   gctx.fillStyle = dark ? 'rgba(255,120,0,0.80)' : 'rgba(200,60,0,0.80)';
   gctx.textAlign = 'left'; gctx.textBaseline = 'middle';
-  gctx.fillText(`r_s=${rs.toFixed(1)}M`, tp.x + 4, tp.y);
+  gctx.fillText(`r_s=${Lab.fmt(rs,1)}M`, tp.x + 4, tp.y);
 
   gctx.restore();
 }

@@ -8,7 +8,7 @@ const TUBE_LEN = 3.0;      // effective physical length for particle speed (m)
 const FLUIDS = {
   acqua: { rho: 1000,  label: 'Acqua',        hint: '1000 kg/m³' },
   olio:  { rho: 900,   label: 'Olio minerale', hint: '900 kg/m³'  },
-  aria:  { rho: 1.225, label: 'Aria',           hint: '1.2 kg/m³'  },
+  aria:  { rho: 1.225, label: 'Aria',           hint:'1,2 kg/m³'  },
 };
 
 const params = {
@@ -198,7 +198,7 @@ function drawScene() {
     ctx.strokeStyle = tickCol; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(TL - 16, cy); ctx.lineTo(TL - 5, cy); ctx.stroke();
     ctx.fillStyle = tickLblC;
-    ctx.fillText(y.toFixed(1), TL - 18, cy + 3);
+    ctx.fillText(Lab.fmt(y,1), TL - 18, cy + 3);
   }
   // y-axis label
   const midYpx = BASELINE - Math.max(params.y1, params.y2) * YPXM * 0.5;
@@ -223,7 +223,7 @@ function drawScene() {
       const mid = (cyBot + 4 + BASELINE) / 2;
       ctx.fillStyle = tickLblC;
       ctx.font = '700 9px Space Mono, monospace'; ctx.textAlign = 'center';
-      ctx.fillText('y' + sub + '=' + phy_y.toFixed(1) + ' m', cx + (t === 0 ? 20 : -20), mid);
+      ctx.fillText('y' + sub + '=' + Lab.fmt(phy_y,1) + ' m', cx + (t === 0 ? 20 : -20), mid);
     }
   });
 
@@ -320,7 +320,7 @@ function drawScene() {
     ctx.fillRect(mx - barW / 2, fillY, barW, barH);
     ctx.fillStyle = isLow ? '#ff7070' : col.accent;
     ctx.font = 'bold 10px Space Mono, monospace'; ctx.textAlign = 'center';
-    ctx.fillText((P / 1000).toFixed(1) + ' kPa', mx, boxY - 4);
+    ctx.fillText(Lab.fmt((P / 1000),1) + ' kPa', mx, boxY - 4);
     ctx.fillStyle = col.muted; ctx.font = '9px Space Mono, monospace';
     ctx.fillText('P' + sub, mx, boxY - 14);
 
@@ -342,7 +342,7 @@ function drawScene() {
     ctx.closePath(); ctx.fillStyle = '#ffaa44'; ctx.fill();
     ctx.fillStyle = '#ffaa44';
     ctx.font = '10px Space Mono, monospace'; ctx.textAlign = 'center';
-    ctx.fillText(V.toFixed(2) + ' m/s', mx, arY + 15);
+    ctx.fillText(Lab.fmt(V,2) + ' m/s', mx, arY + 15);
   });
 
   // ── Cavitation warning ────────────────────────────────────────────────────
@@ -378,7 +378,7 @@ function fmtTick(v) {
   if (v === 0) return '0';
   const a = Math.abs(v);
   const s = a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : a >= 1 ? v.toFixed(1) : v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 // ── Shared bar-chart panel ────────────────────────────────────────────────────

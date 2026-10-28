@@ -158,7 +158,7 @@ function card(c, x, y, w, h, title) {
   c.beginPath(); c.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 8); c.fill(); c.stroke();
   if (title) text(c, title, x + 12, y + 14, { size: 10.5, color: C.muted, align: 'left' });
 }
-const fmt = (v, d = 1) => v.toFixed(d).replace('.', ',');
+const fmt = (v, d = 1) => Lab.fmt(v, d);
 const fmtLen = m => m >= 1 ? `${fmt(m, 2)} m` : `${Math.round(m * 100)} cm`;
 const fmtHz = f => f >= 1000 ? `${fmt(f / 1000, 2)} kHz` : `${fmt(f, f < 100 ? 1 : 0)} Hz`;
 const SYSTEM_NAME = { string: 'Corda fissata (esperimento di Melde)', 'closed-open': 'Tubo chiuso–aperto', 'open-open': 'Tubo aperto–aperto' };
@@ -936,12 +936,12 @@ document.getElementById('btnReset').addEventListener('click', () => {
 Lab.initTheme();
 buildControls();
 readout = new Lab.Readout(readoutEl, [
-  { key: 'freq',   label: 'FORZANTE f' },
-  { key: 'speed',  label: 'VELOCITÀ v' },
+  { key: 'freq',   label: 'forzante f' },
+  { key: 'speed',  label: 'velocità v' },
   { key: 'lambda', label: 'λ = v/f' },
-  { key: 'harm',   label: 'MODO PIÙ VICINO' },
-  { key: 'gain',   label: 'AMPLIFICAZIONE' },
-  { key: 'width',  label: 'LARGHEZZA PICCHI' },
+  { key: 'harm',   label: 'modo più vicino' },
+  { key: 'gain',   label: 'amplificazione' },
+  { key: 'width',  label: 'larghezza dei picchi' },
 ]);
 new ResizeObserver(resize).observe(canvas.parentElement);
 resize();

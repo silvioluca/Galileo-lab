@@ -57,7 +57,7 @@ function colU(u){ // u in [-1,1] → blu(ventre) ... arancio(cresta)
 function freq(){ return P.v/P.lambda; }                 // f = v/λ
 function omega(){ return TWO*freq(); }
 function vString(){ return Math.sqrt(P.T/P.mu); }        // v = √(T/μ)
-function fmt(x,u){ return (Math.abs(x)<10?x.toFixed(2):x.toFixed(1))+(u||''); }
+function fmt(x,u){ return Lab.fmt(x, Math.abs(x)<10?2:1)+(u||''); }
 
 // ═══ Geometria ════════════════════════════════════════════════════════════════
 let G={};
@@ -79,8 +79,7 @@ function arrow(ctx,x1,y1,x2,y2,col,lw,lbl){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   geom(W,H);
@@ -226,60 +225,37 @@ function drawString(ctx,W,H){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
+// attenuazione geometrica dell'ampiezza: costante (piana), 1/√r (circolare, cilindrica), 1/r (sferica)
+function decayAt(r){ const r0=0.45; return P.mode==='piana'?1:P.mode==='sferica'?r0/Math.max(r,r0):Math.sqrt(r0/Math.max(r,r0)); }
 function drawGraphs(){
-  const titles = P.mode==='corda'
-    ? ['Profilo y(x) — impulso','v = √(T/μ)','v in funzione di μ']
-    : ['Profilo onda','f = v/λ','Ampiezza vs distanza'];
-  for(let i=0;i<3;i++) if(gTitle[i]) gTitle[i].textContent=titles[i];
-
-  // 1: profilo
-  if(gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:14,l:18,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); ctx.strokeStyle=rgb(T.crest); ctx.lineWidth=1.6; ctx.beginPath();
-    for(let i=0;i<=120;i++){ const f=i/120, x=PAD.l+f*gW;
-      let u=0;
-      if(P.mode==='corda'){ if(syA&&strN>1){ const idx=clamp(Math.round(f*(strN-1)),0,strN-1); u=clamp(-syA[idx]/55,-1,1); } }
-      else { const rm=f*6, decay=(P.mode==='piana')?1:(P.mode==='sferica')?0.45/Math.max(rm,0.45):Math.sqrt(0.45/Math.max(rm,0.45)); u=Math.sin(TWO/P.lambda*rm - omega()*tAnim)*decay; }
-      const y=PAD.t+gH/2 - u*gH*0.42; i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
-    ctx.stroke();
-    ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4; ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t+gH/2); ctx.lineTo(PAD.l+gW,PAD.t+gH/2); ctx.stroke(); }
-  // 2: relazione
-  if(gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:16,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD);
-    if(P.mode==='corda'){ const Tmax=200, vmax=Math.sqrt(Tmax/P.mu);
-      const xOf=tt=>PAD.l+tt/Tmax*gW, yOf=vv=>PAD.t+gH-clamp(vv/vmax,0,1)*gH*0.9;
-      ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath();
-      for(let tt=0;tt<=Tmax;tt+=Tmax/60){ const x=xOf(tt),y=yOf(Math.sqrt(tt/P.mu)); tt===0?ctx.moveTo(x,y):ctx.lineTo(x,y);} ctx.stroke();
-      ctx.fillStyle=rgb(T.crest); ctx.beginPath(); ctx.arc(xOf(P.T),yOf(vString()),3.4,0,TWO); ctx.fill();
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('v',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('T',PAD.l+gW-2,PAD.t+gH-3);
-    } else { const lmax=3.2, fmax=P.v/0.4;
-      const xOf=l=>PAD.l+l/lmax*gW, yOf=ff=>PAD.t+gH-clamp(ff/fmax,0,1)*gH*0.9;
-      ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath();
-      for(let l=0.4;l<=lmax;l+=0.05){ const x=xOf(l),y=yOf(P.v/l); l<=0.4?ctx.moveTo(x,y):ctx.lineTo(x,y);} ctx.stroke();
-      ctx.fillStyle=rgb(T.crest); ctx.beginPath(); ctx.arc(xOf(P.lambda),yOf(freq()),3.4,0,TWO); ctx.fill();
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('f',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('λ',PAD.l+gW-2,PAD.t+gH-3);
-    } }
-  // 3: armoniche / decadimento
-  if(gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:16,b:18,l:14,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD);
-    if(P.mode==='corda'){ const mumax=0.20, vmax=Math.sqrt(P.T/0.01);
-      const xOf=mm=>PAD.l+mm/mumax*gW, yOf=vv=>PAD.t+gH-clamp(vv/vmax,0,1)*gH*0.9;
-      ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath();
-      for(let mm=0.01;mm<=mumax;mm+=mumax/60){ const x=xOf(mm),y=yOf(Math.sqrt(P.T/mm)); mm<=0.01?ctx.moveTo(x,y):ctx.lineTo(x,y);} ctx.stroke();
-      ctx.fillStyle=rgb(T.crest); ctx.beginPath(); ctx.arc(xOf(P.mu),yOf(vString()),3.4,0,TWO); ctx.fill();
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('v',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('μ',PAD.l+gW-2,PAD.t+gH-3);
-    } else { // ampiezza vs r
-      const xOf=r=>PAD.l+r/3*gW, yOf=a=>PAD.t+gH-clamp(a,0,1)*gH*0.86;
-      ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath();
-      for(let r=0.1;r<=3;r+=0.04){ const a=(P.mode==='piana')?1:(P.mode==='sferica')?0.45/Math.max(r,0.45):Math.sqrt(0.45/Math.max(r,0.45)); const x=xOf(r),y=yOf(a); r<=0.1?ctx.moveTo(x,y):ctx.lineTo(x,y);} ctx.stroke();
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('A',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('r',PAD.l+gW-2,PAD.t+gH-3);
-    } }
+  const cr=rgb(T.crest);
+  if(P.mode==='corda'){
+    // 1: profilo dell'impulso sulla corda
+    let g=Lab.panel(gCanvas[0],{ title:'Profilo della corda y(x)', xr:[0,1], xStep:0.25, xFmt:v=>Lab.fmt(v*100,0)+'%', yr:[-1,1], yStep:0.5, xLabel:'posizione lungo la corda' });
+    if(g){ const [ctx,f]=g; if(syA&&strN>1) Lab.plot(ctx,f,u=>clamp(-syA[clamp(Math.round(u*(strN-1)),0,strN-1)]/55,-1,1),[0,1],cr,1.8,[],240); }
+    // 2: v = √(T/μ) al variare della tensione
+    g=Lab.panel(gCanvas[1],{ title:`Velocità v = √(T/μ) (m/s), μ = ${Lab.fmt(P.mu,2)} kg/m`, xr:[0,200], xStep:50, yr:[0,Lab.niceMax(Math.sqrt(200/P.mu)*1.05)], xLabel:'tensione T (N)' });
+    if(g){ const [ctx,f]=g; Lab.plot(ctx,f,tt=>Math.sqrt(tt/P.mu),[0,200],T.accent,2); Lab.dot(ctx,f,P.T,vString(),cr,4.5); }
+    // 3: v al variare della densità lineare
+    g=Lab.panel(gCanvas[2],{ title:`Velocità v (m/s) con T = ${Lab.fmt(P.T,0)} N`, xr:[0,0.2], xStep:0.05, yr:[0,Lab.niceMax(Math.sqrt(P.T/0.01)*1.05)], xLabel:'densità lineare μ (kg/m)' });
+    if(g){ const [ctx,f]=g; Lab.plot(ctx,f,mm=>Math.sqrt(P.T/mm),[0.01,0.2],T.accent,2); Lab.dot(ctx,f,P.mu,vString(),cr,4.5); }
+    return;
+  }
+  // 1: profilo dell'onda lungo la direzione di propagazione, con l'attenuazione geometrica
+  let g=Lab.panel(gCanvas[0],{ title:'Profilo dell’onda lungo il raggio', xr:[0,6], xStep:1, yr:[-1,1], yStep:0.5, xLabel:'distanza (m)' });
+  if(g){ const [ctx,f]=g;
+    if(P.mode!=='piana'){ Lab.plot(ctx,f,decayAt,[0,6],f.C.text,1,[3,3]); Lab.plot(ctx,f,r=>-decayAt(r),[0,6],f.C.text,1,[3,3]); }
+    Lab.plot(ctx,f,r=>Math.sin(TWO/P.lambda*r-omega()*tAnim)*decayAt(r),[0,6],cr,1.8,[],400); }
+  // 2: f = v/λ a velocità fissa
+  g=Lab.panel(gCanvas[1],{ title:`Frequenza f = v/λ (Hz), v = ${Lab.fmt(P.v,1)} m/s`, xr:[0,3], xStep:0.5, yr:[0,Lab.niceMax(P.v/0.4*1.05)], xLabel:'λ (m)' });
+  if(g){ const [ctx,f]=g; Lab.plot(ctx,f,l=>P.v/l,[0.4,3],T.accent,2); Lab.dot(ctx,f,P.lambda,freq(),cr,4.5); }
+  // 3: ampiezza relativa in funzione della distanza per i quattro tipi di fronte d'onda
+  g=Lab.panel(gCanvas[2],{ title:'Ampiezza relativa in funzione della distanza', xr:[0,3], xStep:0.5, yr:[0,1.1], yStep:0.25, xLabel:'distanza (m)' });
+  if(g){ const [ctx,f]=g, r0=0.45;
+    const curves=[['piana',()=>1,'piana: costante'],['circolare',r=>Math.sqrt(r0/Math.max(r,r0)),'circolare e cilindrica: 1/√r'],['sferica',r=>r0/Math.max(r,r0),'sferica: 1/r']];
+    for(const [k,fn] of curves){ const on=P.mode===k||(k==='circolare'&&P.mode==='cilindrica'); Lab.plot(ctx,f,fn,[0,3],on?T.accent:f.C.text,on?2.2:1,on?[]:[3,3]); }
+    const lab=curves.find(([k])=>P.mode===k||(k==='circolare'&&P.mode==='cilindrica'));
+    Lab.legend(ctx,f.L+8,f.B-10,[[T.accent,lab?lab[2]:'']]); }
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -287,7 +263,7 @@ function reControls(){ setTimeout(()=>{ buildControls(); buildReadout(); },0); }
 function buildControls(){
   const cont=document.getElementById('controls'); cont.innerHTML='';
   const secM=Lab.Section('Modalità'); cont.appendChild(secM.el);
-  secM.add(Lab.RadioGroup({ label:'Geometria / tipo', value:P.mode,
+  secM.add(Lab.RadioGroup({ label:'Forma del fronte d’onda', value:P.mode,
     options:Object.keys(MODES).map(k=>({value:k,label:MODES[k]})), onChange(v){ P.mode=v; reControls(); } }));
 
   if(P.mode==='corda'){
@@ -309,23 +285,16 @@ function buildControls(){
 function buildReadout(){
   const cont=document.getElementById('readout'); cont.innerHTML='';
   let fields;
-  if(P.mode==='corda') fields=[{key:'T',label:'Tensione'},{key:'mu',label:'Densità μ'},{key:'v',label:'Velocità v'},{key:'damp',label:'Smorzamento'},{key:'act',label:'Azione'}];
-  else fields=[{key:'v',label:'Velocità v'},{key:'lam',label:'Lunghezza λ'},{key:'f',label:'Frequenza f'},{key:'per',label:'Periodo T'},{key:'tipo',label:'Tipo'}];
+  if(P.mode==='corda') fields=[{key:'T',label:'tensione T'},{key:'mu',label:'densità lineare μ'},{key:'v',label:'velocità v = √(T/μ)'},{key:'damp',label:'smorzamento'},{key:'act',label:'come si usa'}];
+  else fields=[{key:'v',label:'velocità v'},{key:'lam',label:'lunghezza d’onda λ'},{key:'f',label:'frequenza f = v/λ'},{key:'per',label:'periodo T = 1/f'},{key:'tipo',label:'oscillazione'}];
   readout=new Lab.Readout(cont,fields);
 }
 
-function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent='';
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d'); gTitle[i]=title;
-  }
+function initGraphs() {
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -344,7 +313,7 @@ function init(){
     buildControls(); buildReadout(); syncPlay();
   });
   // interazione corda: clicca e trascina per generare l'impulso
-  function evt(e){ const r=simCanvas.getBoundingClientRect(); return {x:(e.clientX-r.left)*(simCanvas.width/r.width), y:(e.clientY-r.top)*(simCanvas.height/r.height)}; }
+  function evt(e){ const r=simCanvas.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
   simCanvas.addEventListener('pointerdown',e=>{ if(P.mode!=='corda'||strN<2)return; const p=evt(e), dx=simCanvas.width/(strN-1);
     grabIdx=clamp(Math.round(p.x/dx),0,strN-1); grabY=p.y-simCanvas.height*0.5; try{simCanvas.setPointerCapture(e.pointerId);}catch(_){} });
   simCanvas.addEventListener('pointermove',e=>{ if(grabIdx<0)return; const p=evt(e), dx=simCanvas.width/(strN-1);
@@ -358,9 +327,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(240,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -375,8 +343,8 @@ function init(){
     try{
       draw(simCanvas); drawGraphs();
       if(P.mode==='corda'){
-        readout.set('T', P.T.toFixed(0)+' N'); readout.set('mu', P.mu.toFixed(2)+' kg/m');
-        readout.set('v', fmt(vString(),' m/s')); readout.set('damp', P.damp.toFixed(2));
+        readout.set('T', Lab.fmt(P.T,0)+' N'); readout.set('mu', Lab.fmt(P.mu,2)+' kg/m');
+        readout.set('v', fmt(vString(),' m/s')); readout.set('damp', Lab.fmt(P.damp,2));
         readout.set('act', grabIdx>=0?'tieni e rilascia':'clicca la corda');
       } else {
         readout.set('v', fmt(P.v,' m/s')); readout.set('lam', fmt(P.lambda,' m')); readout.set('f', fmt(freq(),' Hz'));

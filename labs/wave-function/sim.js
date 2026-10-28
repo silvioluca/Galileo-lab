@@ -47,7 +47,7 @@ function pal() {
 }
 let T = pal();
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-function fmt(x, u) { return (Math.abs(x) < 10 ? x.toFixed(2) : x.toFixed(1)) + (u || ''); }
+function fmt(x, u) { return Lab.fmt(x, Math.abs(x) < 10 ? 2 : 1) + (u || ''); }
 
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
 // y(x,t) = A·sin(k·x − dir·ω·t + φ)   con k=2π/λ, ω=2π/T
@@ -106,8 +106,7 @@ function bracket(ctx, x1, y1, x2, y2, col, lbl, lblAt) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -138,7 +137,7 @@ function draw(canvas) {
       const X = sx(tv);
       ctx.strokeStyle = T.ring; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(X, G.originY - 3); ctx.lineTo(X, G.originY + 3); ctx.stroke();
-      ctx.fillText(tv.toFixed(step < 1 ? 1 : 0), X, G.originY + 15);
+      ctx.fillText(Lab.fmt(tv,step < 1 ? 1 : 0), X, G.originY + 15);
     }
   }
   ctx.fillText(G.xLabel, G.marginL + G.plotW - 4, G.marginT + G.plotH + 16);
@@ -150,7 +149,7 @@ function draw(canvas) {
     if (Y < G.marginT || Y > G.marginT + G.plotH) continue;
     ctx.strokeStyle = T.ring; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(G.originX - 3, Y); ctx.lineTo(G.originX + 3, Y); ctx.stroke();
-    ctx.fillText(a.toFixed(1), G.originX - 6, Y + 3);
+    ctx.fillText(Lab.fmt(a,1), G.originX - 6, Y + 3);
   }
 
   // area di disegno ritagliata
@@ -197,8 +196,8 @@ function draw(canvas) {
   ctx.restore();
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
-  const hint = G.mode === 'x' ? `sonda x = ${px.toFixed(2)} m · trascina per spostarla`
-    : `punto osservato x = ${px.toFixed(2)} m · regolabile con lo slider "posizione sonda"`;
+  const hint = G.mode === 'x' ? `sonda x = ${Lab.fmt(px,2)} m · trascina per spostarla`
+    : `punto osservato x = ${Lab.fmt(px,2)} m · regolabile con lo slider "posizione sonda"`;
   ctx.fillText(hint, G.marginL + G.plotW / 2, H - 8);
 
   // intestazione
@@ -209,92 +208,52 @@ function draw(canvas) {
     const ly = 40 + i * 15;
     ctx.fillStyle = w.col; ctx.beginPath(); ctx.arc(20, ly - 3, 4.5, 0, TWO); ctx.fill();
     ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-    ctx.fillText(`A=${w.A.toFixed(2)} m   λ=${w.lam.toFixed(2)} m   T=${w.T.toFixed(2)} s   f=${(1 / w.T).toFixed(2)} Hz   v=${vOf(w).toFixed(2)} m/s   φ=${w.ph}°   ${w.dir > 0 ? '→' : '←'}`, 30, ly);
+    ctx.fillText(`A=${Lab.fmt(w.A,2)} m   λ=${Lab.fmt(w.lam,2)} m   T=${Lab.fmt(w.T,2)} s   f=${Lab.fmt((1 / w.T),2)} Hz   v=${Lab.fmt(vOf(w),2)} m/s   φ=${w.ph}°   ${w.dir > 0 ? '→' : '←'}`, 30, ly);
   });
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
+// curve delle onde (e della somma, se richiesta) su un riquadro di Lab.panel
+function plotWaves(ctx, f, fn, xr) {
+  const ws = waves();
+  for (const w of ws) Lab.plot(ctx, f, u => fn(w, u), xr, w.col, 1.8, [], 300);
+  if (P.compare && P.showSum) Lab.plot(ctx, f, u => ws.reduce((s, w) => s + fn(w, u), 0), xr, SUMCOL, 2.2, [], 300);
 }
-
-// 1: y(t) nel punto sonda
+// 1: y(t) nel punto sonda, ultimi 10 s
 function drawProbeT() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const ws = waves();
-  const zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  const px = clamp(P.probeX, 0, SPAN_X);
-  for (const w of ws) {
-    ctx.strokeStyle = w.col; ctx.lineWidth = 1.5; ctx.beginPath();
-    for (let i = 0; i <= 200; i++) { const t = tSim - WIN_T + i / 200 * WIN_T, x = PAD.l + i / 200 * gW, y = zero - yAt(w, px, t) / Y_MAX * (gH * 0.44);
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.stroke();
-  }
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH + 11);
+  const px = clamp(P.probeX, 0, SPAN_X), t1 = Math.max(tSim, WIN_T);
+  const g = Lab.panel(gCanvas[0], { title: `Oscillazione nel punto x = ${Lab.fmt(px, 1)} m`, xr: [t1 - WIN_T, t1], xStep: 2, yr: [-Y_MAX, Y_MAX], yStep: 1, xLabel: 't (s)', yFmt: v => Lab.fmt(v, 0) });
+  if (!g) return; const [ctx, f] = g;
+  plotWaves(ctx, f, (w, t) => (t >= 0 ? yAt(w, px, t) : NaN), [t1 - WIN_T, t1]);
 }
-
-// 2: y(x) istantanea
+// 2: y(x) all'istante attuale, con la posizione della sonda
 function drawSnapshotX() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 18, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const ws = waves();
-  const zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  for (const w of ws) {
-    ctx.strokeStyle = w.col; ctx.lineWidth = 1.5; ctx.beginPath();
-    for (let i = 0; i <= 240; i++) { const xw = i / 240 * SPAN_X, x = PAD.l + i / 240 * gW, y = zero - yAt(w, xw, tSim) / Y_MAX * (gH * 0.44);
-      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.stroke();
-  }
-  const px = clamp(P.probeX, 0, SPAN_X), pxg = PAD.l + px / SPAN_X * gW;
-  ctx.strokeStyle = T.probe; ctx.lineWidth = 0.8; ctx.setLineDash([2, 3]);
-  ctx.beginPath(); ctx.moveTo(pxg, PAD.t); ctx.lineTo(pxg, PAD.t + gH); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'right'; ctx.fillText('x', PAD.l + gW - 2, PAD.t + gH + 11);
+  const g = Lab.panel(gCanvas[1], { title: 'Forma dell’onda all’istante t', xr: [0, SPAN_X], xStep: 2, yr: [-Y_MAX, Y_MAX], yStep: 1, xLabel: 'x (m)', yFmt: v => Lab.fmt(v, 0) });
+  if (!g) return; const [ctx, f] = g;
+  const px = clamp(P.probeX, 0, SPAN_X);
+  ctx.save(); ctx.setLineDash([2, 3]); ctx.strokeStyle = T.probe; ctx.beginPath(); ctx.moveTo(f.X(px), f.T); ctx.lineTo(f.X(px), f.B); ctx.stroke(); ctx.restore();
+  plotWaves(ctx, f, (w, x) => yAt(w, x, tSim), [0, SPAN_X]);
 }
-
-// 3: confronto di fase (Lissajous y1–y2) oppure relazione v = λ/T
+// 3: confronto di fase (curva di Lissajous y₁–y₂ nella sonda) oppure v = λ/T a periodo fisso
 function drawThird() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 14, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   if (P.compare) {
-    const ws = waves(), w1 = ws[0], w2 = ws[1];
-    const cx = PAD.l + gW / 2, cy = PAD.t + gH / 2, half = Math.min(gW, gH) * 0.46;
-    const px = clamp(P.probeX, 0, SPAN_X);
-    const Tcommon = Math.max(w1.T, w2.T) * 8;
-    ctx.strokeStyle = T.accent; ctx.lineWidth = 1.1; ctx.beginPath();
-    for (let i = 0; i <= 480; i++) { const t = i / 480 * Tcommon;
-      const X = cx + yAt(w1, px, t) / w1.A / 1.15 * half, Y = cy - yAt(w2, px, t) / w2.A / 1.15 * half;
-      i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
-    ctx.stroke();
-    const X0 = cx + yAt(w1, px, tSim) / w1.A / 1.15 * half, Y0 = cy - yAt(w2, px, tSim) / w2.A / 1.15 * half;
-    ctx.fillStyle = T.accent; ctx.beginPath(); ctx.arc(X0, Y0, 3, 0, TWO); ctx.fill();
-    ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left';
-    ctx.fillText('y₂/A₂', PAD.l + 2, PAD.t + 7); ctx.textAlign = 'right'; ctx.fillText('y₁/A₁', PAD.l + gW - 2, cy - 3);
+    const ws = waves(), w1 = ws[0], w2 = ws[1], px = clamp(P.probeX, 0, SPAN_X);
+    const g = Lab.panel(gCanvas[2], { title: 'Confronto di fase nella sonda (y₁, y₂)', xr: [-1.6, 1.6], xStep: 0.5, yr: [-1.6, 1.6], yStep: 0.5, xLabel: 'y₁ (m)' });
+    if (!g) return; const [ctx, f] = g;
+    const Tc = Math.max(w1.T, w2.T) * 8, pts = [];
+    for (let i = 0; i <= 600; i++) { const t = i / 600 * Tc; pts.push([yAt(w1, px, t), yAt(w2, px, t)]); }
+    Lab.plotPts(ctx, f, pts, T.accent, 1.2);
+    Lab.dot(ctx, f, yAt(w1, px, tSim), yAt(w2, px, tSim), T.accent, 4);
+    ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('y₂ (m)', f.L + 4, f.T + 8);
   } else {
-    const lmax = 6.4, vmax = lmax / 0.4 * 1.05;
-    const xOf = l => PAD.l + l / lmax * gW, yOf = vv => PAD.t + gH - clamp(vv / vmax, 0, 1) * gH * 0.9;
-    ctx.strokeStyle = T.accent; ctx.lineWidth = 1.6; ctx.beginPath();
-    for (let l = 0.4; l <= lmax; l += 0.05) { const x = xOf(l), y = yOf(l / P.T1); l <= 0.4 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
-    ctx.stroke();
-    ctx.fillStyle = COL[0]; ctx.beginPath(); ctx.arc(xOf(P.lam1), yOf(vOf({ lam: P.lam1, T: P.T1 })), 3.4, 0, TWO); ctx.fill();
-    ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('v', PAD.l + 2, PAD.t + 7);
-    ctx.textAlign = 'right'; ctx.fillText('λ', PAD.l + gW - 2, PAD.t + gH - 3);
+    const g = Lab.panel(gCanvas[2], { title: `Velocità v = λ/T con T = ${Lab.fmt(P.T1, 2)} s`, xr: [0, 6], xStep: 1, yr: [0, 15], yStep: 5, xLabel: 'λ (m)' });
+    if (!g) return; const [ctx, f] = g;
+    Lab.plot(ctx, f, l => l / P.T1, [0, 6], T.accent, 2);
+    Lab.dot(ctx, f, P.lam1, vOf({ lam: P.lam1, T: P.T1 }), COL[0], 4.5);
+    ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('v (m/s)', f.L + 4, f.T + 8);
   }
 }
-function drawGraphs() {
-  const titles = ['y(t) — sonda', 'y(x) — istantanea', P.compare ? 'Confronto di fase (y₁,y₂)' : 'Relazione v = λ/T'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawProbeT(); drawSnapshotX(); drawThird();
-}
+function drawGraphs() { drawProbeT(); drawSnapshotX(); drawThird(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function updateCursor() { if (simCanvas) simCanvas.style.cursor = P.axis === 'x' ? 'ew-resize' : 'default'; }
@@ -335,26 +294,19 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 't', label: 'Tempo' },
-    { key: 'y', label: 'y (sonda)' },
-    { key: 'T', label: 'Periodo T' },
-    { key: 'lam', label: 'Lunghezza λ' },
-    { key: 'v', label: 'Velocità v' },
+    { key: 't', label: 'tempo' },
+    { key: 'y', label: 'spostamento nella sonda' },
+    { key: 'T', label: 'periodo T' },
+    { key: 'lam', label: 'lunghezza d’onda λ' },
+    { key: 'v', label: 'velocità v = λ/T' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -374,7 +326,7 @@ function init() {
   });
 
   // interazione: trascina sulla vista principale per spostare la sonda (solo nel modo "spazio")
-  function evtX(e) { const r = simCanvas.getBoundingClientRect(); return (e.clientX - r.left) * (simCanvas.width / r.width); }
+  function evtX(e) { const r = simCanvas.getBoundingClientRect(); return e.clientX - r.left; }
   function setProbeFromScreen(px) {
     if (P.axis !== 'x' || !G.xScale) return;
     P.probeX = clamp((px - G.originX) / G.xScale, 0, SPAN_X);
@@ -390,9 +342,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -407,7 +358,7 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const ws = waves(), w1 = ws[0], px = clamp(P.probeX, 0, SPAN_X);
-      readout.set('t', tSim.toFixed(2) + ' s');
+      readout.set('t', Lab.fmt(tSim, 2) + ' s');
       readout.set('y', fmt(yAt(w1, px, tSim), ' m'));
       readout.set('T', fmt(w1.T, ' s'));
       readout.set('lam', fmt(w1.lam, ' m'));

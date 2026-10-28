@@ -262,8 +262,7 @@ function drawPendulumRig(ctx, panel, mode) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -319,16 +318,16 @@ function draw(canvas) {
   ctx.fillText(P.mode === 'ball' ? 'Forza di Coriolis — la stessa pallina, due punti di vista' : 'Forza di Coriolis — lo stesso pendolo, due punti di vista', 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
   if (P.mode === 'ball') {
-    ctx.fillText(`Ω=${P.omega.toFixed(2)} rad/s   v₀=${P.v0.toFixed(1)} m/s   mira=${P.aim.toFixed(0)}°   scarto dal bersaglio=${D.rMin.toFixed(2)} m`, 14, 36);
+    ctx.fillText(`Ω=${Lab.fmt(P.omega,2)} rad/s   v₀=${Lab.fmt(P.v0,1)} m/s   mira=${Lab.fmt(P.aim,0)}°   scarto dal bersaglio=${Lab.fmt(D.rMin,2)} m`, 14, 36);
   } else {
-    ctx.fillText(`Ω=${P.omega.toFixed(2)} rad/s   L=${P.L.toFixed(1)} m   T₀=${(TWO / omegaP()).toFixed(2)} s   ampiezza=${P.ampDeg.toFixed(0)}°   (altezza esagerata ×${ZEXAG} per visibilità)`, 14, 36);
+    ctx.fillText(`Ω=${Lab.fmt(P.omega,2)} rad/s   L=${Lab.fmt(P.L,1)} m   T₀=${Lab.fmt((TWO / omegaP()),2)} s   ampiezza=${Lab.fmt(P.ampDeg,0)}°   (altezza esagerata ×${ZEXAG} per visibilità)`, 14, 36);
   }
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   if (P.mode === 'ball') {
     const hemi = P.omega > 0.01 ? 'come nell\'emisfero Nord: devia verso destra' : P.omega < -0.01 ? 'come nell\'emisfero Sud: devia verso sinistra' : 'nessuna rotazione: nessuna deviazione';
     const hint = ended
-      ? (D.rMin < HIT_TOL * D.R ? 'bersaglio colpito! — premi "Nuovo lancio" per riprovare' : `mancato di ${D.rMin.toFixed(2)} m — premi "Nuovo lancio" per riprovare, magari correggendo la mira`)
+      ? (D.rMin < HIT_TOL * D.R ? 'bersaglio colpito! — premi "Nuovo lancio" per riprovare' : `mancato di ${Lab.fmt(D.rMin,2)} m — premi "Nuovo lancio" per riprovare, magari correggendo la mira`)
       : hemi;
     ctx.fillText(hint, W / 2, H - 10);
   } else {
@@ -337,146 +336,87 @@ function draw(canvas) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
+function squarePanel(cv, o) {
+  if (!cv || !cv._dpr) return null;
+  const [ctx, W, H] = Lab.ctx2d(cv), C = Lab.graphColors();
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  const side = Math.min(W - 20, H - 10);
+  return [ctx, Lab.axes(ctx, { x: (W - side) / 2, y: 0, w: side, h: H, bg: false, ...o })];
 }
-// 1: distanza dal centro nel tempo — a V, minimo esattamente a metà volo (per simmetria)
+// 1: distanza dal centro durante il volo — a V, con il minimo a metà volo (per simmetria)
 function drawGraphDistance() {
-  const cv = gCanvas[0]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const xOfT = t => PAD.l + clamp(t / D.tExit, 0, 1) * gW;
-  const yOfR = r => PAD.t + gH - clamp(r / D.R, 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 100; i++) { const t = D.tExit * i / 100; const [xi, yi] = inertialPos(t); const r = Math.hypot(xi, yi); const x = xOfT(t), y = yOfR(r); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const px = xOfT(Math.min(animT, D.tExit)), py = yOfR(Math.hypot(...inertialPos(Math.min(animT, D.tExit))));
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(px, py, 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('distanza dal centro (m)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t (s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!D) return;
+  const g = Lab.panel(gCanvas[0], { title: 'Distanza dal centro (m)', xr: [0, D.tExit], yr: [0, Lab.niceMax(D.R)], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, t => Math.hypot(...inertialPos(t)), [0, D.tExit], '#00d4ff', 2);
+  const t = Math.min(animT, D.tExit);
+  Lab.dot(ctx, f, t, Math.hypot(...inertialPos(t)), '#ff9d4d', 4);
 }
-// 2: scostamento laterale dalla linea di mira ideale, nel riferimento rotante — cresce, quantifica
-// "quanto ha deviato" rispetto a dove avrebbe dovuto andare senza rotazione
+// 2: scostamento laterale dalla linea di mira, visto dalla piattaforma che ruota
 function drawGraphLateral() {
-  const cv = gCanvas[1]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const latMax = Math.max(D.rMin * 1.3, 0.3);
-  const xOfT = t => PAD.l + clamp(t / D.tExit, 0, 1) * gW;
-  const yOfL = l => PAD.t + gH - clamp(l / latMax, 0, 1) * gH;
+  if (!D) return;
   const dirx = Math.cos(D.delta), diry = Math.sin(D.delta);
-  ctx.strokeStyle = '#7fe0a0'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 100; i++) {
-    const t = D.tExit * i / 100; const [x, y] = rotatingPos(t);
-    const lateral = Math.abs((x - D.x0) * diry - (y - D.y0) * dirx);
-    const px = xOfT(t), py = yOfL(lateral); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-  }
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('scostamento laterale (m)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t (s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const lat = t => { const [x, y] = rotatingPos(t); return Math.abs((x - D.x0) * diry - (y - D.y0) * dirx); };
+  let top = 0.3; for (let i = 0; i <= 100; i++) top = Math.max(top, lat(D.tExit * i / 100));
+  const g = Lab.panel(gCanvas[1], { title: 'Scostamento dalla linea di mira, sulla piattaforma (m)', xr: [0, D.tExit], yr: [0, Lab.niceMax(top * 1.05)], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, lat, [0, D.tExit], '#7fe0a0', 2);
+  const t = Math.min(animT, D.tExit);
+  Lab.dot(ctx, f, t, lat(t), '#ff9d4d', 4);
 }
-// 3: scarto dal bersaglio in funzione di Ω (a v₀, mira, R correnti) — curva FISSA (ricalcolata solo
-// se cambiano v₀/mira/R, non su Ω, che è proprio l'asse x), con Ω attuale marcato
+// 3: scarto dal bersaglio in funzione della velocità angolare Ω (asse fisso −1,5…1,5 rad/s)
 function drawGraphMissVsOmega() {
-  const cv = gCanvas[2]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const OMEGA_MIN = -1.5, OMEGA_MAX = 1.5;
-  const xOfW = w => PAD.l + clamp((w - OMEGA_MIN) / (OMEGA_MAX - OMEGA_MIN), 0, 1) * gW;
-  const yOfM = m => PAD.t + gH - clamp(m / P.R, 0, 1) * gH;
+  if (!D) return;
   const missAt = (w) => {
     const vThrowX = P.v0 * Math.cos(D.delta), vThrowY = P.v0 * Math.sin(D.delta);
     const vcx = -w * D.y0, vcy = w * D.x0;
     const vxi = vThrowX + vcx, vyi = vThrowY + vcy, V2 = vxi * vxi + vyi * vyi;
     return P.R * Math.sqrt(Math.max(0, 1 - vxi * vxi / V2));
   };
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 100; i++) { const w = OMEGA_MIN + (OMEGA_MAX - OMEGA_MIN) * i / 100; const x = xOfW(w), y = yOfM(missAt(w)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const px = xOfW(P.omega), py = yOfM(D.rMin);
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(px, py, 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('scarto dal bersaglio (m)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('Ω (rad/s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[2], { title: 'Scarto dal bersaglio (m) al variare di Ω', xr: [-1.5, 1.5], xStep: 0.5, yr: [0, Lab.niceMax(P.R)], xLabel: 'Ω (rad/s)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, missAt, [-1.5, 1.5], '#00d4ff', 2);
+  Lab.dot(ctx, f, P.omega, D.rMin, '#ff9d4d', 4.5);
 }
-// 1p: x(t),y(t) nel riferimento ROTANTE, finestra scorrevole di alcuni periodi di oscillazione —
-// mostra il "battimento" lento (precessione) sovrapposto all'oscillazione veloce del pendolo
+// pendolo: x(t), y(t) nel riferimento rotante
 function pendWinT() { return (TWO / omegaP()) * 6; }
 function drawGraphPendXY() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const WIN = pendWinT(), A = Math.max(pendAmp(), 0.01);
-  const zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  const xOf = t => PAD.l + (t - (animT - WIN)) / WIN * gW;
-  const yOf = v => zero - clamp(v / A, -1, 1) * (gH * 0.46);
+  const WIN = pendWinT(), A = Lab.niceMax(Math.max(pendAmp(), 0.01) * 1.05);
+  const g = Lab.panel(gCanvas[0], { title: 'x(t) e y(t) sulla piattaforma (m)', xr: [Math.max(0, animT - WIN), Math.max(WIN, animT)], yr: [-A, A], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
   const pts = pendTrail.filter(t => t >= animT - WIN);
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  [['x', '#00d4ff', 0], ['y', '#ff9d4d', 1]].forEach(([key, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.beginPath();
-    pts.forEach((t, i) => { const [x, y] = pendBobXY(t, 'rotating'); const v = key === 'x' ? x : y; const px = xOf(t), py = yOf(v); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
-    ctx.stroke();
-  });
-  ctx.restore();
-  ctx.fillStyle = '#00d4ff'; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('x', PAD.l + 2, PAD.t + 7);
-  ctx.fillStyle = '#ff9d4d'; ctx.fillText('y', PAD.l + 2, PAD.t + 16);
+  Lab.plotPts(ctx, f, pts.map(t => [t, pendBobXY(t, 'rotating')[0]]), '#00d4ff', 1.6);
+  Lab.plotPts(ctx, f, pts.map(t => [t, pendBobXY(t, 'rotating')[1]]), '#ff9d4d', 1.6);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['#00d4ff', 'x'], ['#ff9d4d', 'y']]);
 }
-// 2p: traiettoria X-Y pulita nel riferimento rotante — la rosetta, sugli stessi assi in metri
+// pendolo: la rosetta vista dalla piattaforma
 function drawGraphPendRosette() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 14, r: 10 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const cx = PAD.l + gW / 2, cy = PAD.t + gH / 2, A = pendAmp(), s = Math.min(gW, gH) * 0.46 / Math.max(A, 0.05);
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.setLineDash([2, 3]);
-  ctx.beginPath(); ctx.arc(cx, cy, s * A, 0, TWO); ctx.stroke(); ctx.setLineDash([]);
-  if (pendTrail.length > 1) {
-    ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1; ctx.beginPath();
-    pendTrail.forEach((t, i) => { const [x, y] = pendBobXY(t, 'rotating'); const px = cx + x * s, py = cy - y * s; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
-    ctx.stroke();
-  }
+  const A = Lab.niceMax(pendAmp() * 1.1);
+  const g = squarePanel(gCanvas[1], { title: 'Traiettoria sulla piattaforma (m)', xr: [-A, A], yr: [-A, A], xLabel: 'x (m)', padL: 34 });
+  if (!g) return; const [ctx, f] = g;
+  if (pendTrail.length > 1) Lab.plotPts(ctx, f, pendTrail.map(t => pendBobXY(t, 'rotating')), '#00d4ff', 1);
   const [bx, by] = pendBobXY(animT, 'rotating');
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(cx + bx * s, cy - by * s, 3, 0, TWO); ctx.fill();
+  Lab.dot(ctx, f, bx, by, '#ff9d4d', 4);
 }
-// 3p: angolo del piano di oscillazione nel riferimento rotante, mod 360° — finestra temporale
-// FISSA (mai ricalcolata su Ω): all'aumentare di |Ω| il dente di sega si vede diventare più fitto,
-// l'effetto di Ω è mostrato, non nascosto
+// pendolo: orientazione del piano di oscillazione vista dalla piattaforma (finestra fissa di 20 s)
 const PEND_ANGLE_WIN = 20;
 function drawGraphPendAngle() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   const t0 = Math.max(0, animT - PEND_ANGLE_WIN), tEnd = Math.min(animT, t0 + PEND_ANGLE_WIN);
-  const xOf = t => PAD.l + clamp((t - t0) / PEND_ANGLE_WIN, 0, 1) * gW;
-  const yOf = deg => PAD.t + gH - (deg / 360) * gH;
-  const angDeg = t => { let d = P.plane - t * P.omega * 180 / Math.PI; d = ((d % 360) + 360) % 360; return d; };
-  const N = 200;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4;
-  let prevY = null; ctx.beginPath();
-  for (let i = 0; i <= N; i++) {
-    const t = t0 + (tEnd - t0) * i / N;
-    const y = yOf(angDeg(t)), x = xOf(t);
-    if (prevY !== null && Math.abs(y - prevY) > gH * 0.6) { ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y); }
-    else { i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    prevY = y;
+  const g = Lab.panel(gCanvas[2], { title: 'Angolo del piano di oscillazione (°)', xr: [t0, t0 + PEND_ANGLE_WIN], yr: [0, 360], yStep: 90, xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  const angDeg = t => { let d = P.plane - t * P.omega * 180 / Math.PI; return ((d % 360) + 360) % 360; };
+  // il dente di sega va spezzato quando l'angolo ripassa da 360° a 0°
+  let seg = [], prev = null;
+  for (let i = 0; i <= 300; i++) {
+    const t = t0 + (tEnd - t0) * i / 300, a = angDeg(t);
+    if (prev !== null && Math.abs(a - prev) > 180) { Lab.plotPts(ctx, f, seg, '#00d4ff', 2); seg = []; }
+    seg.push([t, a]); prev = a;
   }
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('angolo piano, rif. rotante (0-360°)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t (s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  Lab.plotPts(ctx, f, seg, '#00d4ff', 2);
 }
 function drawGraphs() {
-  if (P.mode === 'ball') {
-    const titles = ['Distanza dal centro', 'Scostamento laterale', 'Scarto dal bersaglio vs Ω'];
-    for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-    drawGraphDistance(); drawGraphLateral(); drawGraphMissVsOmega();
-  } else {
-    const titles = ['x(t), y(t) — riferimento rotante', 'Traiettoria (rosetta)', 'Angolo del piano nel tempo'];
-    for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-    drawGraphPendXY(); drawGraphPendRosette(); drawGraphPendAngle();
-  }
+  if (P.mode === 'ball') { drawGraphDistance(); drawGraphLateral(); drawGraphMissVsOmega(); }
+  else { drawGraphPendXY(); drawGraphPendRosette(); drawGraphPendAngle(); }
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -538,18 +478,11 @@ function buildReadout() {
   ]);
 }
 
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -573,9 +506,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -589,20 +521,20 @@ function init() {
     if (!P.paused) step(dt * P.speed);
     try {
       draw(simCanvas); drawGraphs();
-      readout.set('omega', P.omega.toFixed(2) + ' rad/s');
+      readout.set('omega', Lab.fmt(P.omega,2) + ' rad/s');
       if (P.mode === 'ball') {
-        readout.set('v0', P.v0.toFixed(1) + ' m/s');
-        readout.set('aim', P.aim.toFixed(0) + '°');
-        readout.set('miss', D.rMin.toFixed(2) + ' m');
-        readout.set('time', Math.min(animT, D.tExit).toFixed(2) + ' s');
+        readout.set('v0', Lab.fmt(P.v0,1) + ' m/s');
+        readout.set('aim', Lab.fmt(P.aim,0) + '°');
+        readout.set('miss', Lab.fmt(D.rMin,2) + ' m');
+        readout.set('time', Lab.fmt(Math.min(animT, D.tExit),2) + ' s');
         readout.set('stato', !ended ? 'in volo' : (D.rMin < HIT_TOL * D.R ? 'bersaglio colpito' : 'uscito dalla piattaforma'));
       } else {
-        readout.set('L', P.L.toFixed(1) + ' m');
-        readout.set('T0', (TWO / omegaP()).toFixed(2) + ' s');
-        readout.set('amp', P.ampDeg.toFixed(0) + '°');
-        readout.set('time', animT.toFixed(1) + ' s');
+        readout.set('L', Lab.fmt(P.L,1) + ' m');
+        readout.set('T0', Lab.fmt((TWO / omegaP()),2) + ' s');
+        readout.set('amp', Lab.fmt(P.ampDeg,0) + '°');
+        readout.set('time', Lab.fmt(animT,1) + ' s');
         let ang = P.plane - animT * P.omega * 180 / Math.PI; ang = ((ang % 360) + 360) % 360;
-        readout.set('angle', ang.toFixed(0) + '°');
+        readout.set('angle', Lab.fmt(ang,0) + '°');
       }
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

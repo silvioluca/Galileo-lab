@@ -18,6 +18,11 @@ const SUBSTEPS = 3;
 const SPEED    = 0.44; // fixed wave speed (cells/step)
 // Mur coefficient for absorbing BC: (c-1)/(c+1) with c=SPEED
 const MUR = (SPEED - 1) / (SPEED + 1); // ≈ -0.389
+// scala fisica di un ondoscopio reale: 1 cella = 1 mm (vasca 26 × 17 cm), increspature a 25 cm/s;
+// ne segue la durata di un passo di simulazione e quindi la frequenza in Hz
+const CELL_MM = 1, V_MM_S = 250, STEP_S = SPEED * CELL_MM / V_MM_S;
+const cm = c => Lab.fmt(c * CELL_MM / 10, 1) + ' cm';
+const hz = f => Lab.fmt(f / STEP_S, 1) + ' Hz';
 
 /* ── Physics arrays ──────────────────────────────────────────────────────── */
 let u0      = new Float32Array(W * H);
@@ -457,17 +462,18 @@ function drawGraphs() {
 }
 
 function updateReadout() {
-  const lam    = (SPEED / P.freq).toFixed(1);
+  const lam    = cm(SPEED / P.freq);
   const pi     = Math.round(P.probeY)*W + Math.round(P.probeX);
-  const aProbe = Math.abs(u0[Math.max(0, Math.min(W*H-1, pi))]).toFixed(3);
+  const aProbe = Lab.fmt(Math.abs(u0[Math.max(0, Math.min(W*H-1, pi))]),3);
   const items = [
-    { label: 'λ',          value: `${lam} celle` },
-    { label: 'A sonda',    value: aProbe },
-    { label: 'freq',       value: P.freq.toFixed(3) },
-    { label: 'riflessione',value: P.reflectWalls ? 'ON' : 'OFF' },
+    { label: 'lunghezza d’onda λ', value: lam },
+    { label: 'frequenza f',        value: hz(P.freq) },
+    { label: 'velocità v = λ·f',   value: Lab.fmt(V_MM_S / 10, 0) + ' cm/s' },
+    { label: 'ampiezza nella sonda', value: aProbe },
+    { label: 'pareti',             value: P.reflectWalls ? 'riflettenti' : 'assorbenti' },
   ];
   document.getElementById('readout').innerHTML = items.map(it =>
-    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(it.label)}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
 }
 
@@ -596,7 +602,7 @@ function buildControls() {
 
   /* ── Wave ── */
   const waveSec = Lab.Section('Onda');
-  waveSec.add(Lab.Slider({ label:'Frequenza', min:0.008, max:0.055, value:P.freq, step:0.001,
+  waveSec.add(Lab.Slider({ label:'Frequenza', min:0.008, max:0.055, value:P.freq, step:0.001, format:hz,
     onChange: v => { P.freq = v; } }));
   waveSec.add(Lab.Slider({ label:'Ampiezza', min:0.1, max:2.5, value:P.amp, step:0.05,
     onChange: v => { P.amp = v; } }));
@@ -617,9 +623,9 @@ function buildControls() {
       sliderSrcLinearL.el.style.display = v === 'lineare' ? '' : 'none';
     }
   }));
-  sliderSrcSep     = Lab.Slider({ label:'Separazione', min:10, max:130, value:P.srcSep, step:2, unit:' c',
+  sliderSrcSep     = Lab.Slider({ label:'Separazione', min:10, max:130, value:P.srcSep, step:2, format:cm,
     onChange: v => { P.srcSep = v; } });
-  sliderSrcLinearL = Lab.Slider({ label:'Lunghezza',   min:10, max:H-4, value:P.srcLinearL, step:2, unit:' c',
+  sliderSrcLinearL = Lab.Slider({ label:'Lunghezza',   min:10, max:H-4, value:P.srcLinearL, step:2, format:cm,
     onChange: v => { P.srcLinearL = v; } });
   sliderSrcSep.el.style.display     = P.srcType === 'double'  ? '' : 'none';
   sliderSrcLinearL.el.style.display = P.srcType === 'lineare' ? '' : 'none';
@@ -639,9 +645,9 @@ function buildControls() {
     value: P.barrierPreset,
     onChange: v => { P.barrierPreset = v; buildAllBarriers(); }
   }));
-  slitSec.add(Lab.Slider({ label:'Larghezza', min:4, max:50, value:P.slitW, step:1, unit:' c',
+  slitSec.add(Lab.Slider({ label:'Larghezza', min:4, max:50, value:P.slitW, step:1, format:cm,
     onChange: v => { P.slitW=v; if(P.barrierPreset!=='none') buildAllBarriers(); } }));
-  sliderSlitSep = Lab.Slider({ label:'Separazione', min:8, max:70, value:P.slitSep, step:1, unit:' c',
+  sliderSlitSep = Lab.Slider({ label:'Separazione', min:8, max:70, value:P.slitSep, step:1, format:cm,
     onChange: v => { P.slitSep=v; if(P.barrierPreset!=='none') buildAllBarriers(); } });
   slitSec.add(sliderSlitSep);
 
@@ -663,11 +669,11 @@ function buildControls() {
     onChange: v => { P.obstacleType=v; updateObsVisibility(); buildAllBarriers(); }
   }));
 
-  sliderObsW = Lab.Slider({ label:'Larghezza',   min:6,  max:100, value:P.obstacleW, step:1, unit:' c',
+  sliderObsW = Lab.Slider({ label:'Larghezza',   min:6,  max:100, value:P.obstacleW, step:1, format:cm,
     onChange: v => { P.obstacleW=v; buildAllBarriers(); } });
-  sliderObsH = Lab.Slider({ label:'Altezza',     min:6,  max:80,  value:P.obstacleH, step:1, unit:' c',
+  sliderObsH = Lab.Slider({ label:'Altezza',     min:6,  max:80,  value:P.obstacleH, step:1, format:cm,
     onChange: v => { P.obstacleH=v; buildAllBarriers(); } });
-  sliderObsR = Lab.Slider({ label:'Raggio',      min:4,  max:60,  value:P.obstacleR, step:1, unit:' c',
+  sliderObsR = Lab.Slider({ label:'Raggio',      min:4,  max:60,  value:P.obstacleR, step:1, format:cm,
     onChange: v => { P.obstacleR=v; buildAllBarriers(); } });
 
   const obsHint = document.createElement('div');

@@ -347,7 +347,7 @@ function updateReadout() {
     { label: 'E fra le armature', value: Lab.sci(Enorm() * Eamp() / 1e3, 3) + ' kV/m' },
     { label: 'B sul percorso', value: Lab.fmt(Bloop() * 1e9, 2) + ' nT' },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 

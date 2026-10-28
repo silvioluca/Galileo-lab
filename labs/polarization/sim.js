@@ -77,8 +77,7 @@ function computeGeom(W,H){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx,W,H]=Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   computeGeom(W,H);
   const {cy,x0,scX,scW,fx,Rf}=geom;
@@ -142,7 +141,7 @@ function draw(canvas){
   ctx.fillStyle=dk()?'rgba(0,212,255,0.65)':'rgba(0,100,180,0.7)'; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
   ctx.fillText('SCHERMO', scX+scW/2, scY-5);
   ctx.fillStyle=T.accent; ctx.font='bold 12px "Space Mono",monospace';
-  ctx.fillText(`${(brf*100).toFixed(1)}%`, scX+scW/2, scY+scH+15);
+  ctx.fillText(`${Lab.fmt(brf*100,1)} %`, scX+scW/2, scY+scH+15);
 
   // vettore di Poynting (flusso di energia, lungo l'asse) dopo l'ultimo filtro
   if(P.showPoynting){
@@ -180,73 +179,53 @@ function drawFilter(ctx, x, y, R, angDeg, i){
   ctx.beginPath(); ctx.moveTo(x-ca*R,y+sa*R); ctx.lineTo(x+ca*R,y-sa*R); ctx.stroke();
   // etichetta
   ctx.fillStyle=T.axis; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
-  ctx.fillText(`F${i+1}: ${angDeg.toFixed(0)}°`, x, y+R+16);
+  ctx.fillText(`F${i+1}: ${Lab.fmt(angDeg,0)}°`, x, y+R+16);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-
-// 1: intensità per stadio (barre)
+// 1: intensità dopo ogni stadio (il primo filtro dimezza la luce naturale, poi legge di Malus)
 function drawStages(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:16,b:18,l:22,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const S=stageIntensities();
-  const labels=['I₀', ...Array.from({length:P.n},(_,i)=>`F${i+1}`)];
-  const bw=gW/S.length*0.6;
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  for(const yv of [0,0.5,1]){ const y=PAD.t+gH-yv*gH; ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4;
-    ctx.beginPath(); ctx.moveTo(PAD.l,y); ctx.lineTo(PAD.l+gW,y); ctx.stroke(); ctx.fillText(yv.toFixed(1),2,y+3); }
-  S.forEach((Iv,i)=>{
-    const x=PAD.l+gW*(i+0.5)/S.length-bw/2, h=(Iv/P.I0)*gH;
-    ctx.fillStyle=i===0?T.sub:T.accent; ctx.fillRect(x,PAD.t+gH-h,bw,h);
-    ctx.fillStyle=T.gText; ctx.textAlign='center'; ctx.fillText(labels[i],x+bw/2,PAD.t+gH+10);
-  });
-  ctx.textAlign='left';
+  const S=stageIntensities(), labels=['sorgente', ...Array.from({length:P.n},(_,i)=>`dopo F${i+1}`)];
+  const g=Lab.panel(gCanvas[0],{ title:'Intensità dopo ogni filtro (I/I₀)', xr:[0,S.length], xStep:1e9, xFmt:()=> '', yr:[0,1], yStep:0.25 });
+  if(!g) return; const [ctx,f]=g, gap=(f.R-f.L)/S.length, bw=gap*0.55;
+  S.forEach((Iv,i)=>{ const x=f.L+gap*i+(gap-bw)/2, y=f.Y(Iv/P.I0);
+    ctx.fillStyle=i===0?T.sub:T.accent; ctx.fillRect(x,y,bw,f.B-y);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='9.5px "Space Mono",monospace'; ctx.fillStyle=f.C.title; ctx.fillText(Lab.fmt(Iv/P.I0,3),x+bw/2,Math.max(f.T+6,y-8));
+    ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillStyle=f.C.text; ctx.fillText(labels[i],x+bw/2,f.B+10); });
 }
 
-// 2: legge di Malus — I finale variando l'ultimo filtro
+// 2: legge di Malus — intensità finale ruotando l'ultimo filtro
 function drawMalus(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:16,b:18,l:22,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
   const li=P.n-1;
-  const base=P.ang.slice();
-  const Ifor=ang=>{ const save=P.ang[li]; P.ang[li]=ang; const v=finalI(); P.ang[li]=save; return v; };
-  let mx=1e-6; for(let a=0;a<=180;a+=3) mx=Math.max(mx,Ifor(a));
-  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let a=0;a<=180;a+=3){ const x=PAD.l+a/180*gW, y=PAD.t+gH-Ifor(a)/Math.max(mx,1e-6)*gH*0.92; a===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
-  ctx.stroke();
-  // punto corrente
-  const ac=((P.ang[li]%180)+180)%180; const x=PAD.l+ac/180*gW, y=PAD.t+gH-Ifor(P.ang[li])/Math.max(mx,1e-6)*gH*0.92;
-  ctx.fillStyle=T.axis; ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('0°',PAD.l,PAD.t+gH+10); ctx.fillText('180°',PAD.l+gW-16,PAD.t+gH+10);
+  const Ifor=ang=>{ const save=P.ang[li]; P.ang[li]=ang; const v=finalI(); P.ang[li]=save; return v/P.I0; };
+  const g=Lab.panel(gCanvas[1],{ title:P.n>1?`Legge di Malus: I ruotando F${P.n}`:'Un solo filtro: I = I₀/2 a ogni angolo', xr:[0,180], xStep:30, yr:[0,0.5], yStep:0.1, xLabel:`angolo di F${P.n} (°)` });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,Ifor,[0,180],T.accent,2,[],180);
+  const ac=((P.ang[li]%180)+180)%180;
+  Lab.dot(ctx,f,ac,Ifor(P.ang[li]),T.axis,4.5);
 }
 
-// 3: stato di polarizzazione (vista lungo il fascio) — assi dei filtri + ampiezza E
+// 3: stato di polarizzazione visto lungo il fascio: asse di ogni filtro, lungo quanto l'ampiezza di E
 function drawPolState(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  gBase(ctx,W,H,{t:14,b:14,l:14,r:8});
-  const cx=W/2, cy=H/2, R=Math.min(W,H)*0.40;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4;
+  const cv=gCanvas[2]; if(!cv||!cv._dpr) return;
+  const [ctx,W,H]=Lab.ctx2d(cv), C=Lab.graphColors();
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=C.text; ctx.font='10.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText('Campo E visto lungo il fascio',8,11);
+  const cx=W/2, cy=H/2+8, R=Math.min(W,H-20)*0.40;
+  ctx.strokeStyle=C.grid; ctx.lineWidth=1;
   ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.stroke();
   const S=stageIntensities();
   for(let i=0;i<P.n;i++){
     const a=rad(P.ang[i]), amp=Math.sqrt(Math.max(0,S[i+1]/P.I0));
-    const col=i===P.n-1?T.accent:'rgba(120,150,190,0.6)';
-    ctx.strokeStyle=col; ctx.lineWidth=i===P.n-1?2:1.2;
+    const last=i===P.n-1;
+    ctx.strokeStyle=last?T.accent:C.text; ctx.lineWidth=last?2.4:1.2; ctx.globalAlpha=last?1:0.6;
     ctx.beginPath(); ctx.moveTo(cx-Math.cos(a)*R*amp, cy+Math.sin(a)*R*amp); ctx.lineTo(cx+Math.cos(a)*R*amp, cy-Math.sin(a)*R*amp); ctx.stroke();
+    ctx.globalAlpha=1;
+    ctx.fillStyle=last?T.accent:C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='center';
+    ctx.fillText(`F${i+1}`, cx+Math.cos(a)*(R*Math.max(amp,0.15)+10), cy-Math.sin(a)*(R*Math.max(amp,0.15)+10));
   }
 }
 
@@ -276,7 +255,7 @@ function buildControls(){
 
 // ═══ Drag dei filtri (ruota l'asse) ═══════════════════════════════════════════
 function initDrag(canvas){
-  function pos(e){ const r=canvas.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*canvas.width, y:(e.clientY-r.top)/r.height*canvas.height}; }
+  function pos(e){ const r=canvas.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
   canvas.addEventListener('mousedown',e=>{
     const p=pos(e); dragIdx=-1;
     for(let i=0;i<P.n;i++){ if(Math.hypot(p.x-geom.fx[i], p.y-geom.cy)<geom.Rf*1.2){ dragIdx=i; break; } }
@@ -291,21 +270,8 @@ function initDrag(canvas){
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Intensità per stadio','Legge di Malus I(θ)','Stato di polarizzazione'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -316,17 +282,17 @@ function init(){
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'final', label:'Intensità finale'},
-    {key:'pct',   label:'% trasmessa'},
-    {key:'axes',  label:'Assi (°)'},
-    {key:'hint',  label:''},
+    {key:'final', label:'intensità finale'},
+    {key:'pct',   label:'luce trasmessa'},
+    {key:'axes',  label:'assi dei filtri'},
+    {key:'hint',  label:'filtri'},
   ]);
 
   document.getElementById('btnCross').addEventListener('click',()=>{
     P.n=2; P.ang[0]=0; P.ang[1]=90; buildControls();   // polarizzatori incrociati → buio
   });
   document.getElementById('btnReset').addEventListener('click',()=>{
-    P.I0=1; P.n=3; P.ang=[0,30,90]; P.showPoynting=true; P.speed=1; buildControls();
+    P.I0=1; P.n=2; P.ang=[0,30,90]; P.showPoynting=true; P.speed=1; buildControls();
   });
 
   initDrag(simCanvas);
@@ -336,10 +302,8 @@ function init(){
     const ga=document.getElementById('graphArea'); const rb=document.getElementById('readout');
     const gaH=ga?ga.offsetHeight:0, rbH=rb?rb.offsetHeight:0;
     const w=parent.clientWidth, h=Math.max(140,(parent.clientHeight||0)-gaH-rbH);
-    if(w>0){ simCanvas.style.width=w+'px'; simCanvas.style.height=h+'px'; simCanvas.width=w; simCanvas.height=h; }
-    for(const cv of gCanvas){ if(!cv)continue; const p=cv.parentElement;
-      const pw=p.clientWidth, ph=p.clientHeight;
-      if(pw>0&&ph>0){ cv.style.width=pw+'px'; cv.style.height=ph+'px'; cv.width=pw; cv.height=ph; } }
+    if(w>0){ Lab.hidpi(simCanvas,w,h); }
+    Lab.fitPanels(gCanvas);
     draw(simCanvas); drawGraphs();
   }
   resize();
@@ -355,10 +319,10 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     const If=finalI();
-    readout.set('final', If.toFixed(3)+' I₀');
-    readout.set('pct', (If/P.I0*100).toFixed(1)+' %');
-    readout.set('axes', P.ang.slice(0,P.n).map(a=>a.toFixed(0)).join(' / '));
-    readout.set('hint', P.n+' filtr'+(P.n>1?'i':'o'));
+    readout.set('final', Lab.fmt(If,3)+' I₀');
+    readout.set('pct', Lab.fmt(If/P.I0*100,1)+' %');
+    readout.set('axes', P.ang.slice(0,P.n).map(a=>Lab.fmt(a,0)+'°').join(' · '));
+    readout.set('hint', String(P.n));
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

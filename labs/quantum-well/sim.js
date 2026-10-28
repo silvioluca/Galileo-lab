@@ -52,7 +52,7 @@ function pal() {
 }
 let T = pal();
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const fmtSci = (x, u) => (Math.abs(x) < 1e-3 && x !== 0 || Math.abs(x) >= 1e4) ? x.toExponential(3) + (u || '') : x.toFixed(4) + (u || '');
+const fmtSci = (x, u) => (Math.abs(x) < 1e-3 && x !== 0 || Math.abs(x) >= 1e4) ? Lab.sci(x,4) + (u || '') : Lab.fmt(x,4) + (u || '');
 
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
 // Buca di potenziale infinita di larghezza L: autostati φ_n(u)=√2·sin(nπu) con u=x/L∈[0,1]
@@ -128,8 +128,7 @@ const sy0 = () => G.marginT + G.plotH;                        // linea di base (
 const sy = d => sy0() - d * G.yScale;
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -147,7 +146,7 @@ function draw(canvas) {
   ctx.beginPath(); ctx.moveTo(sx(0), sy0()); ctx.lineTo(sx(1), sy0()); ctx.stroke();
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText('x = 0', sx(0), sy0() + 15);
-  ctx.fillText(`x = L = ${P.L_nm.toFixed(2)} nm`, sx(1), sy0() + 15);
+  ctx.fillText(`x = L = ${Lab.fmt(P.L_nm,2)} nm`, sx(1), sy0() + 15);
 
   // area di disegno ritagliata alla buca
   ctx.save(); ctx.beginPath(); ctx.rect(sx(0), G.marginT, sx(1) - sx(0), G.plotH); ctx.clip();
@@ -183,10 +182,10 @@ function draw(canvas) {
   ctx.fillText('Buca di Potenziale Infinita — E_n = n²π²ℏ²/(2mL²)', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
   if (P.mode === 'single') {
-    ctx.fillText(`n=${P.n}   E_n=${EnEV(P.n).toFixed(4)} eV   stato stazionario: |Ψ|² non cambia nel tempo`, 14, 40);
+    ctx.fillText(`n=${P.n}   E_n=${Lab.fmt(EnEV(P.n),4)} eV   stato stazionario: |Ψ|² non cambia nel tempo`, 14, 40);
   } else {
     const Tp = beatPeriodFs();
-    ctx.fillText(`n₁=${P.n1} (E=${EnEV(P.n1).toFixed(3)} eV)   n₂=${P.n2} (E=${EnEV(P.n2).toFixed(3)} eV)   ${Tp != null ? `T_battimento=${Tp.toFixed(2)} fs` : 'n₁=n₂: nessun battimento'}`, 14, 40);
+    ctx.fillText(`n₁=${P.n1} (E=${Lab.fmt(EnEV(P.n1),3)} eV)   n₂=${P.n2} (E=${Lab.fmt(EnEV(P.n2),3)} eV)   ${Tp != null ? `T_battimento=${Lab.fmt(Tp,2)} fs` : 'n₁=n₂: nessun battimento'}`, 14, 40);
   }
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
@@ -194,82 +193,40 @@ function draw(canvas) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: ⟨x⟩/L nel tempo — asse Y SEMPRE 0..1 (⟨x⟩/L è un'aspettazione di posizione relativa,
-// intrinsecamente limitata a quell'intervallo qualunque siano n₁,n₂,L o la particella)
+// 1: posizione media ⟨x⟩/L nel tempo: ferma per un autostato, oscilla per una sovrapposizione
 function drawGraphMeanU() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const mid = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.setLineDash([2, 3]);
-  ctx.beginPath(); ctx.moveTo(PAD.l, mid); ctx.lineTo(PAD.l + gW, mid); ctx.stroke(); ctx.setLineDash([]);
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  const xOf = t => PAD.l + (t - (animT - WIN_T)) / WIN_T * gW;
-  const yOf = u => PAD.t + gH - clamp(u, 0, 1) * gH;
-  if (hist.length > 1) {
-    ctx.strokeStyle = COL.a; ctx.lineWidth = 1.5; ctx.beginPath();
-    hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.u); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  }
-  ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('⟨x⟩/L', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const t1 = Math.max(animT, WIN_T);
+  const g = Lab.panel(gCanvas[0], { title: 'Posizione media ⟨x⟩/L', xr: [t1 - WIN_T, t1], xStep: 2, xFmt: () => '', yr: [0, 1], yStep: 0.25, xLabel: 'tempo (rallentato) →' });
+  if (!g) return; const [ctx, f] = g;
+  ctx.save(); ctx.setLineDash([2, 3]); ctx.strokeStyle = f.C.text; ctx.beginPath(); ctx.moveTo(f.L, f.Y(0.5)); ctx.lineTo(f.R, f.Y(0.5)); ctx.stroke(); ctx.restore();
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.u]), COL.a, 2);
 }
-// 2: diagramma dei livelli energetici E_n (n=1..8) — ricalcolato ad ogni frame da L/particella
-// correnti (non è un'evoluzione temporale, quindi nessun conflitto con la regola "assi fissi")
+// 2: livelli energetici E_n = n²h²/(8mL²): crescono come n²
 function drawGraphLevels() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 8, r: 10 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const NMAX = 8, Emax = EnEV(NMAX) * 1.12;
-  const xOf = n => PAD.l + (n - 0.5) / NMAX * gW;
-  const yOf = e => PAD.t + gH - clamp(e / Emax, 0, 1) * gH;
-  const activeSet = P.mode === 'single' ? [P.n] : [P.n1, P.n2];
+  const NMAX = 8, Em = Lab.niceMax(EnEV(NMAX) * 1.08);
+  const g = Lab.panel(gCanvas[1], { title: 'Livelli energetici E_n (eV) ∝ n²', xr: [0.4, NMAX + 0.6], xStep: 1, yr: [0, Em], xLabel: 'n' });
+  if (!g) return; const [ctx, f] = g;
+  const act = P.mode === 'single' ? [P.n] : [P.n1, P.n2];
   for (let n = 1; n <= NMAX; n++) {
-    const isActive = activeSet.includes(n);
-    const x = xOf(n), y = yOf(EnEV(n));
-    ctx.strokeStyle = isActive ? COL.a : 'rgba(150,205,225,0.35)'; ctx.lineWidth = isActive ? 2.4 : 1.2;
-    ctx.beginPath(); ctx.moveTo(x - gW / NMAX * 0.32, y); ctx.lineTo(x + gW / NMAX * 0.32, y); ctx.stroke();
-    ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'center';
-    ctx.fillText(String(n), x, PAD.t + gH + 9);
+    const on = act.includes(n), y = f.Y(EnEV(n));
+    ctx.strokeStyle = on ? COL.a : f.C.text; ctx.lineWidth = on ? 3 : 1.4; ctx.globalAlpha = on ? 1 : 0.6;
+    ctx.beginPath(); ctx.moveTo(f.X(n - 0.32), y); ctx.lineTo(f.X(n + 0.32), y); ctx.stroke(); ctx.globalAlpha = 1;
   }
   if (P.mode === 'super' && P.n1 !== P.n2) {
-    const y1 = yOf(EnEV(P.n1)), y2 = yOf(EnEV(P.n2));
-    const xb = PAD.l + gW * 0.92;
-    ctx.strokeStyle = COL.b; ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
-    ctx.beginPath(); ctx.moveTo(xb, y1); ctx.lineTo(xb, y2); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = COL.b; ctx.font = 'bold 8px "Space Mono",monospace'; ctx.textAlign = 'left';
-    ctx.fillText('ΔE', xb + 3, (y1 + y2) / 2 + 3);
+    const xb = f.X(Math.max(P.n1, P.n2) + 0.45);
+    ctx.save(); ctx.strokeStyle = COL.b; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(xb, f.Y(EnEV(P.n1))); ctx.lineTo(xb, f.Y(EnEV(P.n2))); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = COL.b; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('ΔE', xb + 3, (f.Y(EnEV(P.n1)) + f.Y(EnEV(P.n2))) / 2);
   }
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('E (eV)', PAD.l + 2, PAD.t + 7);
 }
-// 3: Re(Ψ)/Im(Ψ) istantanei lungo u — asse Y fisso ±1.55 (|φ_n|≤√2 sempre, qualunque n)
+// 3: parte reale e immaginaria della funzione d'onda lungo la buca
 function drawGraphComponents() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 18, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const zero = PAD.t + gH / 2, YM = 1.55;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  [['re', COL.re], ['im', COL.im]].forEach(([key, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
-    for (let i = 0; i <= 200; i++) { const u = i / 200, c = componentsAt(u, animT); const x = PAD.l + u * gW, y = zero - c[key] / YM * (gH * 0.46); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.stroke();
-  });
-  ctx.fillStyle = COL.re; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('Re(Ψ)', PAD.l + 2, PAD.t + 7);
-  ctx.fillStyle = COL.im; ctx.textAlign = 'right'; ctx.fillText('Im(Ψ)', PAD.l + gW - 2, PAD.t + 7);
+  const g = Lab.panel(gCanvas[2], { title: 'Funzione d’onda Ψ(x) all’istante attuale', xr: [0, 1], xStep: 0.25, yr: [-1.6, 1.6], yStep: 0.5, xLabel: 'x / L' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, u => componentsAt(u, animT).re, [0, 1], COL.re, 2);
+  Lab.plot(ctx, f, u => componentsAt(u, animT).im, [0, 1], COL.im, 1.6);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[COL.re, 'Re Ψ'], [COL.im, 'Im Ψ']]);
 }
-function drawGraphs() {
-  const titles = ['⟨x⟩/L nel tempo', 'Livelli energetici E_n', 'Re(Ψ), Im(Ψ) — istantanea'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphMeanU(); drawGraphLevels(); drawGraphComponents();
-}
+function drawGraphs() { drawGraphMeanU(); drawGraphLevels(); drawGraphComponents(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -304,26 +261,19 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 't', label: 'Tempo (animazione)' },
-    { key: 'E', label: 'Energia' },
-    { key: 'dE', label: 'ΔE' },
-    { key: 'T', label: 'Periodo battimento' },
-    { key: 'x', label: '⟨x⟩ / L' },
+    { key: 't', label: 'tempo (rallentato)' },
+    { key: 'E', label: 'energia E_n' },
+    { key: 'dE', label: 'differenza ΔE' },
+    { key: 'T', label: 'periodo di oscillazione h/ΔE' },
+    { key: 'x', label: 'posizione media ⟨x⟩/L' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -347,9 +297,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -364,11 +313,11 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const Tp = beatPeriodFs();
-      readout.set('t', animT.toFixed(2) + ' s');
-      readout.set('E', P.mode === 'single' ? EnEV(P.n).toFixed(4) + ' eV' : `${EnEV(P.n1).toFixed(3)} / ${EnEV(P.n2).toFixed(3)} eV`);
+      readout.set('t', Lab.fmt(animT,2) + ' s');
+      readout.set('E', P.mode === 'single' ? Lab.fmt(EnEV(P.n),4) + ' eV' : `${Lab.fmt(EnEV(P.n1),3)} / ${Lab.fmt(EnEV(P.n2),3)} eV`);
       readout.set('dE', P.mode === 'single' ? '—' : fmtSci(Math.abs(EnEV(P.n2) - EnEV(P.n1)), ' eV'));
-      readout.set('T', Tp != null ? Tp.toFixed(2) + ' fs' : '—');
-      readout.set('x', meanU(animT).toFixed(3));
+      readout.set('T', Tp != null ? Lab.fmt(Tp,2) + ' fs' : '—');
+      readout.set('x', Lab.fmt(meanU(animT),3));
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

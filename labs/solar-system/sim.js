@@ -432,10 +432,10 @@ function buildGrid() {
       }
 
       const isMoon=obj.type==='moon';
-      const smaStr=isMoon?(obj.smaKm?`${(obj.smaKm/1000).toFixed(0)}k km`:'—')
-                         :(obj.sma?`${obj.sma.toFixed(2)} AU`:'—');
+      const smaStr=isMoon?(obj.smaKm?`${Lab.fmt((obj.smaKm/1000),0)}k km`:'—')
+                         :(obj.sma?`${Lab.fmt(obj.sma,2)} AU`:'—');
       const radStr=`${obj.radius.toLocaleString('it')} km`;
-      const orbStr=obj.orbPeriod?(obj.orbPeriod<1?`${(obj.orbPeriod*365.25).toFixed(1)} d`:`${obj.orbPeriod.toFixed(1)} a`):'—';
+      const orbStr=obj.orbPeriod?(obj.orbPeriod<1?`${Lab.fmt((obj.orbPeriod*365.25),1)} d`:`${Lab.fmt(obj.orbPeriod,1)} a`):'—';
 
       card.innerHTML=`
         <div style="position:relative;display:flex;align-items:center;justify-content:center;width:${boxSize}px;height:${boxSize}px"></div>
@@ -461,13 +461,13 @@ function showModal(id) {
   const isMoon=obj.type==='moon';
   const parentName=obj.parent?BY_ID[obj.parent]?.name:null;
 
-  const smaLabel=isMoon?(obj.smaKm?`${obj.smaKm.toLocaleString('it')} km`:'—'):(obj.sma?`${obj.sma.toFixed(4)} AU`:'—');
-  const periLabel=isMoon?(obj.periKm?`${obj.periKm.toLocaleString('it')} km`:'—'):(obj.perihelion?`${obj.perihelion.toFixed(4)} AU`:'—');
-  const aphLabel =isMoon?(obj.aphKm?`${obj.aphKm.toLocaleString('it')} km`:'—'):(obj.aphelion?`${obj.aphelion.toFixed(4)} AU`:'—');
-  const orbPLabel=obj.orbPeriod?(obj.orbPeriod<1?`${(obj.orbPeriod*365.25).toFixed(2)} d`:`${obj.orbPeriod.toFixed(4)} a`):'—';
-  const rotLabel=obj.rotPeriod!=null?`${Math.abs(obj.rotPeriod).toFixed(3)} d${obj.rotPeriod<0?' (retrogrado)':''}`:'—';
-  const fmtN=(v,d,u)=>v!=null?`<span class="ss-param-value">${typeof v==='number'?v.toFixed(d):v}</span>${u?`<span style="font-size:10px;color:var(--text-hint);margin-left:3px">${u}</span>`:''}`:'<span class="ss-param-value">—</span>';
-  const fmtSci=v=>{if(v==null)return'<span class="ss-param-value">—</span>';const e=Math.floor(Math.log10(Math.abs(v)));return`<span class="ss-param-value">${(v/Math.pow(10,e)).toFixed(4)} × 10<sup>${e}</sup></span>`;};
+  const smaLabel=isMoon?(obj.smaKm?`${obj.smaKm.toLocaleString('it')} km`:'—'):(obj.sma?`${Lab.fmt(obj.sma,4)} AU`:'—');
+  const periLabel=isMoon?(obj.periKm?`${obj.periKm.toLocaleString('it')} km`:'—'):(obj.perihelion?`${Lab.fmt(obj.perihelion,4)} AU`:'—');
+  const aphLabel =isMoon?(obj.aphKm?`${obj.aphKm.toLocaleString('it')} km`:'—'):(obj.aphelion?`${Lab.fmt(obj.aphelion,4)} AU`:'—');
+  const orbPLabel=obj.orbPeriod?(obj.orbPeriod<1?`${Lab.fmt((obj.orbPeriod*365.25),2)} d`:`${Lab.fmt(obj.orbPeriod,4)} a`):'—';
+  const rotLabel=obj.rotPeriod!=null?`${Lab.fmt(Math.abs(obj.rotPeriod),3)} d${obj.rotPeriod<0?' (retrogrado)':''}`:'—';
+  const fmtN=(v,d,u)=>v!=null?`<span class="ss-param-value">${typeof v==='number'?Lab.fmt(v,d):v}</span>${u?`<span style="font-size:10px;color:var(--text-hint);margin-left:3px">${u}</span>`:''}`:'<span class="ss-param-value">—</span>';
+  const fmtSci=v=>{if(v==null)return'<span class="ss-param-value">—</span>';const e=Math.floor(Math.log10(Math.abs(v)));return`<span class="ss-param-value">${Lab.fmt((v/Math.pow(10,e)),4)} × 10<sup>${e}</sup></span>`;};
 
   document.getElementById('modalContent').innerHTML=`
     <div class="ss-modal-header">
@@ -495,7 +495,7 @@ function showModal(id) {
       <div class="ss-param-row"><span class="ss-param-label">Afelio</span><span class="ss-param-value">${aphLabel}</span></div>
       <div class="ss-param-row"><span class="ss-param-label">Eccentricità</span>${fmtN(obj.ecc,4,'')}</div>
       <div class="ss-param-row"><span class="ss-param-label">Periodo orbitale</span><span class="ss-param-value">${orbPLabel}</span></div>
-      <div class="ss-param-row"><span class="ss-param-label">Periodo sinodico</span><span class="ss-param-value">${obj.synPeriod?obj.synPeriod.toFixed(2)+' d':'—'}</span></div>
+      <div class="ss-param-row"><span class="ss-param-label">Periodo sinodico</span><span class="ss-param-value">${obj.synPeriod?Lab.fmt(obj.synPeriod,2)+' d':'—'}</span></div>
       <div class="ss-param-row"><span class="ss-param-label">Velocità orbitale</span>${fmtN(obj.orbV,2,'km/s')}</div>
       <div class="ss-param-row"><span class="ss-param-label">Inclinazione</span>${fmtN(obj.incl,2,'°')}</div>
     </div>
@@ -904,7 +904,7 @@ function drawDist3D(){
     const lp=project3D(au,0,0);
     ctx.fillStyle=dk?'rgba(100,160,220,0.30)':'rgba(20,60,120,0.28)';
     ctx.font=`8px 'Space Mono',monospace`; ctx.textAlign='left';
-    ctx.fillText(`${au<1?au.toFixed(1):Math.round(au)} AU`,lp.sx+3,lp.sy+3);
+    ctx.fillText(`${au<1?Lab.fmt(au,1):Math.round(au)} AU`,lp.sx+3,lp.sy+3);
   });
 
   /* Sun */
@@ -1001,7 +1001,7 @@ function drawDist3D(){
   /* Scale + time info */
   ctx.fillStyle=dk?'rgba(100,150,200,0.38)':'rgba(30,60,120,0.35)';
   ctx.font=`9px 'Space Mono',monospace`; ctx.textAlign='left';
-  ctx.fillText(`t = ${dist3DTime.toFixed(1)} a  ·  scala ${dstScale}`,10,H-10);
+  ctx.fillText(`t = ${Lab.fmt(dist3DTime,1)} a  ·  scala ${dstScale}`,10,H-10);
 }
 
 /* Mouse camera controls */
@@ -1064,8 +1064,8 @@ distCanvas.addEventListener('mousemove',e=>{
     distTip.style.left=(mx+12)+'px'; distTip.style.top=(my-6)+'px';
     const isMoon=found.type==='moon';
     distTip.textContent=isMoon
-      ?`${found.name} — ${found.smaKm.toLocaleString('it')} km · T=${(found.orbPeriod*365.25).toFixed(2)} d`
-      :`${found.name} — ${found.sma} AU · T=${found.orbPeriod?.toFixed(2)} a`;
+      ?`${found.name} — ${found.smaKm.toLocaleString('it')} km · T=${Lab.fmt((found.orbPeriod*365.25),2)} d`
+      :`${found.name} — ${Lab.fmt(found.sma, 3)} AU · T = ${found.orbPeriod != null ? Lab.fmt(found.orbPeriod, 2) : "—"} anni`;
     distCanvas.style.cursor='pointer';
   } else {
     distTip.style.display='none';

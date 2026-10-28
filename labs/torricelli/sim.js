@@ -16,6 +16,7 @@ const P = {
 const ATM=101325, Gacc=9.81;
 
 let tAnim=0, last=0, colPx=0, refillFlag=true;
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout;
 function refill(){ refillFlag=true; }   // riempie il tubo: il liquido riparte dall'alto e scende
@@ -53,7 +54,7 @@ function colH(){ return p0Pa()/(rho()*Gacc); }        // altezza della colonna (
 function hMaxScale(){ return 1.20*ATM/(rho()*Gacc); } // colonna a p=1.2 atm (per la scala)
 function mmHg(){ return p0Pa()/133.322; }
 function altitudeEq(){ return -8400*Math.log(clamp(P.p0,0.05,3)); }   // quota equivalente (m)
-function fmtH(m){ return m<2 ? (m*100).toFixed(1)+' cm' : m.toFixed(2)+' m'; }
+function fmtH(m){ return m<2 ? Lab.fmt((m*100),1)+' cm' : Lab.fmt(m,2)+' m'; }
 function niceStep(x){ const e=Math.pow(10,Math.floor(Math.log10(x))); const f=x/e; return (f<1.5?1:f<3.5?2:f<7.5?5:10)*e; }
 
 // ═══ Geometria ════════════════════════════════════════════════════════════════
@@ -122,8 +123,7 @@ function drawTube(ctx,yCol,off){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   geom(W,H);
@@ -172,7 +172,7 @@ function draw(canvas){
   ctx.textAlign='left'; ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
   ctx.fillText('Torricelli:  p₀ = ρ·g·h   →   h = p₀/(ρg)', 14, 24);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-  ctx.fillText(`p₀ = ${P.p0.toFixed(2)} atm = ${(p0Pa()/1000).toFixed(1)} kPa = ${mmHg().toFixed(0)} mmHg   ·   ${liq.name}: h = ${fmtH(colH())}`, 14, 40);
+  ctx.fillText(`p₀ = ${Lab.fmt(P.p0,2)} atm = ${Lab.fmt((p0Pa()/1000),1)} kPa = ${Lab.fmt(mmHg(),0)} mmHg   ·   ${liq.name}: h = ${fmtH(colH())}`, 14, 40);
 }
 
 // scala graduata FISSA, lunga quanto il tubo (0 .. P.tubeH). cm fino a 2 m, poi m
@@ -208,39 +208,27 @@ function drawColMarker(ctx,yCol,off){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
 function drawGraphs(){
-  // 1: h vs p0 (lineare)
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:28,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const pmax=1.3, hmax=pmax*ATM/(rho()*Gacc);
-    const xOf=p=>PAD.l+p/pmax*gW, yOf=h=>PAD.t+gH-clamp(h/hmax,0,1)*gH*0.9;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(pmax),yOf(pmax*ATM/(rho()*Gacc))); ctx.stroke();
-    ctx.fillStyle=rgb(T.press); ctx.beginPath(); ctx.arc(xOf(P.p0),yOf(colH()),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('h',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('p₀',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 2: h per liquido (a 1 atm) — perché il mercurio
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:16,b:22,l:10,r:10};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const ks=Object.keys(LIQ); const hs=ks.map(k=>ATM/(LIQ[k].rho*Gacc)); const max=Math.max(...hs);
-    const bw=gW/ks.length*0.5; ks.forEach((k,i)=>{ const cx=PAD.l+gW*(i+0.5)/ks.length, bh=hs[i]/max*gH*0.85;
-      const hi=k===P.liq; ctx.fillStyle=rgba(LIQ[k].col, hi?0.95:0.45); ctx.fillRect(cx-bw/2,PAD.t+gH-bh,bw,bh);
-      ctx.fillStyle=T.gText; ctx.font='6px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(k.slice(0,4),cx,PAD.t+gH+9);
-      ctx.fillStyle=rgb(LIQ[k].col); ctx.fillText(fmtH(hs[i]),cx,PAD.t+gH-bh-3); });
-  }
-  // 3: pressione vs quota (barometrica)
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const altmax=10000;
-    const xOf=a=>PAD.l+a/altmax*gW, yOf=p=>PAD.t+gH-clamp(p,0,1.05)*gH*0.9;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let a=0;a<=altmax;a+=200){ const p=Math.exp(-a/8400); const x=xOf(a),y=yOf(p); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    const altNow=clamp(altitudeEq(),0,altmax); ctx.fillStyle=rgb(T.press); ctx.beginPath(); ctx.arc(xOf(altNow),yOf(P.p0),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('p/p₀',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('quota',PAD.l+gW-2,PAD.t+gH-3);
-  }
+  // 1: altezza della colonna in funzione della pressione esterna: h = p₀/(ρ·g)
+  const hm=Lab.niceMax(1.3*ATM/(rho()*Gacc)*100);
+  let g=Lab.panel(gCanvas[0],{ title:`Altezza della colonna (cm), ${LIQ[P.liq].name.toLowerCase()}`, xr:[0,1.3], yr:[0,hm], xLabel:'p₀ (atm)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,p=>p*ATM/(rho()*Gacc)*100,[0,1.3],T.accent,2);
+    Lab.dot(ctx,f,P.p0,colH()*100,rgb(T.press),4.5); }
+  // 2: altezza a 1 atm per i vari liquidi, in scala log: col mercurio 76 cm, con l'acqua oltre 10 m
+  const ks=Object.keys(LIQ), hs=ks.map(k=>ATM/(LIQ[k].rho*Gacc));
+  g=Lab.panel(gCanvas[1],{ title:'Altezza a 1 atm per liquido (m), scala log', xr:[0,ks.length], xStep:1e9, xFmt:()=> '', yr:[0.1,100], yLog:true, yFmt:v=>Lab.fmt(v,v<1?1:0) });
+  if(g){ const [ctx,f]=g, gap=(f.R-f.L)/ks.length, bw=gap*0.55;
+    ks.forEach((k,i)=>{ const x=f.L+gap*i+(gap-bw)/2, y=f.Y(hs[i]);
+      ctx.fillStyle=rgba(LIQ[k].col,k===P.liq?0.95:0.45); ctx.fillRect(x,y,bw,f.B-y);
+      ctx.font='9.5px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle=f.C.title; ctx.fillText(fmtH(hs[i]),x+bw/2,y-8);
+      ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillText(LIQ[k].name,x+bw/2,f.B+10); }); }
+  // 3: pressione atmosferica in funzione della quota (atmosfera esponenziale, H ≈ 8,4 km)
+  g=Lab.panel(gCanvas[2],{ title:'Pressione atmosferica (atm) in funzione della quota', xr:[0,10], yr:[0,1.2], yStep:0.2, xLabel:'quota (km)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,a=>Math.exp(-a/8.4),[0,10],T.accent,2);
+    Lab.dot(ctx,f,clamp(altitudeEq(),0,10000)/1000,P.p0,rgb(T.press),4.5); }
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -254,18 +242,10 @@ function buildControls(){
   secT.add(Lab.Slider({ label:'Altezza del tubo', min:0.5, max:15, step:0.1, value:P.tubeH, unit:' m', onChange(v){P.tubeH=v;} }));
 }
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Altezza h in funzione di p₀','Altezza per liquido (1 atm)','Pressione vs quota'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -290,10 +270,9 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(240,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    geom(simCanvas.width,simCanvas.height);
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    geom(simCanvas.width/(simCanvas._dpr||1),simCanvas.height/(simCanvas._dpr||1));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -307,8 +286,8 @@ function init(){
     tAnim+=dt;
     try{
       step(dt); draw(simCanvas); drawGraphs();
-      readout.set('p', P.p0.toFixed(2)+' atm');
-      readout.set('mm', mmHg().toFixed(0)+' mmHg');
+      readout.set('p', Lab.fmt(P.p0,2)+' atm');
+      readout.set('mm', Lab.fmt(mmHg(),0)+' mmHg');
       readout.set('liq', LIQ[P.liq].name+' ('+rho()+')');
       readout.set('h', fmtH(colH()));
       readout.set('alt', (altitudeEq()>=0?'+':'')+Math.round(altitudeEq())+' m');

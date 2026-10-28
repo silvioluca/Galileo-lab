@@ -251,7 +251,7 @@ function resizeAll() {
 new ResizeObserver(() => { resizeAll(); draw(); drawGraphs(); }).observe(canvas.parentElement);
 
 /* ─── Slope geometry ──────────────────────────────────────────── */
-const ML = 52, MR = 52, MT = 32, MB = 46;
+const ML = 90, MR = 52, MT = 100, MB = 46;   // margini ampi: i vettori forza in cima al piano restano visibili
 
 function slopeGeom() {
   const th   = params.angle * Math.PI / 180;
@@ -429,7 +429,7 @@ function draw() {
     ctx.fillStyle = dk ? '#ff9090' : '#bb1515';
     ctx.font = '700 12px "Space Mono",monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`W=${f.W.toFixed(1)} N`, bcx + 15, bcy + wLen * 0.55);
+    ctx.fillText(`W=${Lab.fmt(f.W,1)} N`, bcx + 15, bcy + wLen * 0.55);
 
     // Normal (upper-right, perpendicular to slope)
     const nLen = f.N * sc;
@@ -437,7 +437,7 @@ function draw() {
     ctx.fillStyle = dk ? '#80e880' : '#106010';
     ctx.font = '700 12px "Space Mono",monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`N=${f.N.toFixed(1)} N`, bcx + nx * nLen + 6, bcy + ny * nLen + 4);
+    ctx.fillText(`N=${Lab.fmt(f.N,1)} N`, bcx + nx * nLen + 6, bcy + ny * nLen + 4);
 
     // Friction: fric>0 → UP slope = (-cosT, -sinT); fric<0 → DOWN slope
     if (Math.abs(f.fric) > 0.05) {
@@ -449,7 +449,7 @@ function draw() {
       ctx.fillStyle = dk ? '#ffd060' : '#906000';
       ctx.font = '700 12px "Space Mono",monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`f=${Math.abs(f.fric).toFixed(1)} N`,
+      ctx.fillText(`f=${Lab.fmt(Math.abs(f.fric),1)} N`,
         bcx + fdx * fLen * 1.5 + nx * 18, bcy + fdy * fLen * 0.5 + ny * 18);
     }
 
@@ -466,7 +466,7 @@ function draw() {
       ctx.fillStyle = dk ? '#70e8ff' : '#005070';
       ctx.font = '700 12px "Space Mono",monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`Fnet=${Math.abs(f.Fnet).toFixed(1)} N`,
+      ctx.fillText(`Fnet=${Lab.fmt(Math.abs(f.Fnet),1)} N`,
         ox2 + ndx * fnetLen * 0.5 + 40, oy2 + ndy * fnetLen * 0.5 - 10);
     }
   }
@@ -603,23 +603,23 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, label, dark, series, yFixed, tFixe
 
 /* ─── Readout ─────────────────────────────────────────────────── */
 const readout = new Lab.Readout(document.getElementById('readout'), [
-  { key:'t',     label:'t'     },
-  { key:'x',     label:'x'     },
-  { key:'v',     label:'v'     },
-  { key:'a',     label:'a'     },
-  { key:'N',     label:'N'     },
-  { key:'f',     label:'f'     },
+  { key:'t',     label:'tempo t'     },
+  { key:'x',     label:'percorso x'     },
+  { key:'v',     label:'velocità v'     },
+  { key:'a',     label:'accelerazione a'     },
+  { key:'N',     label:'reazione normale N'     },
+  { key:'f',     label:'attrito f'     },
   { key:'stato', label:'stato' },
 ]);
 
 function updateReadout() {
   const f = sim.forces;
-  readout.set('t',     sim.t.toFixed(2) + ' s');
-  readout.set('x',     sim.x.toFixed(2) + ' m');
-  readout.set('v',     (sim.v >= 0 ? '+' : '') + sim.v.toFixed(2) + ' m/s');
-  readout.set('a',     sim._accel(sim.v).toFixed(2) + ' m/s²');
-  readout.set('N',     f.N.toFixed(1) + ' N');
-  readout.set('f',     Math.abs(f.fric).toFixed(1) + ' N');
+  readout.set('t',     Lab.fmt(sim.t,2) + ' s');
+  readout.set('x',     Lab.fmt(sim.x,2) + ' m');
+  readout.set('v',     (sim.v >= 0 ? '+' : '') + Lab.fmt(sim.v,2) + ' m/s');
+  readout.set('a',     Lab.fmt(sim._accel(sim.v),2) + ' m/s²');
+  readout.set('N',     Lab.fmt(f.N,1) + ' N');
+  readout.set('f',     Lab.fmt(Math.abs(f.fric),1) + ' N');
   readout.set('stato', sim.statusText);
 }
 
@@ -705,7 +705,7 @@ function fmtTick(v) {
   if (v === 0) return '0';
   const a = Math.abs(v);
   const s = a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : a >= 1 ? v.toFixed(1) : v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 /* ─── Resize handle ───────────────────────────────────────────── */

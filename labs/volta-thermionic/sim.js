@@ -365,7 +365,7 @@ function buildControls(){
 function buildReadout(){
   const el=document.getElementById('readout'); el.innerHTML='';
   const fields = P.mode==='volta'
-    ? [{key:'pa',label:'φ_A'},{key:'pb',label:'φ_B'},{key:'pc',label:'φ_C'},{key:'v',label:'V estremi'},{key:'lo',label:'estremo +'},{key:'hi',label:'estremo −'}]
+    ? [{key:'pa',label:'lavoro d’estrazione A'},{key:'pb',label:'lavoro d’estrazione B'},{key:'pc',label:'lavoro d’estrazione C'},{key:'v',label:'V estremi'},{key:'lo',label:'estremo +'},{key:'hi',label:'estremo −'}]
     : [{key:'phi',label:'φ catodo'},{key:'T',label:'Temperatura'},{key:'V',label:'Tensione'},{key:'J',label:'J saturazione'},{key:'I',label:'Corrente diodo'},{key:'note',label:'Stato'}];
   readout=new Lab.Readout(el, fields);
 }

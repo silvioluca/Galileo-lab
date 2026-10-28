@@ -2,7 +2,7 @@
 
 // ═══ Stato ════════════════════════════════════════════════════════════════════
 const P = {
-  A1:1.0,  w1:1.2,  ph1:0,           // oscillatore 1 (ampiezza rel., ω rad/s, fase °)
+  A1:1.0,  w1:1.2,  ph1:0,           // oscillatore 1 (ampiezza m, ω rad/s, fase °)
   compare:false,
   A2:0.7,  w2:1.8,  ph2:90,          // oscillatore 2
   showV:true, showA:true,            // vettori velocità / accelerazione
@@ -14,6 +14,7 @@ const COL=['#ffb84d','#9b8cff'];
 
 let tSim=0, running=true;
 let oscs=[];   // [{A,w,ph,col, hist:[]}]
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout;
 
@@ -72,8 +73,7 @@ function vec(ctx,x1,y1,x2,y2,col,lbl){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
 
@@ -126,6 +126,29 @@ function draw(canvas){
     if(P.showA) vec(ctx,hx,hy-12, hx+s.aSHM*sc*0.5, hy-12, T.acol, null);
   });
 
+  // a destra: una massa su una molla con lo stesso moto x(t) (oscillatore armonico reale)
+  if(W>700){
+    const cxS=W*0.76, wall=cxS-AMAX*sc-70;
+    oscs.forEach((o,oi)=>{
+      const yS=cyC-40+oi*90, s=state(o), bx=cxS+s.x*sc, bw=34;
+      ctx.fillStyle=T.ring; ctx.fillRect(wall-8,yS-28,8,56);             // parete
+      // molla a zig-zag dalla parete al blocco
+      const n=14, x0=wall, x1=bx-bw/2, amp=9;
+      ctx.strokeStyle=T.sub; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(x0,yS);
+      for(let k=1;k<n;k++) ctx.lineTo(x0+(x1-x0)*k/n, yS+(k%2?-amp:amp));
+      ctx.lineTo(x1,yS); ctx.stroke();
+      ctx.fillStyle=o.col; ctx.fillRect(bx-bw/2,yS-bw/2,bw,bw);
+      ctx.strokeStyle='rgba(0,0,0,0.35)'; ctx.strokeRect(bx-bw/2,yS-bw/2,bw,bw);
+      // posizione di equilibrio
+      ctx.setLineDash([3,4]); ctx.strokeStyle=T.ring; ctx.lineWidth=0.8;
+      ctx.beginPath(); ctx.moveTo(cxS,yS-30); ctx.lineTo(cxS,yS+30); ctx.stroke(); ctx.setLineDash([]);
+      if(P.showV) vec(ctx,bx,yS-bw/2-8, bx+s.vSHM*sc*0.5, yS-bw/2-8, T.vcol, null);
+      if(P.showA) vec(ctx,bx,yS+bw/2+8, bx+s.aSHM*sc*0.5, yS+bw/2+8, T.acol, null);
+    });
+    ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
+    ctx.fillText(`massa su una molla: stesso moto, ω = √(k/m)`, cxS, cyC-40+oscs.length*90-20);
+  }
+
   // intestazione
   ctx.textAlign='left';
   ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
@@ -138,7 +161,7 @@ function draw(canvas){
     const ly=60+oi*16; const Tp=2*Math.PI/o.w;
     ctx.fillStyle=o.col; ctx.beginPath(); ctx.arc(20,ly-3,5,0,Math.PI*2); ctx.fill();
     ctx.fillStyle=T.txt; ctx.font='10px "Space Mono",monospace';
-    ctx.fillText(`A=${o.A.toFixed(2)}  ω=${o.w.toFixed(2)} rad/s  T=${Tp.toFixed(2)} s  φ=${o.ph}°`, 30, ly);
+    ctx.fillText(`A = ${Lab.fmt(o.A,2)} m   ω = ${Lab.fmt(o.w,2)} rad/s   T = ${Lab.fmt(Tp,2)} s   φ = ${o.ph}°`, 30, ly);
   });
 }
 
@@ -149,96 +172,65 @@ function drawGrid(ctx,W,H){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
 function tWin(){ return Math.max(8, tSim+0.5); }
+// riquadro quadrato centrato (per spazio delle fasi e Lissajous, dove serve il rapporto 1:1)
+function squarePanel(cv, o){
+  if(!cv || !cv._dpr) return null;
+  const [ctx,W,H]=Lab.ctx2d(cv), C=Lab.graphColors();
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  const side=Math.min(W-20, H-10);              // con questi margini l'area del grafico è quadrata
+  return [ctx, Lab.axes(ctx,{ x:(W-side)/2, y:0, w:side, h:H, bg:false, ...o })];
+}
 
-// 1: x(t), v(t), a(t) selezionabili (pulsanti), ogni serie normalizzata
+// 1: x(t), v(t)/ω e a(t)/ω²: tutte in metri e con la stessa ampiezza A, così si vedono gli
+//    sfasamenti (v anticipa x di 90°, a è opposta a x)
 function drawXt(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:18,b:16,l:22,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const win=tWin(), zero=PAD.t+gH/2;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4; ctx.beginPath(); ctx.moveTo(PAD.l,zero); ctx.lineTo(PAD.l+gW,zero); ctx.stroke();
-
-  const maxX=Math.max(1e-6,...oscs.map(o=>o.A));
-  const maxV=Math.max(1e-6,...oscs.map(o=>o.A*o.w));
-  const maxA=Math.max(1e-6,...oscs.map(o=>o.A*o.w*o.w));
-  const SER=[['x',maxX,'#ffd24d'],['v',maxV,T.vcol],['a',maxA,T.acol]];
-
-  for(const [key,mx,col] of SER){
+  const g=Lab.panel(gCanvas[0],{ title:'x, v/ω e a/ω² (m)', xr:[0,tWin()], yr:[-AMAX,AMAX], yStep:0.5, xLabel:'t (s)' });
+  if(!g) return; const [ctx,f]=g;
+  const SER=[['x','#ffd24d',1],['v',T.vcol,0],['a',T.acol,0]];
+  for(const [key,col] of SER){
     if(!P.series[key]) continue;
     oscs.forEach((o,oi)=>{
-      if(!o.hist.length)return;
-      ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.setLineDash(oi?[4,3]:[]);
-      ctx.beginPath();
-      o.hist.forEach((h,i)=>{ const x=PAD.l+h.t/win*gW, y=zero-h[key]/mx*(gH*0.44); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-      ctx.stroke(); ctx.setLineDash([]);
+      if(!o.hist.length) return;
+      const k = key==='x' ? 1 : key==='v' ? 1/o.w : 1/(o.w*o.w);
+      ctx.save(); ctx.setLineDash(oi?[4,3]:[]);
+      Lab.plotPts(ctx,f,o.hist.map(h=>[h.t,h[key]*k]),col,2);
+      ctx.restore();
     });
   }
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left';
-  ctx.fillText('t',PAD.l+gW-8,PAD.t+gH+11);
 }
 
-// 2: spazio delle fasi v–x (ellissi)
+// 2: spazio delle fasi (x, v/ω): x² + (v/ω)² = A², una circonferenza percorsa in senso orario
 function drawPhase(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:14,b:14,l:14,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const cx=PAD.l+gW/2, cy=PAD.t+gH/2;
-  const half=Math.min(gW,gH)*0.46;            // area quadrata → rapporto 1:1
-  const maxA=Math.max(1e-6,...oscs.map(o=>o.A))*1.1;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4;
-  ctx.beginPath(); ctx.moveTo(cx-half,cy); ctx.lineTo(cx+half,cy); ctx.moveTo(cx,cy-half); ctx.lineTo(cx,cy+half); ctx.stroke();
-  // traccio (x, v/ω): x²+(v/ω)²=A² → vera circonferenza di raggio A
+  const g=squarePanel(gCanvas[1],{ title:'Spazio delle fasi', xr:[-AMAX,AMAX], yr:[-AMAX,AMAX], xStep:0.5, yStep:0.5, xLabel:'x (m)', padL:34 });
+  if(!g) return; const [ctx,f]=g;
   for(const o of oscs){
-    ctx.strokeStyle=o.col; ctx.lineWidth=1.2; ctx.beginPath();
-    for(let i=0;i<=64;i++){ const a=i/64*Math.PI*2;
-      const X=cx+o.A*Math.cos(a)/maxA*half, Y=cy+o.A*Math.sin(a)/maxA*half; i===0?ctx.moveTo(X,Y):ctx.lineTo(X,Y); }
-    ctx.closePath(); ctx.stroke();
-    const s=state(o); ctx.fillStyle=o.col;
-    ctx.beginPath(); ctx.arc(cx+s.x/maxA*half, cy-(s.vSHM/o.w)/maxA*half,3,0,Math.PI*2); ctx.fill();
+    Lab.plotPts(ctx,f,Array.from({length:97},(_,i)=>{ const a=i/96*2*Math.PI; return [o.A*Math.cos(a),o.A*Math.sin(a)]; }),o.col,1.6);
+    const s=state(o);
+    Lab.dot(ctx,f,s.x,s.vSHM/o.w,o.col,4);
   }
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.fillText('v/ω',cx+4,PAD.t+9); ctx.fillText('x',cx+half-8,cy-3);
+  ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText('v/ω (m)', f.L+4, f.T+8);
 }
 
-// 3: Lissajous x1–x2 (confronto) oppure a(t)
+// 3: figura di Lissajous x₁–x₂ (confronto) oppure a(t)
 function drawThird(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:14,b:14,l:14,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
   if(oscs.length>1){
-    const cx=PAD.l+gW/2, cy=PAD.t+gH/2;
-    const half=Math.min(gW,gH)*0.46;          // area quadrata → 1:1
+    const g=squarePanel(gCanvas[2],{ title:'Lissajous: x₂ in funzione di x₁', xr:[-AMAX,AMAX], yr:[-AMAX,AMAX], xStep:0.5, yStep:0.5, xLabel:'x₁ (m)', padL:34 });
+    if(!g) return; const [ctx,f]=g;
     const o1=oscs[0], o2=oscs[1];
-    const Tcommon=2*Math.PI/Math.min(o1.w,o2.w)*8;   // abbastanza per chiudere la figura
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.1; ctx.beginPath();
-    for(let i=0;i<=480;i++){ const tt=i/480*Tcommon;
-      const X=cx+o1.A*Math.cos(o1.w*tt+o1.ph*Math.PI/180)/AMAX*half;
-      const Y=cy-o2.A*Math.cos(o2.w*tt+o2.ph*Math.PI/180)/AMAX*half;
-      i===0?ctx.moveTo(X,Y):ctx.lineTo(X,Y); }
-    ctx.stroke();
+    const Tc=2*Math.PI/Math.min(o1.w,o2.w)*8;
+    const pts=[]; for(let i=0;i<=600;i++){ const tt=i/600*Tc;
+      pts.push([o1.A*Math.cos(o1.w*tt+o1.ph*Math.PI/180), o2.A*Math.cos(o2.w*tt+o2.ph*Math.PI/180)]); }
+    Lab.plotPts(ctx,f,pts,f.C.accent,1.4);
     const s1=state(o1), s2=state(o2);
-    ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(cx+s1.x/AMAX*half, cy-s2.x/AMAX*half,3,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.fillText('Lissajous x₁–x₂',PAD.l+2,PAD.t+7);
-  } else {
-    // a(t)
-    const win=tWin(), zero=PAD.t+gH/2;
-    const mv=Math.max(...oscs.map(o=>o.A*o.w*o.w))*1.1||1;
-    ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4; ctx.beginPath(); ctx.moveTo(PAD.l,zero); ctx.lineTo(PAD.l+gW,zero); ctx.stroke();
-    for(const o of oscs){ if(!o.hist.length)continue;
-      ctx.strokeStyle=T.acol; ctx.lineWidth=1.4; ctx.beginPath();
-      o.hist.forEach((h,i)=>{ const x=PAD.l+h.t/win*gW, y=zero-h.a/mv*(gH*0.46); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }); ctx.stroke(); }
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.fillText('a(t)',PAD.l+2,PAD.t+7); ctx.fillText('t',PAD.l+gW-8,PAD.t+gH+11);
+    Lab.dot(ctx,f,s1.x,s2.x,f.C.accent,4);
+    return;
   }
+  const o=oscs[0], am=Lab.niceMax(AMAX*o.w*o.w*1.05);
+  const g=Lab.panel(gCanvas[2],{ title:'Accelerazione a(t) = −ω²·x (m/s²)', xr:[0,tWin()], yr:[-am,am], xLabel:'t (s)' });
+  if(!g) return; const [ctx,f]=g;
+  if(o.hist.length) Lab.plotPts(ctx,f,o.hist.map(h=>[h.t,h.a]),T.acol,2);
 }
 function drawGraphs(){ drawXt(); drawPhase(); drawThird(); }
 
@@ -249,7 +241,7 @@ function buildControls(){
 
   const s1=Lab.Section('Oscillatore 1');
   cont.appendChild(s1.el);
-  s1.add(Lab.Slider({ label:'Ampiezza A', min:0.3, max:1.5, step:0.05, value:P.A1, unit:'', onChange(v){P.A1=v; reset();} }));
+  s1.add(Lab.Slider({ label:'Ampiezza A', min:0.3, max:1.5, step:0.05, value:P.A1, unit:' m', onChange(v){P.A1=v; reset();} }));
   s1.add(Lab.Slider({ label:'Pulsazione ω', min:0.3, max:3, step:0.1, value:P.w1, unit:' rad/s', onChange(v){P.w1=v; reset();} }));
   s1.add(Lab.Slider({ label:'Fase φ', min:0, max:360, step:15, value:P.ph1, unit:'°', onChange(v){P.ph1=v; reset();} }));
 
@@ -257,7 +249,7 @@ function buildControls(){
   cont.appendChild(sc.el);
   sc.add(Lab.Toggle({ label:'Aggiungi secondo oscillatore', value:P.compare, onChange(v){P.compare=v; buildControls(); reset();} }));
   if(P.compare){
-    sc.add(Lab.Slider({ label:'Ampiezza A (2)', min:0.3, max:1.5, step:0.05, value:P.A2, unit:'', onChange(v){P.A2=v; reset();} }));
+    sc.add(Lab.Slider({ label:'Ampiezza A (2)', min:0.3, max:1.5, step:0.05, value:P.A2, unit:' m', onChange(v){P.A2=v; reset();} }));
     sc.add(Lab.Slider({ label:'Pulsazione ω (2)', min:0.3, max:3, step:0.1, value:P.w2, unit:' rad/s', onChange(v){P.w2=v; reset();} }));
     sc.add(Lab.Slider({ label:'Fase φ (2)', min:0, max:360, step:15, value:P.ph2, unit:'°', onChange(v){P.ph2=v; reset();} }));
   }
@@ -271,36 +263,22 @@ function buildControls(){
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Posizione x(t)','Spazio delle fasi (v,x)','Lissajous / a(t)'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    // pulsanti x/v/a sul primo grafico
-    if(i===0){
-      const bar=document.createElement('div');
-      bar.style.cssText='position:absolute;top:2px;right:4px;z-index:2;display:flex;gap:3px;';
-      const SER=[['x','#ffd24d'],['v','#4fd0ff'],['a','#ff5d73']];
-      for(const [key,col] of SER){
-        const b=document.createElement('button');
-        b.textContent=key;
-        const sty=act=>`font-family:"Space Mono",monospace;font-size:9px;width:16px;height:14px;line-height:12px;padding:0;border-radius:3px;cursor:pointer;border:1px solid ${col};background:${act?col:'transparent'};color:${act?'#06090f':col};`;
-        b.style.cssText=sty(P.series[key]);
-        b.addEventListener('click',()=>{ P.series[key]=!P.series[key]; b.style.cssText=sty(P.series[key]); });
-        bar.appendChild(b);
-      }
-      panel.appendChild(bar);
-    }
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
+  // pulsanti x / v / a sul primo grafico
+  const bar=document.createElement('div');
+  bar.style.cssText='position:absolute;top:5px;right:8px;z-index:2;display:flex;gap:4px;';
+  for(const [key,col] of [['x','#ffd24d'],['v','#4fd0ff'],['a','#ff5d73']]){
+    const b=document.createElement('button');
+    b.textContent=key; b.title='mostra/nascondi '+key;
+    const sty=act=>`font-family:"Space Mono",monospace;font-size:10px;width:20px;height:17px;line-height:14px;padding:0;border-radius:4px;cursor:pointer;border:1px solid ${col};background:${act?col:'transparent'};color:${act?'#06090f':col};`;
+    b.style.cssText=sty(P.series[key]);
+    b.addEventListener('click',()=>{ P.series[key]=!P.series[key]; b.style.cssText=sty(P.series[key]); });
+    bar.appendChild(b);
   }
+  gCanvas[0].parentElement.appendChild(bar);
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -327,10 +305,8 @@ function init(){
     const ga=document.getElementById('graphArea'); const rb=document.getElementById('readout');
     const gaH=ga?ga.offsetHeight:0, rbH=rb?rb.offsetHeight:0;
     const w=parent.clientWidth, h=Math.max(140,(parent.clientHeight||0)-gaH-rbH);
-    if(w>0){ simCanvas.style.width=w+'px'; simCanvas.style.height=h+'px'; simCanvas.width=w; simCanvas.height=h; }
-    for(const cv of gCanvas){ if(!cv)continue; const p=cv.parentElement;
-      const pw=p.clientWidth, ph=p.clientHeight;
-      if(pw>0&&ph>0){ cv.style.width=pw+'px'; cv.style.height=ph+'px'; cv.width=pw; cv.height=ph; } }
+    if(w>0) Lab.hidpi(simCanvas, w, h);
+    Lab.fitPanels(gCanvas);
     draw(simCanvas); drawGraphs();
   }
   resize();
@@ -347,10 +323,10 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     const o=oscs[0]; const s=state(o); const Tp=2*Math.PI/o.w;
-    readout.set('t', tSim.toFixed(2)+' s');
-    readout.set('x', s.x.toFixed(2));
-    readout.set('T', Tp.toFixed(2)+' s');
-    readout.set('f', (1/Tp).toFixed(3)+' Hz');
+    readout.set('t', Lab.fmt(tSim,2)+' s');
+    readout.set('x', Lab.fmt(s.x,2)+' m');
+    readout.set('T', Lab.fmt(Tp,2)+' s');
+    readout.set('f', Lab.fmt(1/Tp,3)+' Hz');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

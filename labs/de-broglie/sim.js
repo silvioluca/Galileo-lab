@@ -47,21 +47,24 @@ let T=pal();
 
 // ═══ Fisica de Broglie ════════════════════════════════════════════════════════
 function mass(){ return PARTICLES[P.particle].m; }
-function momentum(){ return mass()*P.v; }
+// relativistico: p = γ·m·v, Eₖ = (γ − 1)·m·c² (a basse velocità coincidono con m·v e ½·m·v²)
+const C_LIGHT=299792458;
+function gamma(v){ return 1/Math.sqrt(1-(v/C_LIGHT)**2); }
+function momentum(){ return gamma(P.v)*mass()*P.v; }
 function lambdaDB(){ return H_PLANCK/momentum(); }          // m
-function eKin(){ return 0.5*mass()*P.v*P.v; }               // J
+function eKin(){ return (gamma(P.v)-1)*mass()*C_LIGHT*C_LIGHT; }               // J
 function fmtLen(m){
-  if(m>=1e-3) return (m*1e3).toFixed(2)+' mm';
-  if(m>=1e-6) return (m*1e6).toFixed(2)+' µm';
-  if(m>=1e-9) return (m*1e9).toFixed(3)+' nm';
-  if(m>=1e-12)return (m*1e12).toFixed(2)+' pm';
-  return m.toExponential(2)+' m';
+  if(m>=1e-3) return Lab.fmt(m*1e3,2)+' mm';
+  if(m>=1e-6) return Lab.fmt(m*1e6,2)+' µm';
+  if(m>=1e-9) return Lab.fmt(m*1e9,3)+' nm';
+  if(m>=1e-12)return Lab.fmt(m*1e12,2)+' pm';
+  if(m>=1e-15)return Lab.fmt(m*1e15,2)+' fm';
+  return Lab.sci(m,3)+' m';
 }
 
 // ═══ Rendering ════════════════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   if      (P.view==='packet') drawPacket(ctx,W,H);
   else if (P.view==='orbits') drawOrbitsWave(ctx,W,H);
@@ -74,7 +77,7 @@ function drawHeader(ctx,W,H){
   ctx.fillStyle=T.accent; ctx.font='bold 15px "Space Mono",monospace'; ctx.textAlign='left';
   ctx.fillText(`λ = h/p = ${fmtLen(lambdaDB())}`, 14, 24);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-  ctx.fillText(`${p.name} · v=${P.v.toExponential(2)} m/s · p=${momentum().toExponential(2)} kg·m/s · Eₖ=${(eKin()/eV).toExponential(2)} eV`, 14, 40);
+  ctx.fillText(`${p.name} · v = ${Lab.sci(P.v,3)} m/s · p = ${Lab.sci(momentum(),3)} kg·m/s · Eₖ = ${Lab.eng(eKin()/eV,'eV',2)}`, 14, 40);
 }
 
 // ── Vista 1: pacchetto d'onda ─────────────────────────────────────────────────
@@ -170,7 +173,7 @@ function drawOrbitsWave(ctx,W,H){
   ctx.fillStyle=col; ctx.font='bold 13px "Space Mono",monospace';
   ctx.fillText(allowed?`ORBITA PERMESSA · n=${Math.round(n)}`:'ORBITA PROIBITA', cx, cy-R-22);
   ctx.fillStyle=T.sub; ctx.font='11px "Space Mono",monospace';
-  ctx.fillText(`2πr = n·λ   (n = ${n.toFixed(1)})`, cx, cy-R-6);
+  ctx.fillText(`2πr = n·λ   (n = ${Lab.fmt(n,1)})`, cx, cy-R-6);
 
   ctx.textAlign='left';
   ctx.fillStyle=T.sub; ctx.font='10px "DM Sans",sans-serif';
@@ -219,98 +222,31 @@ function drawScale(ctx,W,H){
 function supExp(e){ const m={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'}; return String(e).split('').map(c=>m[c]||c).join(''); }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-
-// Grafico 1: λ vs velocità (log-log), punto corrente
+// 1: λ = h/p in funzione della velocità (scale logaritmiche): raddoppiare v dimezza λ
 function drawLambdaV(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:28,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const m=mass();
-  const vlo=2, vhi=8;       // log10 v (10²..10⁸ m/s)
-  const lamAt=v=>H_PLANCK/(m*v);
-  const llo=Math.log10(lamAt(Math.pow(10,vhi))), lhi=Math.log10(lamAt(Math.pow(10,vlo)));
-  ctx.strokeStyle=T.wave; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let i=0;i<=60;i++){
-    const lv=vlo+(vhi-vlo)*i/60, v=Math.pow(10,lv);
-    const ll=Math.log10(lamAt(v));
-    const x=PAD.l+(lv-vlo)/(vhi-vlo)*gW;
-    const y=PAD.t+gH-(ll-llo)/(lhi-llo)*gH;
-    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-  }
-  ctx.stroke();
-  // punto corrente
-  const lv=Math.log10(P.v), ll=Math.log10(lambdaDB());
-  const px=PAD.l+(lv-vlo)/(vhi-vlo)*gW, py=PAD.t+gH-(ll-llo)/(lhi-llo)*gH;
-  ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(px,py,3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('λ↓',PAD.l+2,PAD.t+7); ctx.fillText('v→',PAD.l+gW-12,PAD.t+gH+11);
+  const m=mass(), lamAt=v=>H_PLANCK/(m*gamma(v)*v);
+  const g=Lab.panel(gCanvas[0],{ title:`λ di de Broglie (m) — ${PARTICLES[P.particle].name}`, xr:[1e2,1e8], xLog:true, yr:[1e-16,1e-5], yLog:true, xLabel:'v (m/s)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,v=>lamAt(v),[1e2,1e8],T.wave,2,[],200);
+  Lab.dot(ctx,f,P.v,lambdaDB(),T.env,4.5);
 }
-
-// Grafico 2: onda stazionaria srotolata sull'orbita (mostra se si chiude)
+// 2: l'onda "srotolata" lungo l'orbita: è stazionaria solo se sull'orbita stanno n lunghezze d'onda intere
 function drawStandingWave(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:14,b:14,l:10,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const n=P.orbitN;
-  const frac=Math.abs(n-Math.round(n));
-  const allowed=frac<0.06;
-  const col=allowed?T.wave:'rgba(255,90,70,0.95)';
-  const cyG=PAD.t+gH/2, amp=gH*0.36;
-  // linea centrale
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.4;
-  ctx.beginPath(); ctx.moveTo(PAD.l,cyG); ctx.lineTo(PAD.l+gW,cyG); ctx.stroke();
-  // onda sin(nθ) su θ∈[0,2π]
-  ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let i=0;i<=gW;i++){
-    const th=i/gW*Math.PI*2;
-    const y=cyG-amp*Math.sin(n*th)*Math.cos(t*3);
-    i===0?ctx.moveTo(PAD.l+i,y):ctx.lineTo(PAD.l+i,y);
-  }
-  ctx.stroke();
-  // marcatore chiusura a 2π
-  ctx.fillStyle=col; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText(allowed?'si chiude ✓':'non si chiude ✗',PAD.l+2,PAD.t+7);
-  ctx.fillStyle=T.gText; ctx.fillText('0',PAD.l,PAD.t+gH-2); ctx.fillText('2π',PAD.l+gW-12,PAD.t+gH-2);
+  const n=P.orbitN, allowed=Math.abs(n-Math.round(n))<0.06, col=allowed?T.wave:'rgba(255,90,70,0.95)';
+  const g=Lab.panel(gCanvas[1],{ title:`Onda lungo l’orbita, 2πr = ${Lab.fmt(n,1)}·λ`, xr:[0,360], xStep:90, yr:[-1,1], yStep:1, xLabel:'angolo lungo l’orbita (°)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,a=>Math.sin(n*a*Math.PI/180)*Math.cos(t*3),[0,360],col,2);
+  ctx.fillStyle=col; ctx.font='10px "DM Sans",sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  ctx.fillText(allowed?'si richiude su sé stessa: orbita permessa':'non si richiude: orbita non permessa',f.R-4,f.B-10);
 }
-
-// Grafico 3: energia cinetica vs λ
+// 3: λ in funzione dell'energia cinetica (scale logaritmiche), con p relativistico
 function drawEnergyLambda(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:30,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
   const m=mass();
-  // λ = h/√(2mE) → relazione λ(E)
-  const elo=0, ehi=5;   // log10 E in eV
-  const lamE=Eev=>H_PLANCK/Math.sqrt(2*m*Eev*eV);
-  const llo=Math.log10(lamE(Math.pow(10,ehi))), lhi=Math.log10(lamE(Math.pow(10,elo)));
-  ctx.strokeStyle=T.env; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let i=0;i<=60;i++){
-    const le=elo+(ehi-elo)*i/60, E=Math.pow(10,le);
-    const ll=Math.log10(lamE(E));
-    const x=PAD.l+(le-elo)/(ehi-elo)*gW;
-    const y=PAD.t+gH-(ll-llo)/(lhi-llo)*gH;
-    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-  }
-  ctx.stroke();
-  // punto corrente
-  const Eev=eKin()/eV;
-  if(Eev>=1&&Eev<=1e5){
-    const le=Math.log10(Eev), ll=Math.log10(lambdaDB());
-    const px=PAD.l+(le-elo)/(ehi-elo)*gW, py=PAD.t+gH-(ll-llo)/(lhi-llo)*gH;
-    ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(px,py,3.5,0,Math.PI*2); ctx.fill();
-  }
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('λ=h/√(2mE)',PAD.l+2,PAD.t+7); ctx.fillText('E→',PAD.l+gW-12,PAD.t+gH+11);
+  const lamE=Eev=>{ const E=Eev*eV, mc2=m*C_LIGHT*C_LIGHT; return H_PLANCK*C_LIGHT/Math.sqrt(E*E+2*E*mc2); };
+  const g=Lab.panel(gCanvas[2],{ title:'λ (m) in funzione dell’energia cinetica', xr:[1e-3,1e6], xLog:true, yr:[1e-15,1e-7], yLog:true, xLabel:'Eₖ (eV)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,lamE,[1e-3,1e6],T.env,2,[],200);
+  Lab.dot(ctx,f,eKin()/eV,lambdaDB(),T.wave,4.5);
 }
 
 function drawGraphs(){ drawLambdaV(); drawStandingWave(); drawEnergyLambda(); }
@@ -353,22 +289,10 @@ function buildControls(){
 }
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
-function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['λ vs velocità (log)','Onda sull\'orbita (2πr=nλ)','λ vs energia (log)'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+function initGraphs() {
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -379,10 +303,10 @@ function init(){
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'lambda', label:'λ de Broglie'},
-    {key:'p',      label:'Quantità di moto'},
-    {key:'E',      label:'Energia cinetica'},
-    {key:'hint',   label:''},
+    {key:'lambda', label:'λ di de Broglie'},
+    {key:'p',      label:'quantità di moto'},
+    {key:'E',      label:'energia cinetica'},
+    {key:'hint',   label:'velocità'},
   ]);
 
   document.getElementById('btnView').addEventListener('click',()=>{
@@ -402,9 +326,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea');
     const gaH=ga?ga.offsetHeight:0;
-    simCanvas.width=Math.floor(ar.width);
-    simCanvas.height=Math.max(140,Math.floor(ar.height-rb.height-gaH-4));
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(140,Math.floor(ar.height-rb.height-gaH-4)));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -417,9 +340,9 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     readout.set('lambda', fmtLen(lambdaDB()));
-    readout.set('p', momentum().toExponential(2)+' kg·m/s');
-    readout.set('E', (eKin()/eV).toExponential(2)+' eV');
-    readout.set('hint', {packet:'pacchetto d\'onda',orbits:'orbite permesse',scale:'confronto scala'}[P.view]);
+    readout.set('p', Lab.sci(momentum(),3)+' kg·m/s');
+    readout.set('E', Lab.eng(eKin()/eV,'eV',2));
+    readout.set('hint', Lab.sci(P.v,3)+' m/s');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

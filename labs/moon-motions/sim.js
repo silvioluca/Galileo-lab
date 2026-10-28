@@ -53,7 +53,7 @@ function pal() {
 }
 let T = pal();
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const fmt = (x, u) => (Math.abs(x) < 10 ? x.toFixed(2) : x.toFixed(1)) + (u || '');
+const fmt = (x, u) => Lab.fmt(x, Math.abs(x) < 10 ? 2 : 1) + (u || '');
 const degOf = r => r * 180 / Math.PI;
 function normalizeAngle(a) { a = a % TWO; if (a > Math.PI) a -= TWO; if (a < -Math.PI) a += TWO; return a; }
 
@@ -179,8 +179,7 @@ function fillPoly(ctx, pts) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = dk() ? 'rgba(255,255,255,0.7)' : 'rgba(30,50,80,0.25)';
@@ -264,97 +263,62 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('I moti della Luna — rotazione, rivoluzione, precessioni, librazioni', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`t=${simDays.toFixed(1)}g   r=${S.rKm.toFixed(0)}km   Ω=${degOf(S.Omega).toFixed(1)}°   ω=${degOf(S.omega).toFixed(1)}°   libr. lon=${degOf(S.librationLon).toFixed(1)}° lat=${degOf(S.bodyLat).toFixed(1)}°`, 14, 40);
+  ctx.fillText(`t=${Lab.fmt(simDays,1)}g   r=${Lab.fmt(S.rKm,0)}km   Ω=${Lab.fmt(degOf(S.Omega),1)}°   ω=${Lab.fmt(degOf(S.omega),1)}°   libr. lon=${Lab.fmt(degOf(S.librationLon),1)}° lat=${Lab.fmt(degOf(S.bodyLat),1)}°`, 14, 40);
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText('● arancio = meridiano di riferimento (rotazione uniforme)   ● verde = punto realmente rivolto verso la Terra — la loro distanza è la librazione. Terra/Luna fuori scala per essere visibili; distanze e angoli sono esatti.', G.cx, H - 8);
 }
 
 // ═══ Grafici (curve analitiche statiche + marcatore mobile — nessun buffer di storia necessario,
 // tutte e tre le quantità sono funzioni chiuse dei parametri correnti) ═════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: diagramma di librazione (longitudine vs latitudine) — ciclo chiuso su un'orbita, all'omega attuale
+// 1: diagramma di librazione su un'orbita (longitudine × latitudine della direzione della Terra vista dalla Luna);
+//    assi fissi a ±10°: la librazione reale arriva a circa ±7,9° in longitudine e ±6,7° in latitudine
 function drawGraphLibration() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 12, b: 14, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const Snow = deriveState(simDays);
-  // curva parametrica su un'orbita intera all'omega/Omega correnti (congelati): a seconda della fase
-  // apsidale attuale il loop può apparire più o meno "aperto" — riscaliamo gli assi sull'estensione
-  // REALE della curva (non un ±9° fisso) così resta sempre ben leggibile qualunque sia la fase
-  const pts = [];
-  let lonMin = Infinity, lonMax = -Infinity, latMin = Infinity, latMax = -Infinity;
+  const Snow = deriveState(simDays), pts = [];
   for (let k = 0; k <= 240; k++) {
-    const Mp = k / 240 * TWO;
-    const E = solveKepler(Mp, MOON_E);
+    const Mp = k / 240 * TWO, E = solveKepler(Mp, MOON_E);
     const nu = 2 * Math.atan2(Math.sqrt(1 + MOON_E) * Math.sin(E / 2), Math.sqrt(1 - MOON_E) * Math.cos(E / 2));
     const rKm = MOON_A_KM * (1 - MOON_E * Math.cos(E));
     const pos = orbitalToEcliptic(rKm * Math.cos(nu), rKm * Math.sin(nu), Snow.omega, Snow.inc, Snow.Omega);
     const dirE = vNorm(pos.map(c => -c));
     const lat = Math.asin(clamp(vDot(dirE, Snow.zBody), -1, 1));
-    const xBodyK = rodrigues(vNorm(vCross([0, 0, 1], Snow.zBody)), Snow.zBody, Mp);
-    const yBodyK = vCross(Snow.zBody, xBodyK);
-    const lon = Math.atan2(vDot(dirE, yBodyK), vDot(dirE, xBodyK));
-    pts.push([lon, lat]);
-    lonMin = Math.min(lonMin, lon); lonMax = Math.max(lonMax, lon); latMin = Math.min(latMin, lat); latMax = Math.max(latMax, lat);
+    const xBodyK = rodrigues(vNorm(vCross([0, 0, 1], Snow.zBody)), Snow.zBody, Mp), yBodyK = vCross(Snow.zBody, xBodyK);
+    pts.push([Math.atan2(vDot(dirE, yBodyK), vDot(dirE, xBodyK)), degOf(lat)]);
   }
-  const lonC = (lonMin + lonMax) / 2, latC = (latMin + latMax) / 2;
-  const AMP = Math.max(lonMax - lonMin, latMax - latMin, 1 * DEG) / 2 * 1.25;
-  const xOf = lon => PAD.l + ((lon - lonC) / AMP * 0.5 + 0.5) * gW, yOf = lat => PAD.t + gH - ((lat - latC) / AMP * 0.5 + 0.5) * gH;
-  ctx.strokeStyle = '#4dff9d'; ctx.lineWidth = 1.3; ctx.beginPath();
-  pts.forEach(([lon, lat], k) => { const x = xOf(lon), y = yOf(lat); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  const cx = xOf(Snow.bodyLon), cy = yOf(Snow.bodyLat);
-  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, 2.8, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('lat', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('lon', PAD.l + gW - 2, PAD.t + gH - 3);
+  // la longitudine si misura dalla direzione media della Terra (media circolare), così oscilla intorno a 0
+  const lon0 = Math.atan2(pts.reduce((a, p) => a + Math.sin(p[0]), 0), pts.reduce((a, p) => a + Math.cos(p[0]), 0));
+  pts.forEach(p => { p[0] = degOf(normalizeAngle(p[0] - lon0)); });
+  const g = Lab.panel(gCanvas[0], { title: 'Librazione in un mese (gradi)', xr: [-10, 10], xStep: 5, yr: [-10, 10], yStep: 5, xLabel: 'longitudine (°)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, pts, '#4dff9d', 1.6);
+  Lab.dot(ctx, f, degOf(normalizeAngle(Snow.bodyLon - lon0)), degOf(Snow.bodyLat), T.txt, 4);
+  ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('latitudine (°)', f.L + 4, f.T + 8);
 }
-// 2: Ω(t) e ω(t) su una finestra di anni (tempo effettivo, con il boost di precessione già applicato)
+// 2: longitudine del nodo Ω (regredisce in 18,6 anni) e argomento del perigeo ω (avanza in 8,85 anni)
 function drawGraphPrecession() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 12, b: 14, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const YEARS = 20;
-  const xOf = y => PAD.l + y / YEARS * gW, yOf = deg => PAD.t + gH - (clamp(deg, -180, 540) + 180) / 720 * gH;
-  const TnodY = T_NODAL_PRECESSION / 365.25, TapsY = T_APSIDAL_PRECESSION / 365.25;
-  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let k = 0; k <= 200; k++) { const y = k / 200 * YEARS; const deg = (-360 / TnodY * y); const x = xOf(y), yy = yOf(((deg % 360) + 360) % 360 - 180); k ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); }
-  ctx.stroke();
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let k = 0; k <= 200; k++) { const y = k / 200 * YEARS; const deg = (360 / TapsY * y); const x = xOf(y), yy = yOf(((deg % 360) + 360) % 360 - 180); k ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); }
-  ctx.stroke();
-  const curY = clamp(simDays * P.precBoost / 365.25, 0, YEARS);
-  const px = xOf(curY);
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, PAD.t); ctx.lineTo(px, PAD.t + gH); ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('Ω,ω [°]', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('anni', PAD.l + gW - 2, PAD.t + gH - 3);
+  const YEARS = 20, k = P.precBoost;
+  const g = Lab.panel(gCanvas[1], { title: 'Precessioni: nodo Ω e perigeo ω (°)', xr: [0, YEARS], xStep: 5, yr: [0, 360], yStep: 90, xLabel: 'anni (tempo effettivo)' });
+  if (!g) return; const [ctx, f] = g;
+  const wrap = a => ((degOf(a) % 360) + 360) % 360;
+  for (const [key, col] of [['Omega', '#ffd23f'], ['omega', '#ff9d4d']]) {
+    // la curva si interrompe dove l'angolo passa da 360° a 0°
+    ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1.8; ctx.beginPath(); let prev = null;
+    for (let i = 0; i <= 400; i++) { const y = i / 400 * YEARS, v = wrap(deriveState(y * 365.25 / k)[key]);
+      if (prev === null || Math.abs(v - prev) > 180) ctx.moveTo(f.X(y), f.Y(v)); else ctx.lineTo(f.X(y), f.Y(v)); prev = v; }
+    ctx.stroke(); ctx.restore();
+  }
+  const cur = simDays * k / 365.25;
+  if (cur <= YEARS) { ctx.save(); ctx.strokeStyle = f.C.text; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(f.X(cur), f.T); ctx.lineTo(f.X(cur), f.B); ctx.stroke(); ctx.restore(); }
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['#ffd23f', 'nodo Ω'], ['#ff9d4d', 'perigeo ω']]);
 }
-// 3: distanza Terra-Luna in funzione dell'anomalia — perigeo/apogeo dell'orbita corrente
+// 3: distanza Terra–Luna lungo l'orbita: perigeo 363 300 km, apogeo 405 500 km
 function drawGraphDistance() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 12, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const rMin = MOON_A_KM * (1 - MOON_E), rMax = MOON_A_KM * (1 + MOON_E);
-  const xOf = M => PAD.l + M / TWO * gW, yOf = r => PAD.t + gH - (r - rMin * 0.985) / (rMax * 1.015 - rMin * 0.985) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let k = 0; k <= 200; k++) { const Mp = k / 200 * TWO; const E = solveKepler(Mp, MOON_E); const r = MOON_A_KM * (1 - MOON_E * Math.cos(E)); const x = xOf(Mp), y = yOf(r); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const Snow = deriveState(simDays);
-  const cx = xOf(Snow.M), cy = yOf(Snow.rKm);
-  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(cx, cy, 2.8, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('r [km]', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('M', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[2], { title: 'Distanza Terra–Luna (migliaia di km)', xr: [0, 360], xStep: 90, yr: [355, 415], yStep: 15, xLabel: 'anomalia media (°)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, Md => MOON_A_KM * (1 - MOON_E * Math.cos(solveKepler(Md * DEG, MOON_E))) / 1000, [0, 360], '#00d4ff', 2);
+  const S = deriveState(simDays);
+  Lab.dot(ctx, f, degOf(S.M), S.rKm / 1000, T.txt, 4);
 }
-function drawGraphs() {
-  const titles = ['Librazione: lon × lat', 'Ω nodo, ω apsidi (anni)', 'Distanza r(M)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphLibration(); drawGraphPrecession(); drawGraphDistance();
-}
+function drawGraphs() { drawGraphLibration(); drawGraphPrecession(); drawGraphDistance(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -388,14 +352,14 @@ function buildControls() {
 function buildPeriodsInfo(cont) {
   const sp = Lab.Section('Periodi reali'); cont.appendChild(sp.el);
   const rows = [
-    ['Rotazione (sincrona)', T_SIDEREAL.toFixed(2) + ' giorni'],
-    ['Rivoluzione (siderale)', T_SIDEREAL.toFixed(2) + ' giorni'],
-    ['Rivoluzione (anomalistica)', T_ANOMALISTIC.toFixed(2) + ' giorni'],
-    ['Precessione nodale (retr.)', (T_NODAL_PRECESSION / 365.25).toFixed(2) + ' anni'],
-    ['Precessione apsidale (prog.)', (T_APSIDAL_PRECESSION / 365.25).toFixed(2) + ' anni'],
-    ['Precessione assiale (Cassini)', (T_NODAL_PRECESSION / 365.25).toFixed(2) + ' anni'],
-    ['Nutazione (illustrativa)', (T_NUTATION / 365.25).toFixed(2) + ' anni'],
-    ['Librazione lon./lat.', T_ANOMALISTIC.toFixed(2) + ' giorni'],
+    ['Rotazione (sincrona)', Lab.fmt(T_SIDEREAL,2) + ' giorni'],
+    ['Rivoluzione (siderale)', Lab.fmt(T_SIDEREAL,2) + ' giorni'],
+    ['Rivoluzione (anomalistica)', Lab.fmt(T_ANOMALISTIC,2) + ' giorni'],
+    ['Precessione nodale (retr.)', Lab.fmt((T_NODAL_PRECESSION / 365.25),2) + ' anni'],
+    ['Precessione apsidale (prog.)', Lab.fmt((T_APSIDAL_PRECESSION / 365.25),2) + ' anni'],
+    ['Precessione assiale (Cassini)', Lab.fmt((T_NODAL_PRECESSION / 365.25),2) + ' anni'],
+    ['Nutazione (illustrativa)', Lab.fmt((T_NUTATION / 365.25),2) + ' anni'],
+    ['Librazione lon./lat.', Lab.fmt(T_ANOMALISTIC,2) + ' giorni'],
   ];
   const list = document.createElement('div');
   list.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
@@ -417,27 +381,20 @@ function buildPeriodsInfo(cont) {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 't', label: 'Tempo simulato' },
-    { key: 'r', label: 'Distanza Terra-Luna' },
-    { key: 'Omega', label: 'Longitudine del nodo Ω' },
-    { key: 'omega', label: 'Longitudine del perigeo' },
-    { key: 'libLon', label: 'Librazione in longitudine' },
-    { key: 'libLat', label: 'Librazione in latitudine' },
+    { key: 't', label: 'tempo simulato' },
+    { key: 'r', label: 'distanza Terra–Luna' },
+    { key: 'Omega', label: 'longitudine del nodo Ω' },
+    { key: 'omega', label: 'argomento del perigeo ω' },
+    { key: 'libLon', label: 'librazione in longitudine' },
+    { key: 'libLat', label: 'librazione in latitudine' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -482,9 +439,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -499,12 +455,12 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const S = deriveState(simDays);
-      readout.set('t', simDays.toFixed(1) + ' giorni (' + (simDays / 365.25).toFixed(2) + ' anni)');
-      readout.set('r', S.rKm.toFixed(0) + ' km');
-      readout.set('Omega', degOf(S.Omega).toFixed(1) + '°');
-      readout.set('omega', degOf(S.omega).toFixed(1) + '°');
-      readout.set('libLon', degOf(S.librationLon).toFixed(2) + '°');
-      readout.set('libLat', degOf(S.bodyLat).toFixed(2) + '°');
+      readout.set('t', Lab.fmt(simDays, 1) + ' giorni (' + Lab.fmt(simDays / 365.25, 2) + ' anni)');
+      readout.set('r', Lab.fmt(S.rKm, 0) + ' km');
+      readout.set('Omega', Lab.fmt(((degOf(S.Omega) % 360) + 360) % 360, 1) + '°');
+      readout.set('omega', Lab.fmt(((degOf(S.omega) % 360) + 360) % 360, 1) + '°');
+      readout.set('libLon', Lab.fmt(degOf(S.librationLon), 2) + '°');
+      readout.set('libLat', Lab.fmt(degOf(S.bodyLat), 2) + '°');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

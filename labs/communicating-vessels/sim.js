@@ -87,8 +87,7 @@ function drawGrid(ctx,W,H){ ctx.strokeStyle=T.grid; ctx.lineWidth=1;
   for(let y=0;y<=H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();} }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   geom(W,H);
@@ -227,102 +226,73 @@ function drawCapillary(ctx){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-function setTitles(){
-  const t = P.mode==='vessels' ? ['Pressione vs profondità','Volume per vaso (stesso livello)','Livello per vaso']
-    : P.mode==='utube' ? ['Bilancio ρ·h','h_B in funzione di ρ_B','Pressione vs profondità']
-    : ['Altezza h vs raggio r','h in funzione di γ','Risalita per capillare'];
-  for(let i=0;i<3;i++) if(gTitle[i]) gTitle[i].textContent=t[i];
-}
+function setTitles(){}   // i titoli sono disegnati dentro i grafici
 function drawGraphs(){ if(P.mode==='vessels') gVessels(); else if(P.mode==='utube') gUtube(); else gCapillary(); }
+// istogramma semplice con asse numerato
+function bars(i,title,vals,labels,cols,yr,fmtV){
+  const g=Lab.panel(gCanvas[i],{ title, xr:[0,vals.length], xStep:1e9, xFmt:()=> '', yr });
+  if(!g) return; const [ctx,f]=g, gap=(f.R-f.L)/vals.length, bw=gap*0.55;
+  vals.forEach((v,k)=>{ const x=f.L+gap*k+(gap-bw)/2, y0=f.Y(Math.max(yr[0],0)), y=f.Y(v);
+    ctx.fillStyle=cols[k]; ctx.fillRect(x,Math.min(y,y0),bw,Math.abs(y0-y));
+    ctx.font='9.5px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    if(fmtV){ ctx.fillStyle=f.C.title; ctx.fillText(fmtV(v),x+bw/2,v>=0?y-8:y+8); }
+    ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillText(labels[k],x+bw/2,f.B+10); });
+}
 
 function gCapillary(){
-  const hs=TUBES.map(capH);
-  // 1: h(r) iperbole
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const rmax=1.8, hmax=Math.max(0.01,capH(0.2)), pre=2*P.gamma*Math.cos(P.theta*Math.PI/180)/(P.rho*Gacc);
-    const xOf=r=>PAD.l+r/rmax*gW, yOf=h=>PAD.t+gH-clamp(h/hmax,-0.2,1)*gH*0.85;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let r=0.15;r<=rmax;r+=0.03){ const x=xOf(r),y=yOf(pre/(r*1e-3)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    TUBES.forEach((r,i)=>{ ctx.fillStyle=rgb(T.level); ctx.beginPath(); ctx.arc(xOf(r),yOf(hs[i]),3,0,Math.PI*2); ctx.fill(); });
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('h',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('r',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 2: h(γ) lineare (per r di riferimento)
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const rref=0.5e-3, gmax=0.5, hmax=2*gmax*1/(P.rho*Gacc*rref);
-    const xOf=g=>PAD.l+g/gmax*gW, yOf=h=>PAD.t+gH-clamp(h/hmax,0,1)*gH*0.9;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath();
-    ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(gmax),yOf(2*gmax*Math.cos(P.theta*Math.PI/180)/(P.rho*Gacc*rref))); ctx.stroke();
-    ctx.fillStyle=rgb(T.level); ctx.beginPath(); ctx.arc(xOf(P.gamma),yOf(2*P.gamma*Math.cos(P.theta*Math.PI/180)/(P.rho*Gacc*rref)),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('h',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('γ',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 3: barre risalita per capillare
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:22,l:10,r:10};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const hmax=Math.max(0.01,...hs.map(Math.abs)); const bw=gW/TUBES.length*0.5;
-    TUBES.forEach((r,i)=>{ const cx=PAD.l+gW*(i+0.5)/TUBES.length, bh=clamp(hs[i]/hmax,-1,1)*gH*0.45, base=PAD.t+gH*0.5;
-      ctx.fillStyle=rgba(P.theta<90?[70,140,235]:[180,186,196],0.85); ctx.fillRect(cx-bw/2, bh>=0?base-bh:base, bw, Math.abs(bh));
-      ctx.fillStyle=T.gText; ctx.font='6px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(r+'mm',cx,PAD.t+gH+9); });
-  }
+  const hs=TUBES.map(capH), c=Math.cos(P.theta*Math.PI/180), pre=2*P.gamma*c/(P.rho*Gacc);
+  // 1: legge di Jurin h = 2γ·cosθ/(ρ·g·r): iperbole in r
+  const hm=Lab.niceMax(Math.max(Math.abs(capH(0.2)),0.001)*100*1.05);
+  let g=Lab.panel(gCanvas[0],{ title:'Risalita h (cm) in funzione del raggio', xr:[0,1.8], yr:[c<0?-hm:0,hm], xLabel:'r (mm)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,r=>r<0.12?NaN:pre/(r*1e-3)*100,[0,1.8],T.accent,2);
+    TUBES.forEach((r,i)=>Lab.dot(ctx,f,r,hs[i]*100,rgb(T.level),4)); }
+  // 2: h in funzione della tensione superficiale γ, per un capillare di 0,5 mm
+  const rref=0.5e-3, hm2=Lab.niceMax(2*0.5/(P.rho*Gacc*rref)*100);
+  g=Lab.panel(gCanvas[1],{ title:'h (cm) in funzione di γ, capillare da 0,5 mm', xr:[0,0.5], yr:[c<0?-hm2:0,hm2], xLabel:'γ (N/m)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,gm=>2*gm*c/(P.rho*Gacc*rref)*100,[0,0.5],T.accent,2);
+    Lab.dot(ctx,f,P.gamma,2*P.gamma*c/(P.rho*Gacc*rref)*100,rgb(T.level),4.5); }
+  // 3: risalita (o discesa, se θ > 90°) in ogni capillare
+  const m=Lab.niceMax(Math.max(...hs.map(Math.abs),0.001)*100*1.15);
+  bars(2,'Risalita in ogni capillare (cm)',hs.map(h=>h*100),TUBES.map(r=>Lab.fmt(r,2)+' mm'),
+    TUBES.map(()=>rgba(P.theta<90?[70,140,235]:[180,186,196],0.85)),[-m,m],v=>Lab.fmt(v,1));
 }
 
 function gVessels(){
   const liq=LIQ[P.liq], realH=fillH/G.Htot*HMAX_M;
-  // 1: pressione vs profondità (lineare)
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:30,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const pmax=liq.rho*Gacc*HMAX_M;
-    const xOf=d=>PAD.l+d/HMAX_M*gW, yOf=p=>PAD.t+gH-p/Math.max(1,pmax)*gH*0.9;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(realH),yOf(liq.rho*Gacc*realH)); ctx.stroke();
-    ctx.fillStyle=rgb(T.level); ctx.beginPath(); ctx.arc(xOf(realH),yOf(liq.rho*Gacc*realH),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('p',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('h',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 2: volume per vaso a parità di livello (barre diverse → stesso livello)
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:16,b:22,l:10,r:10};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const vols=VESSELS.map((_,i)=>vesselVol(i,fillH)); const max=Math.max(1,...vols);
-    const bw=gW/VESSELS.length*0.55; vols.forEach((v,i)=>{ const cx=PAD.l+gW*(i+0.5)/VESSELS.length, bh=v/max*gH;
-      ctx.fillStyle=rgba(LIQ[P.liq].col,0.8); ctx.fillRect(cx-bw/2,PAD.t+gH-bh,bw,bh);
-      ctx.fillStyle=T.gText; ctx.font='6px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(['largo','cap.','cono','imb.','col.'][i],cx,PAD.t+gH+9); });
-  }
-  // 3: livello per vaso (tutti uguali → linea piatta)
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:20,l:14,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const yh=PAD.t+gH-(fillH/G.Htot)*gH*0.85;
-    ctx.strokeStyle=rgb(T.level); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(PAD.l,yh); ctx.lineTo(PAD.l+gW,yh); ctx.stroke();
-    for(let i=0;i<VESSELS.length;i++){ const cx=PAD.l+gW*(i+0.5)/VESSELS.length; ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(cx,yh,3,0,Math.PI*2); ctx.fill(); }
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText('livello identico in tutti i vasi',PAD.l+gW/2,PAD.t+gH+10);
-  }
+  // 1: legge di Stevino p = ρ·g·h (pressione idrostatica, sopra quella atmosferica)
+  const pm=Lab.niceMax(13600*Gacc*HMAX_M/1000);
+  let g=Lab.panel(gCanvas[0],{ title:'Pressione p = ρ·g·h (kPa)', xr:[0,HMAX_M*100], yr:[0,Lab.niceMax(liq.rho*Gacc*HMAX_M/1000)], xLabel:'profondità h (cm)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,h=>liq.rho*Gacc*h/100/1000,[0,HMAX_M*100],T.accent,2);
+    Lab.dot(ctx,f,realH*100,liq.rho*Gacc*realH/1000,rgb(T.level),4.5); }
+  // 2: quantità di liquido in ogni vaso: diversa, eppure il livello è lo stesso
+  const vols=VESSELS.map((_,i)=>vesselVol(i,fillH)), vmax=Math.max(1e-9,...vols);
+  bars(1,'Liquido contenuto (% del vaso più capiente)',vols.map(v=>v/vmax*100),['largo','capillare','cono','imbuto','colonna'],
+    vols.map(()=>rgba(LIQ[P.liq].col,0.8)),[0,100],v=>Lab.fmt(v,0));
+  // 3: livello raggiunto in ogni vaso
+  bars(2,'Livello in ogni vaso (cm): identico',VESSELS.map(()=>realH*100),['largo','capillare','cono','imbuto','colonna'],
+    VESSELS.map(()=>rgba(T.level,0.8)),[0,Lab.niceMax(HMAX_M*100)],v=>Lab.fmt(v,1));
 }
 function gUtube(){
   const A=LIQ[P.liqA], B=LIQ[P.liqB], hA=0.12, hB=A.rho*hA/B.rho;
-  // 1: bilancio ρ·h (due barre uguali)
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:16,b:22,l:10,r:10};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const val=A.rho*hA, max=val*1.2;
-    const bars=[{v:A.rho*hA,c:A.col,l:'ρA·hA'},{v:B.rho*hB,c:B.col,l:'ρB·hB'}]; const bw=gW/2*0.5;
-    bars.forEach((b,i)=>{ const cx=PAD.l+gW*(i+0.5)/2, bh=b.v/max*gH; ctx.fillStyle=rgba(b.c,0.85); ctx.fillRect(cx-bw/2,PAD.t+gH-bh,bw,bh);
-      ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(b.l,cx,PAD.t+gH+10); });
-    ctx.fillStyle=T.gText; ctx.textAlign='center'; ctx.fillText('uguali (equilibrio)',PAD.l+gW/2,PAD.t+8);
-  }
-  // 2: hB vs ρB (1/ρB)
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const rmin=600,rmax=14000, hmax=A.rho*hA/rmin;
-    const xOf=r=>PAD.l+(r-rmin)/(rmax-rmin)*gW, yOf=h=>PAD.t+gH-clamp(h/hmax,0,1)*gH*0.9;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let r=rmin;r<=rmax;r+=200){ const x=xOf(r),y=yOf(A.rho*hA/r); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=rgb(B.col); ctx.beginPath(); ctx.arc(xOf(B.rho),yOf(hB),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('h_B',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('ρ_B',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 3: pressione vs profondità nei due bracci
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const hmax=Math.max(hA,hB), pmax=Math.max(A.rho,B.rho)*Gacc*hmax;
-    const xOf=d=>PAD.l+d/hmax*gW, yOf=p=>PAD.t+gH-p/Math.max(1,pmax)*gH*0.9;
-    ctx.strokeStyle=rgb(A.col); ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(hA),yOf(A.rho*Gacc*hA)); ctx.stroke();
-    ctx.strokeStyle=rgb(B.col); ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(hB),yOf(B.rho*Gacc*hB)); ctx.stroke();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('p',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('h',PAD.l+gW-2,PAD.t+gH-3);
-  }
+  // 1: all'equilibrio ρ_A·h_A = ρ_B·h_B (stessa pressione alla quota di separazione)
+  const pa=A.rho*Gacc*hA/1000, pm=Lab.niceMax(pa*1.2);
+  bars(0,'Pressione delle due colonne ρ·g·h (kPa)',[pa,B.rho*Gacc*hB/1000],['braccio A','braccio B'],[rgba(A.col,0.85),rgba(B.col,0.85)],[0,pm],v=>Lab.fmt(v,2));
+  // 2: altezza della colonna B al variare della densità di B (iperbole h_B = ρ_A·h_A/ρ_B)
+  const hm=Lab.niceMax(A.rho*hA/600*100);
+  let g=Lab.panel(gCanvas[1],{ title:'Altezza della colonna B (cm)', xr:[0,14000], yr:[0,hm], xLabel:'ρ_B (kg/m³)', xFmt:v=>v>=1000?Lab.fmt(v/1000,0)+'k':String(v) });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,r=>r<500?NaN:A.rho*hA/r*100,[0,14000],T.accent,2);
+    Lab.dot(ctx,f,B.rho,hB*100,rgb(B.col),4.5); }
+  // 3: pressione in funzione della profondità nei due bracci: si incontrano alla stessa quota
+  const hmax=Math.max(hA,hB)*100, pmax=Lab.niceMax(Math.max(A.rho,B.rho)*Gacc*Math.max(hA,hB)/1000);
+  g=Lab.panel(gCanvas[2],{ title:'Pressione nei due bracci (kPa)', xr:[0,Lab.niceMax(hmax)], yr:[0,pmax], xLabel:'profondità (cm)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,h=>h>hA*100?NaN:A.rho*Gacc*h/100/1000,[0,Lab.niceMax(hmax)],rgb(A.col),2);
+    Lab.plot(ctx,f,h=>h>hB*100?NaN:B.rho*Gacc*h/100/1000,[0,Lab.niceMax(hmax)],rgb(B.col),2);
+    Lab.legend(ctx,f.L+8,f.T+8,[[rgb(A.col),A.name||'A'],[rgb(B.col),B.name||'B']]); }
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -356,18 +326,10 @@ function buildReadout(){
   readout=new Lab.Readout(el,f);
 }
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d'); gTitle[i]=title;
-  }
-  setTitles();
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -384,10 +346,9 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(220,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    geom(simCanvas.width,simCanvas.height);
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    geom(simCanvas.width/(simCanvas._dpr||1),simCanvas.height/(simCanvas._dpr||1));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -403,15 +364,15 @@ function init(){
       step(dt); draw(simCanvas); drawGraphs();
       if(P.mode==='vessels'){
         const liq=LIQ[P.liq], realH=fillH/G.Htot*HMAX_M, p=liq.rho*Gacc*realH;
-        readout.set('h',(realH*100).toFixed(1)+' cm'); readout.set('p',(p/1000).toFixed(2)+' kPa');
+        readout.set('h',Lab.fmt((realH*100),1)+' cm'); readout.set('p',Lab.fmt((p/1000),2)+' kPa');
         readout.set('rho',liq.rho+' kg/m³'); readout.set('note','livello uguale ovunque');
       } else if(P.mode==='utube'){
         const A=LIQ[P.liqA],B=LIQ[P.liqB], hB=12, hA=B.rho*hB/A.rho;
-        readout.set('ra',A.rho+''); readout.set('rb',B.rho+''); readout.set('ha',hA.toFixed(1)+' cm');
-        readout.set('hb',hB.toFixed(1)+' cm'); readout.set('dh',Math.abs(hB-hA).toFixed(1)+' cm'); readout.set('note','ρA·hA = ρB·hB');
+        readout.set('ra',A.rho+''); readout.set('rb',B.rho+''); readout.set('ha',Lab.fmt(hA,1)+' cm');
+        readout.set('hb',Lab.fmt(hB,1)+' cm'); readout.set('dh',Lab.fmt(Math.abs(hB-hA),1)+' cm'); readout.set('note','ρA·hA = ρB·hB');
       } else {
-        readout.set('g',P.gamma.toFixed(3)+' N/m'); readout.set('th',P.theta+'°'); readout.set('rho',P.rho+' kg/m³');
-        readout.set('hmin',(capH(0.25)*100).toFixed(1)+' cm'); readout.set('hmax',(capH(1.5)*100).toFixed(1)+' cm'); readout.set('note','h = 2γcosθ/(ρgr)');
+        readout.set('g',Lab.fmt(P.gamma,3)+' N/m'); readout.set('th',P.theta+'°'); readout.set('rho',P.rho+' kg/m³');
+        readout.set('hmin',Lab.fmt((capH(0.25)*100),1)+' cm'); readout.set('hmax',Lab.fmt((capH(1.5)*100),1)+' cm'); readout.set('note','h = 2γcosθ/(ρgr)');
       }
     }catch(err){ console.error(err); }
     requestAnimationFrame(frame);

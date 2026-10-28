@@ -481,7 +481,7 @@ function buildControls() {
   if (!net) {
     const sn = Lab.Section('Numero di elementi'); cont.appendChild(sn.el);
     sn.add(Lab.SliderInput({
-      label: 'N', min: N_MIN, max: N_MAX, step: 1, value: P.n,
+      label: 'Numero di resistori N', min: N_MIN, max: N_MAX, step: 1, value: P.n,
       onChange(v) { v = Math.round(v); P.values = extendValues(P.elemType, P.values.slice(0, v), v); P.n = v; rebuildValueSliders(); },
     }));
   }
@@ -506,7 +506,7 @@ function buildReadout() {
     readout = new Lab.Readout(cont, [
       { key: 'rth', label: 'Resistenza Thevenin' }, { key: 'vth', label: 'Tensione Thevenin' },
       { key: 'ig', label: 'Corrente galvanometro' }, { key: 'stato', label: 'Stato del ponte' },
-      { key: 'r1r2', label: 'R1/R2' }, { key: 'r3r4', label: 'R3/R4' },
+      { key: 'r1r2', label: 'rapporto R1/R2' }, { key: 'r3r4', label: 'rapporto R3/R4 (uguali = ponte in equilibrio)' },
     ]);
   } else {
     readout = new Lab.Readout(cont, [

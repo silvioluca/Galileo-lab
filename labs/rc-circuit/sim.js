@@ -324,7 +324,7 @@ function init(){
     readout.set('vc', Lab.fmt(Vc,2)+' V');
     readout.set('i', Lab.fmt(I,3)+' mA');
     readout.set('tau', Lab.sci(tau(),3)+' s');
-    readout.set('pct', (P.V0>0?(Vc/P.V0*100):0).toFixed(0)+' %');
+    readout.set('pct', Lab.fmt(P.V0>0?(Vc/P.V0*100):0,0)+' %');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

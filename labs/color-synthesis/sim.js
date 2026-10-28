@@ -115,12 +115,15 @@ function rgbToMunsell(R, G, B) {
 // ── Params ────────────────────────────────────────────────────────────────────
 const params = { iR:1.0, iG:1.0, iB:1.0, iC:1.0, iM:1.0, iY:1.0 };
 
+// i cursori sono intensità di luce (lineari): si convertono in valori sRGB con la curva gamma
+const enc = i => clamp(gammaEnc(i) * 255);
 function allMixesAdd() {
-  const c1=[clamp(params.iR*255),0,0], c2=[0,clamp(params.iG*255),0], c3=[0,0,clamp(params.iB*255)];
+  const c1=[enc(params.iR),0,0], c2=[0,enc(params.iG),0], c3=[0,0,enc(params.iB)];
   return { c1,c2,c3, c12:addMix(c1,c2), c13:addMix(c1,c3), c23:addMix(c2,c3), c123:addMix(c1,c2,c3) };
 }
 function allMixesSub() {
-  const c1=[clamp(255*(1-params.iC)),255,255], c2=[255,clamp(255*(1-params.iM)),255], c3=[255,255,clamp(255*(1-params.iY))];
+  // ogni filtro trasmette la frazione (1 − densità) del suo canale complementare
+  const c1=[enc(1-params.iC),255,255], c2=[255,enc(1-params.iM),255], c3=[255,255,enc(1-params.iY)];
   return { c1,c2,c3, c12:mulMix(c1,c2), c13:mulMix(c1,c3), c23:mulMix(c2,c3), c123:mulMix(c1,c2,c3) };
 }
 
@@ -306,7 +309,7 @@ function drawCiePanel(ctx, dk, ox, oy, pw, ph) {
     ctx.strokeStyle=c.ax; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(gx,it+ih); ctx.lineTo(gx,it+ih+4); ctx.stroke();
     ctx.fillStyle=c.tk; ctx.font='700 8px "Space Mono",monospace'; ctx.textAlign='center';
-    ctx.fillText(xv.toFixed(1),gx,it+ih+14);
+    ctx.fillText(Lab.fmt(xv,1),gx,it+ih+14);
   });
   ctx.fillStyle=c.tk; ctx.textAlign='center'; ctx.fillText('x',il+iw/2,it+ih+26);
   [0,0.2,0.4,0.6,0.8].forEach(yv=>{
@@ -314,7 +317,7 @@ function drawCiePanel(ctx, dk, ox, oy, pw, ph) {
     ctx.strokeStyle=c.ax; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(il-4,gy); ctx.lineTo(il,gy); ctx.stroke();
     ctx.fillStyle=c.tk; ctx.font='700 8px "Space Mono",monospace'; ctx.textAlign='right';
-    ctx.fillText(yv.toFixed(1),il-6,gy+3);
+    ctx.fillText(Lab.fmt(yv,1),il-6,gy+3);
   });
   ctx.save(); ctx.translate(ox+10,it+ih/2); ctx.rotate(-Math.PI/2);
   ctx.textAlign='center'; ctx.fillStyle=c.tk; ctx.font='700 8px "Space Mono",monospace';
@@ -475,8 +478,8 @@ function drawMunsellPanel(ctx, dk, ox, oy, pw, ph) {
   const ryBase = oy + ph - 44;
   ctx.font='700 8px "Space Mono",monospace'; ctx.fillStyle=c.tk;
   ctx.textAlign='left';
-  ctx.fillText('A: '+munsellHueName(mHA)+' V'+mVA.toFixed(1)+'/C'+mCA.toFixed(1), ox+4, ryBase);
-  ctx.fillText('S: '+munsellHueName(mHS)+' V'+mVS.toFixed(1)+'/C'+mCS.toFixed(1), ox+4, ryBase+13);
+  ctx.fillText('A: '+munsellHueName(mHA)+' V'+Lab.fmt(mVA,1)+'/C'+Lab.fmt(mCA,1), ox+4, ryBase);
+  ctx.fillText('S: '+munsellHueName(mHS)+' V'+Lab.fmt(mVS,1)+'/C'+Lab.fmt(mCS,1), ox+4, ryBase+13);
 
   // Separator line between wheel area and value scale
   ctx.strokeStyle=dk?'rgba(0,212,255,0.08)':'rgba(0,100,160,0.10)'; ctx.lineWidth=1;
@@ -505,10 +508,10 @@ function drawGraphs() {
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const rdout = new Lab.Readout(document.getElementById('readout'), [
-  { key:'a_rgb', label:'Additiva (A)'    },
-  { key:'a_hex', label:'HEX (A)'         },
-  { key:'s_rgb', label:'Sottrattiva (S)' },
-  { key:'s_hex', label:'HEX (S)'         },
+  { key:'a_rgb', label:'centro additivo (RGB)'    },
+  { key:'a_hex', label:'codice esadecimale'       },
+  { key:'s_rgb', label:'centro sottrattivo (RGB)' },
+  { key:'s_hex', label:'codice esadecimale'       },
 ]);
 function updateReadout() {
   const a=allMixesAdd().c123, s=allMixesSub().c123;
@@ -523,14 +526,14 @@ function buildControls() {
   const cont=document.getElementById('controls'); cont.innerHTML='';
   const secA=Lab.Section('Sintesi Additiva (luce)');
   secA
-    .add(Lab.SliderInput({label:'Rosso R',  min:0,max:1,value:params.iR,step:0.01,unit:'', onChange:v=>{params.iR=v;refresh();}}))
-    .add(Lab.SliderInput({label:'Verde G',  min:0,max:1,value:params.iG,step:0.01,unit:'', onChange:v=>{params.iG=v;refresh();}}))
-    .add(Lab.SliderInput({label:'Blu B',    min:0,max:1,value:params.iB,step:0.01,unit:'', onChange:v=>{params.iB=v;refresh();}}));
+    .add(Lab.SliderInput({label:'Intensità rosso R',  min:0,max:1,value:params.iR,step:0.01,unit:'', onChange:v=>{params.iR=v;refresh();}}))
+    .add(Lab.SliderInput({label:'Intensità verde G',  min:0,max:1,value:params.iG,step:0.01,unit:'', onChange:v=>{params.iG=v;refresh();}}))
+    .add(Lab.SliderInput({label:'Intensità blu B',    min:0,max:1,value:params.iB,step:0.01,unit:'', onChange:v=>{params.iB=v;refresh();}}));
   const secS=Lab.Section('Sintesi Sottrattiva (pigmenti)');
   secS
-    .add(Lab.SliderInput({label:'Ciano C',   min:0,max:1,value:params.iC,step:0.01,unit:'', onChange:v=>{params.iC=v;refresh();}}))
-    .add(Lab.SliderInput({label:'Magenta M', min:0,max:1,value:params.iM,step:0.01,unit:'', onChange:v=>{params.iM=v;refresh();}}))
-    .add(Lab.SliderInput({label:'Giallo Y',  min:0,max:1,value:params.iY,step:0.01,unit:'', onChange:v=>{params.iY=v;refresh();}}));
+    .add(Lab.SliderInput({label:'Densità ciano C',   min:0,max:1,value:params.iC,step:0.01,unit:'', onChange:v=>{params.iC=v;refresh();}}))
+    .add(Lab.SliderInput({label:'Densità magenta M', min:0,max:1,value:params.iM,step:0.01,unit:'', onChange:v=>{params.iM=v;refresh();}}))
+    .add(Lab.SliderInput({label:'Densità giallo Y',  min:0,max:1,value:params.iY,step:0.01,unit:'', onChange:v=>{params.iY=v;refresh();}}));
   const actions=document.createElement('div'); actions.className='panel-actions';
   const btnR=document.createElement('button'); btnR.className='btn-secondary'; btnR.textContent='↺  RESET';
   btnR.addEventListener('click',()=>{ params.iR=params.iG=params.iB=params.iC=params.iM=params.iY=1.0; buildControls(); refresh(); });

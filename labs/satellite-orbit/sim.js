@@ -1,12 +1,29 @@
 'use strict';
 
-// ═══ Pianeti (unità di simulazione, G=1) ═════════════════════════════════════
+// ═══ Pianeti (dati reali) ═════════════════════════════════════════════════════
+// GM in m³/s², raggio medio in km, giorno siderale in s. La simulazione usa per ogni pianeta
+// unità proprie: lunghezza = raggio del pianeta, tempo τ = √(R³/GM), così GM = 1 e R = 1;
+// le grandezze mostrate si riconvertono in km, km/s e ore.
 const PLANETS = {
-  earth:   { name:'Terra',    M:1.0,  R:0.55, Trot:20,  col:'#3a7bd5' },
-  mars:    { name:'Marte',    M:0.45, R:0.42, Trot:21,  col:'#c1440e' },
-  jupiter: { name:'Giove',    M:3.0,  R:1.10, Trot:9,   col:'#d8a070' },
-  moon:    { name:'Luna',     M:0.16, R:0.30, Trot:120, col:'#b9bcc4' },
+  earth:   { name:'Terra', GM:3.986004e14, Rkm:6371.0,  Tday:86164.1,   col:'#3a7bd5' },
+  mars:    { name:'Marte', GM:4.282837e13, Rkm:3389.5,  Tday:88642.7,   col:'#c1440e' },
+  jupiter: { name:'Giove', GM:1.26687e17,  Rkm:69911,   Tday:35730,     col:'#d8a070' },
+  moon:    { name:'Luna',  GM:4.9028e12,   Rkm:1737.4,  Tday:2360591.5, col:'#b9bcc4' },
 };
+for (const pl of Object.values(PLANETS)) {
+  pl.tau = Math.sqrt(Math.pow(pl.Rkm * 1000, 3) / pl.GM);   // s per unità di tempo
+  pl.M = 1; pl.R = 1; pl.Trot = pl.Tday / pl.tau;
+}
+const PL = () => PLANETS[P.planet];
+const km   = r => r * PL().Rkm;                       // distanza (unità R) → km
+const kms  = v => v * PL().Rkm / PL().tau;            // velocità → km/s
+const hrs  = t => t * PL().tau / 3600;                // tempo → ore
+function fmtDur(t) {                                  // durata in unità di simulazione → testo
+  const sec = t * PL().tau;
+  if (sec < 7200) return Lab.fmt(sec / 60, 1) + ' min';
+  if (sec < 172800) return Lab.fmt(sec / 3600, 2) + ' h';
+  return Lab.fmt(sec / 86400, 2) + ' giorni';
+}
 
 // ═══ Stato ════════════════════════════════════════════════════════════════════
 const P = {
@@ -109,7 +126,7 @@ function step(dt){
   const r=rNow();
   if(r<PLANETS[P.planet].R*0.99){ stopped=true; return; }   // impatto → ferma (mostra la traiettoria)
   trail.push([st.x,st.y]); if(trail.length>1400) trail.shift();
-  hist.push({t:tSim, r, v:vNow(), L:angMom()}); if(hist.length>1600) hist.shift();
+  hist.push({t:tSim, r, v:vNow(), L:angMom()}); if(hist.length>6000) hist.shift();
   if(P.mode==='escape') viewRef=Math.max(viewRef, r*1.15);  // segue il satellite in fuga
 }
 
@@ -127,8 +144,7 @@ function vec(ctx,x1,y1,x2,y2,col,lbl){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawStars(ctx,W,H);
   const pl=PLANETS[P.planet];
@@ -142,7 +158,7 @@ function draw(canvas){
     ctx.strokeStyle=T.geo; ctx.lineWidth=1; ctx.setLineDash([5,5]);
     ctx.beginPath(); ctx.arc(cx,cy,rg,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillStyle=T.geo; ctx.font='9px "Space Mono",monospace'; ctx.textAlign='center';
-    ctx.fillText('orbita geostazionaria', cx, cy-rg-6);
+    ctx.fillText(P.planet==='earth'?'orbita geostazionaria':'orbita sincrona', cx, cy-rg-6);
   }
 
   // orbita (scia)
@@ -184,7 +200,7 @@ function draw(canvas){
   const type = op.E>=-1e-6 ? (op.E>1e-6?'iperbolica (fuga)':'parabolica') : (op.e<0.02?'circolare':'ellittica');
   ctx.textAlign='left';
   ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
-  ctx.fillText(`Orbita ${type}${op.e<1?` · e=${op.e.toFixed(3)}`:''}`, 14, 22);
+  ctx.fillText(`Orbita ${type}${op.e<1?` · e = ${Lab.fmt(op.e,3)}`:''}`, 14, 22);
 
   // ── messaggi in basso nel canvas ──
   ctx.textAlign='left';
@@ -195,11 +211,13 @@ function draw(canvas){
     else if(escaped){ ctx.fillStyle=T.geo; ctx.fillText('🚀 VELOCITÀ DI FUGA RAGGIUNTA — il satellite sfugge alla gravità', 14, H-28); }
     else { ctx.fillStyle=T.Lcol; ctx.fillText('traiettoria sub-orbitale (ricadrà)', 14, H-28); }
     ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-    ctx.fillText(`v_fuga = √(2GM/R) = ${ve.toFixed(2)} u/s   ·   v lancio = ${vNow().toFixed(2)} u/s`, 14, H-12);
+    ctx.fillText(`v_fuga = √(2GM/R) = ${Lab.fmt(kms(ve),2)} km/s   ·   v lancio = ${Lab.fmt(kms(vNow()),2)} km/s`, 14, H-12);
   } else {
     const isGeo = P.mode==='circular' && Math.abs(rNow()-rGeo()) < rGeo()*0.03;
     if(isGeo){ ctx.fillStyle=T.geo; ctx.font='bold 12px "Space Mono",monospace';
-      ctx.fillText('🛰 GEOSTAZIONARIA — il satellite resta sul meridiano', 14, H-14); }
+      ctx.fillText(`🛰 ${P.planet==='earth'?'GEOSTAZIONARIA':'SINCRONA'} — il satellite resta sullo stesso meridiano (${Lab.fmt(km(rGeo())/1000,0)} mila km dal centro)`, 14, H-14); }
+    if(P.planet==='moon' && P.showGeo){ ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
+      ctx.fillText('sulla Luna l’orbita sincrona (~88 000 km) è instabile: la gravità terrestre la disturba', 14, H-30); }
   }
   ctx.fillStyle=T.sub; ctx.font='11px "Space Mono",monospace';
   ctx.fillText('F_g = GMm/r²    L = m·v·r = cost.    v_circ = √(GM/r)', 14, 40);
@@ -229,34 +247,21 @@ function drawStars(ctx,W,H){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-function tWin(){ return Math.max(8, tSim+0.5); }
-function lineGraph(idx,key,col,title,baseZero){
-  const cv=gCanvas[idx]; if(!cv||!cv.width)return;
-  const ctx=gCtx[idx],W=cv.width,H=cv.height;
-  const PAD={t:14,b:14,l:22,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  if(!hist.length){ ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.fillText(title,PAD.l+2,PAD.t+7); return; }
-  const win=tWin(), t0=Math.max(0,tSim-win);
-  let lo=Infinity,hi=-Infinity; for(const h of hist){ lo=Math.min(lo,h[key]); hi=Math.max(hi,h[key]); }
-  if(baseZero) lo=Math.min(0,lo);
-  if(hi-lo<1e-6) hi=lo+1;
-  const Y=v=>PAD.t+gH-(v-lo)/(hi-lo)*gH*0.92-gH*0.04;
-  ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.beginPath(); let first=true;
-  for(const h of hist){ if(h.t<t0)continue; const x=PAD.l+(h.t-t0)/win*gW; first?(ctx.moveTo(x,Y(h[key])),first=false):ctx.lineTo(x,Y(h[key])); }
-  ctx.stroke();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.fillText(title,PAD.l+2,PAD.t+7); ctx.fillText('t',PAD.l+gW-8,PAD.t+gH+10);
+// finestra temporale: almeno un periodo, così si vede un giro completo
+function tWin(){ const Tp=orbitParams().Tper; return Math.max(8, isFinite(Tp)?Math.min(Tp,400):0); }
+// serie temporale in unità reali; asse y da zero, il fondoscala cambia solo a scatti
+function lineGraph(idx,key,conv,col,title){
+  const win=tWin(), t1=Math.max(tSim,win), t0=t1-win;
+  let hi=0; for(const h of hist) hi=Math.max(hi,conv(h[key]));
+  const g=Lab.panel(gCanvas[idx],{ title, xr:[hrs(t0),hrs(t1)], yr:[0,Lab.niceMax(hi*1.15||1)], xLabel:'t (ore)', padL:52 });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plotPts(ctx,f,hist.filter(h=>h.t>=t0).map(h=>[hrs(h.t),conv(h[key])]),col,1.8);
 }
 function drawGraphs(){
-  lineGraph(0,'r',T.orbit,'r(t)',true);
-  lineGraph(1,'v',T.accent,'v(t)',true);
-  lineGraph(2,'L',T.Lcol,'L(t) = cost.',false);
+  lineGraph(0,'r',km,T.orbit,'Distanza dal centro r (km)');
+  lineGraph(1,'v',kms,T.accent,'Velocità v (km/s)');
+  // L per unità di massa = r·v_⊥, in km²/s: resta costante perché la gravità è una forza centrale
+  lineGraph(2,'L',L=>Math.abs(L)*PL().Rkm*PL().Rkm/PL().tau,T.Lcol,'Momento angolare per unità di massa L (km²/s): costante');
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -286,7 +291,7 @@ function buildControls(){
     o.add(Lab.Slider({ label:'Velocità lancio (×v_fuga)', min:0.5, max:1.3, step:0.01, value:P.vescFrac, unit:'',
       onChange(v){ P.vescFrac=(Math.abs(v-1)<0.04)?1:v; reset(); } }));   // snap magnetico alla velocità di fuga (×1)
   } else {
-    o.add(Lab.Slider({ label:'Distanza r', min:1.2, max:15, step:0.001, value:P.rR, unit:' R',
+    o.add(Lab.Slider({ label:'Distanza r (raggi del pianeta)', min:1.2, max:Math.max(15,Math.ceil(rGeo()*1.15)), step:0.001, value:P.rR, unit:' R',
       onChange(v){ const rg=rGeo()/PLANETS[P.planet].R; P.rR=(Math.abs(v-rg)<0.25)?rg:v; reset(); } }));
     if(P.mode==='elliptical'){
       o.add(Lab.Slider({ label:'Velocità (×v_circ)', min:0.4, max:1.41, step:0.01, value:P.vfrac, unit:'', onChange(v){P.vfrac=v; reset();} }));
@@ -302,22 +307,10 @@ function buildControls(){
 }
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
-function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:145px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Distanza r(t)','Velocità v(t)','Momento angolare L'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+function initGraphs() {
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -329,10 +322,10 @@ function init(){
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'r',  label:'Distanza r'},
-    {key:'v',  label:'Velocità v'},
-    {key:'L',  label:'Mom. angolare L'},
-    {key:'T',  label:'Periodo'},
+    {key:'r',  label:'distanza dal centro r'},
+    {key:'L',  label:'quota sulla superficie'},
+    {key:'v',  label:'velocità v'},
+    {key:'T',  label:'periodo orbitale'},
   ]);
 
   document.getElementById('btnGeo').addEventListener('click',()=>{
@@ -350,10 +343,8 @@ function init(){
     const ga=document.getElementById('graphArea'); const rb=document.getElementById('readout');
     const gaH=ga?ga.offsetHeight:0, rbH=rb?rb.offsetHeight:0;
     const w=parent.clientWidth, h=Math.max(140,(parent.clientHeight||0)-gaH-rbH);
-    if(w>0){ simCanvas.style.width=w+'px'; simCanvas.style.height=h+'px'; simCanvas.width=w; simCanvas.height=h; }
-    for(const cv of gCanvas){ if(!cv)continue; const p=cv.parentElement;
-      const pw=p.clientWidth, ph=p.clientHeight;
-      if(pw>0&&ph>0){ cv.style.width=pw+'px'; cv.style.height=ph+'px'; cv.width=pw; cv.height=ph; } }
+    if(w>0){ Lab.hidpi(simCanvas, w, h); }
+    Lab.fitPanels(gCanvas);
     draw(simCanvas); drawGraphs();
   }
   resize();
@@ -370,10 +361,10 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     const op=orbitParams();
-    readout.set('r', rNow().toFixed(2)+' u');
-    readout.set('v', vNow().toFixed(2)+' u/s');
-    readout.set('L', angMom().toFixed(2));
-    readout.set('T', isFinite(op.Tper)?op.Tper.toFixed(1)+' u':'∞ (fuga)');
+    readout.set('r', Lab.fmt(km(rNow()),0)+' km');
+    readout.set('L', Lab.fmt(km(rNow()-1),0)+' km');
+    readout.set('v', Lab.fmt(kms(vNow()),2)+' km/s');
+    readout.set('T', isFinite(op.Tper)?fmtDur(op.Tper):'∞ (fuga)');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

@@ -75,9 +75,12 @@ const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
 function rhoF(){ return FLUIDS[P.fluid].rho; }
 function sizeM(){ return P.size/100; }
+// Il modello è una sezione piana: le aree vanno moltiplicate per uno spessore per avere volumi veri.
+// Cubo: spessore = lato. Sfera e pallone: V = (4/3)πr³ = area·(2/3)·diametro. Iceberg: lastra di 1 m.
+function depthM(){ return P.shape==='cubo' ? sizeM() : P.shape==='iceberg' ? 1 : sizeM()*2/3; }
 function objCol(){ if(P.shape==='iceberg') return [205,225,238]; if(P.shape==='pallone') return [240,140,40];
   return P.rhoO<1000 ? [165,115,62] : P.rhoO<5000 ? [150,160,175] : P.rhoO<10000 ? [120,135,155] : [205,170,65]; }
-function fmtN(n){ return n<10 ? n.toFixed(2)+' N' : n.toFixed(1)+' N'; }
+function fmtN(n){ return n<10 ? Lab.fmt(n,2)+' N' : Lab.fmt(n,1)+' N'; }
 function eqFrac(){ return P.rhoO/rhoF(); }                  // frazione (di volume) immersa all'equilibrio (rigidi)
 
 // fattore di scala lineare del pallone: in profondità la pressione lo comprime (Boyle, area ∝ 1/P)
@@ -176,8 +179,7 @@ function drawIceberg(ctx){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   geom(W,H);
@@ -227,46 +229,33 @@ function draw(canvas){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-const TITLES=['Spinta e Peso vs frazione immersa','Densità (kg/m³)','Frazione immersa  f(t)'];
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
 function drawGraphs(){
-  for(let i=0;i<3;i++) if(gTitle[i]) gTitle[i].textContent=TITLES[i];
-  const realA0=NORMAREA[P.shape]*sizeM()*sizeM(), W_=P.rhoO*realA0*Gacc;
+  const realA0=NORMAREA[P.shape]*sizeM()*sizeM()*depthM(), W_=P.rhoO*realA0*Gacc;   // realA0: volume (m³)
   const fbFull=rhoF()*Gacc*realA0*(M?M.Acur/M.A0:1);     // spinta a piena immersione (volume corrente)
   const fNow=M?M.Asub/Math.max(M.Acur,1e-6):0;
-  // 1: Spinta(f) e Peso
-  if(gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],Wd=cv.width,Hd=cv.height,PAD={t:14,b:16,l:28,r:8};
-    const {gW,gH}=gBase(ctx,Wd,Hd,PAD); const ymax=Math.max(fbFull,W_)*1.1+1e-6;
-    const xOf=ff=>PAD.l+ff*gW, yOf=v=>PAD.t+gH-clamp(v/ymax,0,1)*gH*0.92;
-    ctx.strokeStyle=rgb(T.buoy); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(1),yOf(fbFull)); ctx.stroke();
-    ctx.strokeStyle=rgb(T.press); ctx.lineWidth=1.4; ctx.setLineDash([4,3]); ctx.beginPath(); ctx.moveTo(xOf(0),yOf(W_)); ctx.lineTo(xOf(1),yOf(W_)); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(fNow),yOf(fbFull*fNow),3.4,0,7); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('S,P',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('f',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 2: densità oggetto vs fluido
-  if(gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],Wd=cv.width,Hd=cv.height,PAD={t:16,b:18,l:10,r:8};
-    const {gW,gH}=gBase(ctx,Wd,Hd,PAD); const max=Math.max(P.rhoO,rhoF())*1.1;
-    const vals=[P.rhoO,rhoF()], cols=[rgb(objCol()),rgb(FLUIDS[P.fluid].col)], labs=['oggetto',FLUIDS[P.fluid].name.slice(0,6)];
-    vals.forEach((v,i)=>{ const cxb=PAD.l+gW*(i+0.5)/2, bw=gW/2*0.5, bh=clamp(v/max,0,1)*gH*0.82;
-      ctx.fillStyle=cols[i]; ctx.fillRect(cxb-bw/2,PAD.t+gH-bh,bw,bh);
-      ctx.fillStyle=T.gText; ctx.font='6px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(labs[i],cxb,PAD.t+gH+9);
-      ctx.fillText(Math.round(v)+'',cxb,PAD.t+gH-bh-3); });
-  }
-  // 3: f(t)
-  if(gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],Wd=cv.width,Hd=cv.height,PAD={t:14,b:16,l:24,r:8};
-    const {gW,gH}=gBase(ctx,Wd,Hd,PAD); const n=hist.length, yOf=v=>PAD.t+gH-clamp(v,0,1)*gH*0.92;
-    if(n>1){ ctx.strokeStyle=T.accent; ctx.lineWidth=1.5; ctx.beginPath();
-      for(let i=0;i<n;i++){ const x=PAD.l+i/(n-1)*gW, y=yOf(hist[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke(); }
-    if(eqFrac()<=1){ const fe=clamp(eqFrac(),0,1); ctx.strokeStyle=rgb(T.press); ctx.lineWidth=0.8; ctx.setLineDash([3,3]);
-      ctx.beginPath(); ctx.moveTo(PAD.l,yOf(fe)); ctx.lineTo(PAD.l+gW,yOf(fe)); ctx.stroke(); ctx.setLineDash([]); }
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('f',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('t',PAD.l+gW-2,PAD.t+gH-3);
-  }
+  // 1: la spinta cresce con la parte immersa; si galleggia dove eguaglia il peso
+  const ym=Lab.niceMax(Math.max(fbFull,W_)*1.1);
+  let g=Lab.panel(gCanvas[0],{ title:'Spinta e peso (N)', xr:[0,100], yr:[0,ym], xLabel:'frazione immersa (%)', yFmt:v=>Lab.sci(v,2) });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,x=>fbFull*x/100,[0,100],rgb(T.buoy),2);
+    Lab.plot(ctx,f,()=>W_,[0,100],rgb(T.press),1.6,[4,3]);
+    Lab.dot(ctx,f,fNow*100,fbFull*fNow,T.accent,4.5);
+    Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.buoy),'spinta S = ρ_f·g·V_imm'],[rgb(T.press),'peso P',[4,3]]]); }
+  // 2: densità dell'oggetto e del fluido
+  const vals=[P.rhoO,rhoF()], dm=Lab.niceMax(Math.max(...vals)*1.15);
+  g=Lab.panel(gCanvas[1],{ title:'Densità (kg/m³)', xr:[0,2], xStep:9, xFmt:()=> '', yr:[0,dm] });
+  if(g){ const [ctx,f]=g, cols=[rgb(objCol()),rgb(FLUIDS[P.fluid].col)], labs=['oggetto',FLUIDS[P.fluid].name];
+    vals.forEach((v,i)=>{ const cx=f.X(i+0.5), bw=(f.R-f.L)*0.25, y=f.Y(v);
+      ctx.fillStyle=cols[i]; ctx.fillRect(cx-bw/2,y,bw,f.B-y);
+      ctx.font='9.5px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillStyle=f.C.title; ctx.fillText(Lab.fmt(v,0),cx,y-8);
+      ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillText(labs[i],cx,f.B+10); }); }
+  // 3: frazione immersa nel tempo, con il valore d'equilibrio ρ_oggetto/ρ_fluido
+  g=Lab.panel(gCanvas[2],{ title:'Frazione immersa (%)', xr:[0,Math.max(5,hist.length*0.05)], yr:[0,100], yStep:25, xLabel:'t (s)' });
+  if(g){ const [ctx,f]=g;
+    if(eqFrac()<=1){ const fe=clamp(eqFrac(),0,1)*100; ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=rgb(T.press); ctx.beginPath(); ctx.moveTo(f.L,f.Y(fe)); ctx.lineTo(f.R,f.Y(fe)); ctx.stroke(); ctx.restore(); }
+    Lab.plotPts(ctx,f,hist.map((v,i)=>[i*0.05,v*100]),T.accent,2);
+    if(eqFrac()<=1) Lab.legend(ctx,f.L+8,f.T+8,[[rgb(T.press),'equilibrio ρ_o/ρ_f',[3,3]]]); }
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -291,17 +280,10 @@ function buildControls(){
 }
 
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d'); gTitle[i]=title;
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -317,16 +299,16 @@ function init(){
     {key:'st',   label:'Stato'},
   ]);
 
-  function dropStart(){ geom(simCanvas.width,simCanvas.height); cubeYc=G.tankTopY+8; cubeVy=0; started=true; hist.length=0; }
+  function dropStart(){ geom(simCanvas.width/(simCanvas._dpr||1),simCanvas.height/(simCanvas._dpr||1)); cubeYc=G.tankTopY+8; cubeVy=0; started=true; hist.length=0; }
   document.getElementById('btnDrop').addEventListener('click', dropStart);
   document.getElementById('btnReset').addEventListener('click',()=>{
     P.shape='cubo'; P.rhoO=600; P.size=9; P.fluid='acqua'; P.paused=false;
     started=true; cubeVy=0; hist.length=0; buildControls();
-    geom(simCanvas.width,simCanvas.height); cubeYc=G.fluidTopY;
+    geom(simCanvas.width/(simCanvas._dpr||1),simCanvas.height/(simCanvas._dpr||1)); cubeYc=G.fluidTopY;
   });
 
-  function evtY(e){ const r=simCanvas.getBoundingClientRect(); return (e.clientY-r.top)*(simCanvas.height/r.height); }
-  function evtX(e){ const r=simCanvas.getBoundingClientRect(); return (e.clientX-r.left)*(simCanvas.width/r.width); }
+  function evtY(e){ const r=simCanvas.getBoundingClientRect(); return (e.clientY-r.top); }
+  function evtX(e){ const r=simCanvas.getBoundingClientRect(); return (e.clientX-r.left); }
   simCanvas.addEventListener('pointerdown',e=>{ const S=sizeM()*G.pxPerM;
     if(Math.abs(evtX(e)-G.cubeX)<S&&Math.abs(evtY(e)-cubeYc)<S){ dragging=true; started=true; try{simCanvas.setPointerCapture(e.pointerId);}catch(_){} } });
   simCanvas.addEventListener('pointermove',e=>{ if(!dragging)return; cubeYc=clamp(evtY(e), G.tankTopY+4, G.tankBottomY-4); cubeVy=0; });
@@ -338,11 +320,10 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(240,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    geom(simCanvas.width,simCanvas.height);
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    geom(simCanvas.width/(simCanvas._dpr||1),simCanvas.height/(simCanvas._dpr||1));
     if(cubeYc===0) cubeYc=G.fluidTopY;
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -360,12 +341,12 @@ function init(){
       const f=M.Asub/Math.max(M.Acur,1e-6);
       tHist+=dt; if(started && tHist>=0.05){ tHist=0; hist.push(f); if(hist.length>240)hist.shift(); }
       draw(simCanvas); drawGraphs();
-      const realA0=NORMAREA[P.shape]*sizeM()*sizeM(), W_=P.rhoO*realA0*Gacc;
-      const Fb=rhoF()*Gacc*M.Asub/(G.pxPerM*G.pxPerM);
+      const realA0=NORMAREA[P.shape]*sizeM()*sizeM(), W_=P.rhoO*realA0*depthM()*Gacc;
+      const Fb=rhoF()*Gacc*M.Asub/(G.pxPerM*G.pxPerM)*depthM();
       readout.set('peso', fmtN(W_));
       readout.set('sp', fmtN(Fb));
-      readout.set('frac', (f*100).toFixed(0)+'%');
-      readout.set('vol', (M.sc*M.sc*100).toFixed(0)+'%');
+      readout.set('frac', Lab.fmt((f*100),0)+'%');
+      readout.set('vol', Lab.fmt((M.sc*M.sc*100),0)+'%');
       readout.set('st', P.rhoO<rhoF()-1?'galleggia':P.rhoO>rhoF()+1?'affonda':'equilibrio');
     }catch(err){ console.error(err); }
     requestAnimationFrame(frame);

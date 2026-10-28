@@ -177,7 +177,8 @@ function computeFObs() {
   const vsAlong = srcV.x * nx + srcV.y * ny;      // positive if source moves toward listener
   const vlAlong = -(lstV.x * nx + lstV.y * ny);   // positive if listener moves toward source
   const denom = v - vsAlong;
-  if (Math.abs(denom) < 0.01 * v) return Infinity; // sonic / supersonic singularity
+  // sorgente a velocità del suono (o più) verso l'ascoltatore: la formula non vale, il suono arriva tutto insieme col cono di Mach
+  if (denom < 0.01 * v) return Infinity;
   return P.fSource * (v + vlAlong) / denom;
 }
 
@@ -409,8 +410,8 @@ function drawMachLabel(C, mach) {
   if (mach < 0.05) return;
   const supersonic = mach >= 1;
   const label = supersonic
-    ? `CHERENKOV  M = ${mach.toFixed(2)}`
-    : `M = ${mach.toFixed(2)}`;
+    ? `CHERENKOV  M = ${Lab.fmt(mach,2)}`
+    : `M = ${Lab.fmt(mach,2)}`;
   const col = supersonic ? '#ff6428' : C.accent;
   ctx.save();
   ctx.font = '700 13px Space Mono, monospace';
@@ -500,9 +501,9 @@ function drawSinPanel(C, offX, pw) {
     gctx.stroke();
   }
 
-  drawChan(PAD.t + phHalf / 2,           fSrc, C.accent,  'SORGENTE', fSrc.toFixed(0) + ' Hz');
+  drawChan(PAD.t + phHalf / 2,           fSrc, C.accent,  'SORGENTE', Lab.fmt(fSrc,0) + ' Hz');
   drawChan(PAD.t + phHalf + phHalf / 2,  fObs, '#a855f7', 'OSSERVATA',
-    isFinite(fObs) && fObs > 0 ? fObs.toFixed(1) + ' Hz' : '∞');
+    isFinite(fObs) && fObs > 0 ? Lab.fmt(fObs,1) + ' Hz' : 'cono di Mach');
 }
 
 // Right panel: f_obs(t) history
@@ -586,16 +587,16 @@ function drawFObsPanel(C, offX, pw) {
     gctx.font = 'bold 10px Space Mono, monospace';
     gctx.textAlign = 'right';
     gctx.textBaseline = 'top';
-    gctx.fillText(last.toFixed(1) + ' Hz', offX + PAD.l + iw, PAD.t + 2);
+    gctx.fillText(Lab.fmt(last,1) + ' Hz', offX + PAD.l + iw, PAD.t + 2);
   }
 }
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(readoutEl, [
-  { key: 'fObs',  label: 'f osservata' },
-  { key: 'fSrc',  label: 'f sorgente' },
-  { key: 'mach',  label: 'Mach' },
-  { key: 'shift', label: 'Δf' },
+  { key: 'fObs',  label: 'frequenza percepita' },
+  { key: 'fSrc',  label: 'frequenza emessa' },
+  { key: 'mach',  label: 'numero di Mach' },
+  { key: 'shift', label: 'spostamento Δf' },
 ]);
 
 // ── Controls ──────────────────────────────────────────────────────────────────
@@ -767,11 +768,11 @@ function loop(ts) {
     }
 
     // Readout
-    const fObsDisplay = isFinite(fObs) ? fObs.toFixed(1) + ' Hz' : '∞';
+    const fObsDisplay = isFinite(fObs) ? Lab.fmt(fObs,1) + ' Hz' : 'cono di Mach';
     readout.set('fObs',  fObsDisplay);
-    readout.set('fSrc',  P.fSource.toFixed(0) + ' Hz');
-    readout.set('mach',  mach.toFixed(2));
-    readout.set('shift', isFinite(fObs) ? (fObs - P.fSource > 0 ? '+' : '') + (fObs - P.fSource).toFixed(1) + ' Hz' : '—');
+    readout.set('fSrc',  Lab.fmt(P.fSource,0) + ' Hz');
+    readout.set('mach',  Lab.fmt(mach,2));
+    readout.set('shift', isFinite(fObs) ? (fObs - P.fSource > 0 ? '+' : '') + Lab.fmt((fObs - P.fSource),1) + ' Hz' : '—');
   }
 
   // Draw

@@ -236,8 +236,7 @@ function toScreen(x, y) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -274,85 +273,42 @@ function draw(canvas) {
   ctx.fillText('Piastre di Chladni — figure di risonanza', 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
   const shapeName = P.shape === 'square' ? 'quadrata' : 'circolare';
-  ctx.fillText(`piastra ${shapeName}   f=${P.freq.toFixed(0)} Hz   modo più vicino ${modeLabel(curMode)} a ${curMode.f.toFixed(0)} Hz`, 14, 36);
+  ctx.fillText(`piastra ${shapeName}   f = ${Lab.fmt(P.freq, 0)} Hz   modo più vicino ${modeLabel(curMode)} a ${Lab.fmt(curMode.f, 0)} Hz`, 14, 36);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   const detune = Math.abs(P.freq - curMode.f) / curMode.f * 100;
   const hint = amp > 0.7
     ? 'vicino alla risonanza: la sabbia si organizza lungo le linee nodali (dove la piastra non vibra)'
-    : `fuori risonanza (${detune.toFixed(0)}% di scarto dal modo più vicino): prova ad avvicinare la frequenza a ${curMode.f.toFixed(0)} Hz`;
+    : `fuori risonanza (${Lab.fmt(detune, 0)} % di scarto dal modo più vicino): prova ad avvicinare la frequenza a ${Lab.fmt(curMode.f, 0)} Hz`;
   ctx.fillText(hint, W / 2, H - 8);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: spettro di risonanza — curva FISSA (ricalcolata solo quando cambia la forma/i modi, non ad
-// ogni frame), con un cursore verticale sulla frequenza attuale: spiega perché solo certe
-// frequenze producono una figura pulita
+// 1: spettro di risonanza: solo vicino alle frequenze proprie la piastra risponde e la sabbia disegna una figura
 function drawGraphSpectrum() {
-  const cv = gCanvas[0]; if (!cv || !cv.width || !modes.length) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 20, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const fMax = modes[modes.length - 1].f * 1.08;
-  const xOf = f => PAD.l + clamp(f / fMax, 0, 1) * gW;
-  const yOf = v => PAD.t + gH - clamp(v, 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.3; ctx.beginPath();
-  for (let i = 0; i <= 300; i++) {
-    const f = i / 300 * fMax;
-    let resp = 0; for (const md of modes) resp = Math.max(resp, lorentzian(f, md.f));
-    const x = xOf(f), y = yOf(resp);
-    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-  }
-  ctx.stroke();
-  const cx = xOf(P.freq);
-  ctx.strokeStyle = 'rgba(255,157,77,0.85)'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(cx, PAD.t); ctx.lineTo(cx, PAD.t + gH); ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('risposta', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('f (Hz)', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!modes.length) return;
+  const g = Lab.panel(gCanvas[0], { title: 'Risposta della piastra (%) — picchi di risonanza', xr: [0, 3600], xStep: 500, yr: [0, 100], yStep: 25, xLabel: 'frequenza (Hz)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, fr => { let r = 0; for (const md of modes) r = Math.max(r, lorentzian(fr, md.f)); return r * 100; }, [0, 3600], '#00d4ff', 1.6, [], 1200);
+  ctx.save(); ctx.strokeStyle = 'rgba(255,157,77,0.9)'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(f.X(P.freq), f.T); ctx.lineTo(f.X(P.freq), f.B); ctx.stroke(); ctx.restore();
+  if (curMode) { ctx.fillStyle = 'rgba(255,157,77,0.95)'; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textBaseline = 'middle';
+    const right = f.X(P.freq) < (f.L + f.R) / 2; ctx.textAlign = right ? 'left' : 'right';
+    ctx.fillText(`${Lab.fmt(P.freq, 0)} Hz`, f.X(P.freq) + (right ? 5 : -5), f.T + 8); }
 }
-// 2: ampiezza di risposta nel tempo (transitorio di risalita/discesa della risonanza)
-function drawGraphAmp() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 20, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const WIN = 12, t0 = Math.max(0, animT - WIN);
-  const xOf = t => PAD.l + clamp((t - t0) / WIN, 0, 1) * gW;
-  const yOf = v => PAD.t + gH - clamp(v, 0, 1) * gH;
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.amp); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke(); ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('ampiezza', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
-}
-// 3: quanto la sabbia è organizzata (media di |z| nelle posizioni dei granelli — scende quando si
-// addensano sulle linee nodali). Range FISSO per forma (0 .. valore massimo tipico di |z| per quella
-// forma), ricalcolato solo al cambio forma, non ad ogni frame.
-function drawGraphOrder() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 20, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const zMax = P.shape === 'square' ? 1.4 : 0.6;
-  const WIN = 12, t0 = Math.max(0, animT - WIN);
-  const xOf = t => PAD.l + clamp((t - t0) / WIN, 0, 1) * gW;
-  const yOf = v => PAD.t + gH - clamp(v / zMax, 0, 1) * gH;
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  ctx.strokeStyle = '#7fe0a0'; ctx.lineWidth = 1.4; ctx.beginPath();
-  hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.order); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke(); ctx.restore();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('|z| media', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+// serie temporale degli ultimi 12 s
+function timePanel(i, title, key, yr, yStep, scale, col) {
+  const WIN = 12, t1 = Math.max(animT, WIN);
+  const g = Lab.panel(gCanvas[i], { title, xr: [t1 - WIN, t1], xStep: 2, xFmt: () => '', yr, yStep, xLabel: 'tempo →' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p[key] * scale]), col, 1.8);
 }
 function drawGraphs() {
-  const titles = ['Spettro di risonanza', 'Ampiezza(t)', 'Ordine del pattern(t)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphSpectrum(); drawGraphAmp(); drawGraphOrder();
+  drawGraphSpectrum();
+  // 2: l'ampiezza sale e scende con un transitorio quando si cambia frequenza
+  timePanel(1, 'Ampiezza di risposta (%)', 'amp', [0, 100], 25, 100, '#ff9d4d');
+  // 3: |z| medio nella posizione dei granelli: scende man mano che la sabbia si raccoglie sulle linee nodali
+  timePanel(2, 'Disordine della sabbia: |z| medio dei granelli', 'order', [0, P.shape === 'square' ? 1.4 : 0.6], P.shape === 'square' ? 0.2 : 0.1, 1, '#7fe0a0');
 }
 
 // ═══ Passo di simulazione ═══════════════════════════════════════════════════
@@ -397,27 +353,20 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'freq', label: 'Frequenza' },
-    { key: 'mode', label: 'Modo più vicino' },
-    { key: 'modeFreq', label: 'Frequenza di risonanza' },
-    { key: 'detune', label: 'Scarto dalla risonanza' },
-    { key: 'amp', label: 'Ampiezza di risposta' },
-    { key: 'stato', label: 'Stato' },
+    { key: 'freq', label: 'frequenza' },
+    { key: 'mode', label: 'modo più vicino' },
+    { key: 'modeFreq', label: 'frequenza di risonanza' },
+    { key: 'detune', label: 'scarto dalla risonanza' },
+    { key: 'amp', label: 'ampiezza di risposta' },
+    { key: 'stato', label: 'stato' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -444,9 +393,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -461,11 +409,11 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const detune = Math.abs(P.freq - curMode.f) / curMode.f * 100;
-      readout.set('freq', P.freq.toFixed(0) + ' Hz');
+      readout.set('freq', Lab.fmt(P.freq, 0) + ' Hz');
       readout.set('mode', modeLabel(curMode));
-      readout.set('modeFreq', curMode.f.toFixed(0) + ' Hz');
-      readout.set('detune', detune.toFixed(1) + '%');
-      readout.set('amp', (amp * 100).toFixed(0) + '%');
+      readout.set('modeFreq', Lab.fmt(curMode.f, 0) + ' Hz');
+      readout.set('detune', Lab.fmt(detune, 1) + ' %');
+      readout.set('amp', Lab.fmt(amp * 100, 0) + ' %');
       readout.set('stato', amp > 0.7 ? 'in risonanza' : amp > 0.3 ? 'quasi in risonanza' : 'fuori risonanza');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

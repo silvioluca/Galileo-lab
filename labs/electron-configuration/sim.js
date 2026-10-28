@@ -821,7 +821,6 @@ resetBuild();
 selectLast();
 syncPlay();
 resize();
-window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(canvas.parentElement);
 new ResizeObserver(resize).observe(infoBar);
 requestAnimationFrame(loop);

@@ -38,7 +38,7 @@ Lab.Slider = function ({ label, min, max, value, step = 1, unit = '', onChange, 
   group.append(row, input);
 
   function formatVal(v) {
-    return step < 1 ? v.toFixed(String(step).split('.')[1]?.length || 1) : String(Number.isInteger(v) ? v : +v.toFixed(1));
+    return step < 1 ? Lab.fmt(v, String(step).split('.')[1]?.length || 1) : Lab.fmt(v, Number.isInteger(v) ? 0 : 1);
   }
 
   return {
@@ -163,7 +163,7 @@ Lab.Section = function (title) {
 
   const h = document.createElement('div');
   h.className = 'panel-section-title';
-  h.textContent = title;
+  Lab.keepCase(h, title);
 
   sec.appendChild(h);
   return {
@@ -186,6 +186,18 @@ Lab.SubPanel = function () {
   };
 };
 
+// le etichette in maiuscolo (CSS) trasformerebbero η, σ, λ, µ in Η, Σ, Λ, Μ: le lettere greche restano minuscole
+Lab.keepCase = function (el, text) {
+  el.textContent = '';
+  for (const part of String(text).split(/([µͰ-Ͽ]+)/)) {
+    if (!part) continue;
+    if (/^[µͰ-Ͽ]+$/.test(part)) { const sp = document.createElement('span'); sp.className = 'nc'; sp.textContent = part; el.appendChild(sp); }
+    else el.appendChild(document.createTextNode(part));
+  }
+  return el;
+};
+// stessa cosa per le etichette scritte come HTML (readout costruiti con innerHTML)
+Lab.keepCaseHTML = s => String(s).replace(/[µͰ-Ͽ]+/g, m => `<span class="nc">${m}</span>`);
 Lab.Readout = class {
   constructor(container, fields) {
     this._cells = {};
@@ -195,7 +207,7 @@ Lab.Readout = class {
 
       const lbl = document.createElement('span');
       lbl.className = 'readout-label';
-      lbl.textContent = f.label;
+      Lab.keepCase(lbl, f.label);
 
       const val = document.createElement('span');
       val.className = 'readout-value';

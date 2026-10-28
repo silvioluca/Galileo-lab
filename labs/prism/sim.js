@@ -293,7 +293,7 @@ function traceRay(startPos, dir, shape, nPrism, nMedium) {
     }
 
     if (!inside && bounce >= 1) {
-      segs.push({ from: pos, to: clipToCanvas(pos, d), inside: false, tir: false });
+      segs.push({ from: pos, to: clipToCanvas(pos, d), inside: false, tir: false, n: hit.outN });
       break;
     }
   }
@@ -469,8 +469,8 @@ function drawLabels(dark) {
   ctx.textAlign = 'left';
   const nP  = getN(params.presetPrism,  params.nPrismC,  null);
   const nM  = getN(params.presetMedium, params.nMediumC, null);
-  ctx.fillText(`Prisma: ${MEDIA[params.presetPrism].name}  n = ${nP.toFixed(3)}`, 10, fSize + 4);
-  ctx.fillText(`Mezzo:  ${MEDIA[params.presetMedium].name}  n = ${nM.toFixed(3)}`, 10, fSize * 2 + 8);
+  ctx.fillText(`Prisma: ${MEDIA[params.presetPrism].name}  n = ${Lab.fmt(nP, 3)}`, 10, fSize + 4);
+  ctx.fillText(`Mezzo:  ${MEDIA[params.presetMedium].name}  n = ${Lab.fmt(nM, 3)}`, 10, fSize * 2 + 8);
 }
 
 /* ── Readout ─────────────────────────────────────────────── */
@@ -484,9 +484,11 @@ function updateReadout(shape) {
   const dev     = deviation(dir, segs);
   const tirHit  = segs.some((s,i) => i > 0 && segs[i-1].inside && s.inside);
 
+  const res = rayResult(shape, params.theta1, nP, nM);
   const items = [
-    { label: 'θ₁',       value: `${params.theta1.toFixed(1)}°` },
-    { label: 'Deviazione', value: dev != null ? `${dev.toFixed(2)}°` : 'TIR' },
+    { label: 'incidenza θ₁', value: `${Lab.fmt(params.theta1, 1)}°` },
+    { label: 'uscita θ₄',    value: res && res.th4 != null ? `${Lab.fmt(res.th4, 1)}°` : '—' },
+    { label: 'deviazione D', value: res ? `${Lab.fmt(res.D, 2)}°` : (dev != null ? `${Lab.fmt(dev, 2)}°` : '—') },
   ];
 
   if (params.prismType === 'triangle') {
@@ -495,215 +497,100 @@ function updateReadout(shape) {
     const sinArg = nRel * Math.sin(A * Math.PI / 360);
     if (sinArg <= 1) {
       const Dmin_deg = 2 * Math.asin(sinArg) * 180/Math.PI - A;
-      items.push({ label: 'D min', value: `${Dmin_deg.toFixed(2)}°` });
+      items.push({ label: 'deviazione minima', value: `${Lab.fmt(Dmin_deg, 2)}°` });
     }
   }
-  if (tirHit) items.push({ label: 'TIR', value: 'riflessione totale ⚡' });
+  if (tirHit) items.push({ label: 'riflessione totale', value: 'sì, dentro il prisma' });
 
   readoutEl.innerHTML = items.map(it =>
-    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(it.label)}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
 }
 
 /* ── Graphs ──────────────────────────────────────────────── */
-function drawGraphs() {
-  if (!gw || !gh) return;
-  const dark = document.documentElement.dataset.theme !== 'light';
-  gctx.clearRect(0, 0, gw, gh);
-
-  const pw = Math.floor(gw / 3);
-  drawDevPanel(0,    0, pw,       gh, dark);
-  drawExitPanel(pw,  0, pw,       gh, dark);
-  params.dispersion
-    ? drawNPanel  (pw*2, 0, gw-pw*2, gh, dark)
-    : drawDevPanel(pw*2, 0, gw-pw*2, gh, dark, true);
+// esito del raggio per un dato θ₁: deviazione D e angolo d'uscita θ₄ (dalla normale alla faccia d'uscita);
+// null se il raggio subisce riflessione totale dentro il prisma
+function rayResult(shape, theta1, nP, nM) {
+  const dir  = beamDir(shape.entryInN, theta1);
+  const segs = traceRay(beamStart(shape.entryMid, dir), dir, shape, nP, nM);
+  if (segs.length < 3 || segs[segs.length - 1].inside) return null;
+  if (segs.some((s, i) => i > 0 && segs[i - 1].inside && s.inside)) return null;
+  const last = segs[segs.length - 1], exitD = V.norm(V.sub(last.to, last.from));
+  const D = deviation(dir, segs);
+  const th4 = last.n ? Math.acos(Math.min(1, Math.abs(V.dot(exitD, last.n)))) * 180 / Math.PI : null;
+  return { D, th4 };
 }
-
-const GP = { l:42, r:10, t:20, b:26 };
-
-function panelBase(gc, ox, oy, pw, ph, dark) {
-  gc.fillStyle = dark ? '#0b1018' : '#f0f2f5';
-  gc.fillRect(ox, oy, pw, ph);
-  const l = ox+GP.l, t = oy+GP.t, iW = pw-GP.l-GP.r, iH = ph-GP.t-GP.b;
-  gc.strokeStyle = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'; gc.lineWidth = 1;
-  for (let i=0; i<=4; i++) {
-    const x=l+(i/4)*iW; gc.beginPath(); gc.moveTo(x,t); gc.lineTo(x,t+iH); gc.stroke();
-    const y=t+(i/4)*iH; gc.beginPath(); gc.moveTo(l,y); gc.lineTo(l+iW,y); gc.stroke();
-  }
-  if (ox > 0) {
-    gc.strokeStyle = dark ? 'rgba(0,212,255,0.07)' : 'rgba(0,100,160,0.07)';
-    gc.beginPath(); gc.moveTo(ox,oy); gc.lineTo(ox,oy+ph); gc.stroke();
-  }
-  return { l, t, iW, iH };
-}
-
-function panelTitle(gc, ox, oy, pw, title, dark) {
-  gc.fillStyle = dark ? 'rgba(200,220,255,0.50)' : 'rgba(40,60,100,0.50)';
-  gc.font = `10px 'Space Mono', monospace`; gc.textAlign = 'center';
-  gc.fillText(title, ox+pw/2, oy+13);
-}
-
-/* Numerically sweep theta1 0→89, compute deviation for each */
-function computeDevCurve(shape, nP, nM) {
+function sweep(shape, nP, nM) {
   const pts = [];
-  for (let deg = 0; deg <= 89; deg += 0.5) {
-    const dir   = beamDir(shape.entryInN, deg);
-    const start = beamStart(shape.entryMid, dir);
-    const segs  = traceRay(start, dir, shape, nP, nM);
-    const dev   = deviation(dir, segs);
-    if (dev != null) pts.push({ deg, dev });
-    else break;
-  }
+  for (let deg = 0; deg <= 89; deg += 0.5) { const r = rayResult(shape, deg, nP, nM); pts.push([deg, r ? r.D : NaN, r ? r.th4 : NaN]); }
   return pts;
 }
-
-/* Panel: Deviation D vs θ₁ */
-function drawDevPanel(ox, oy, pw, ph, dark, duplicate) {
-  const { l, t, iW, iH } = panelBase(gctx, ox, oy, pw, ph, dark);
-  const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-  const textC = dark ? '#6b8099' : '#4a6278';
-
-  const shape = getShapeCanvas();
-  const nP    = getN(params.presetPrism,  params.nPrismC,  null);
-  const nM    = getN(params.presetMedium, params.nMediumC, null);
-  const pts   = computeDevCurve(shape, nP, nM);
-
-  const devMax = Math.max(...pts.map(p => p.dev), 1);
-
-  gctx.strokeStyle = '#00d4ff'; gctx.lineWidth = 1.8; gctx.beginPath();
-  pts.forEach(({ deg, dev }, i) => {
-    const x = l + (deg/90)*iW, y = t + iH - (dev/devMax)*iH;
-    i===0 ? gctx.moveTo(x,y) : gctx.lineTo(x,y);
-  });
-  gctx.stroke();
-
-  // Minimum deviation marker
-  if (pts.length > 2) {
-    let minDev = Infinity, minDeg = 0;
-    pts.forEach(p => { if (p.dev < minDev) { minDev = p.dev; minDeg = p.deg; } });
-    const mx = l + (minDeg/90)*iW, my = t + iH - (minDev/devMax)*iH;
-    gctx.strokeStyle = dark ? 'rgba(255,180,0,0.7)' : 'rgba(200,120,0,0.7)';
-    gctx.lineWidth = 1; gctx.setLineDash([3,3]);
-    gctx.beginPath(); gctx.moveTo(mx,t); gctx.lineTo(mx,t+iH); gctx.stroke();
-    gctx.setLineDash([]);
-    gctx.fillStyle = '#ffb400';
-    gctx.beginPath(); gctx.arc(mx, my, 3.5, 0, Math.PI*2); gctx.fill();
-  }
-
-  // Current θ₁
-  const curX = l + (params.theta1/90)*iW;
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.13)';
-  gctx.lineWidth = 1; gctx.setLineDash([3,3]);
-  gctx.beginPath(); gctx.moveTo(curX,t); gctx.lineTo(curX,t+iH); gctx.stroke();
-  gctx.setLineDash([]);
-
-  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
-  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
-  gctx.textAlign = 'center';
-  gctx.fillText('0°', l, t+iH+16); gctx.fillText('45°', l+iW/2, t+iH+16); gctx.fillText('90°', l+iW, t+iH+16);
-  gctx.textAlign = 'right';
-  gctx.fillText('0°', l-4, t+iH+4); gctx.fillText(`${devMax.toFixed(0)}°`, l-4, t+4);
-  panelTitle(gctx, ox, oy, pw, duplicate ? 'Deviazione (zoom)' : 'Deviazione D vs θ₁', dark);
+// curva per punti che si interrompe dove il valore non esiste (riflessione totale)
+function plotGaps(f, pts, k, col, w, dash) {
+  gctx.save(); gctx.strokeStyle = col; gctx.lineWidth = w; gctx.setLineDash(dash || []);
+  gctx.beginPath(); let pen = false;
+  for (const p of pts) { if (!Number.isFinite(p[k])) { pen = false; continue; } pen ? gctx.lineTo(f.X(p[0]), f.Y(p[k])) : gctx.moveTo(f.X(p[0]), f.Y(p[k])); pen = true; }
+  gctx.stroke(); gctx.restore();
+}
+// fasce dove il raggio non esce (riflessione totale interna)
+function shadeTIR(f, pts, k) {
+  gctx.fillStyle = f.C.light ? 'rgba(220,60,60,0.08)' : 'rgba(255,80,80,0.08)';
+  for (let i = 0; i < pts.length; i++) if (!Number.isFinite(pts[i][k])) gctx.fillRect(f.X(pts[i][0]), f.T, f.X(Math.min(90, pts[i][0] + 0.5)) - f.X(pts[i][0]), f.B - f.T);
 }
 
-/* Panel: Exit angle vs θ₁ */
-function drawExitPanel(ox, oy, pw, ph, dark) {
-  const { l, t, iW, iH } = panelBase(gctx, ox, oy, pw, ph, dark);
-  const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-  const textC = dark ? '#6b8099' : '#4a6278';
+function drawGraphs() {
+  if (!gw || !gh) return;
+  gctx.clearRect(0, 0, gw, gh);
+  const shape = getShapeCanvas(), pw = gw / 3;
+  const nP = getN(params.presetPrism, params.nPrismC, null), nM = getN(params.presetMedium, params.nMediumC, null);
+  const pts = sweep(shape, nP, nM), cur = rayResult(shape, params.theta1, nP, nM);
+  const box = i => ({ x: i * pw + 3, y: 3, w: (i < 2 ? pw : gw - 2 * pw) - 6, h: gh - 6, xr: [0, 90], xStep: 15, xLabel: 'θ₁ (°)' });
 
-  const shape = getShapeCanvas();
-  const nP    = getN(params.presetPrism,  params.nPrismC,  null);
-  const nM    = getN(params.presetMedium, params.nMediumC, null);
-
-  const pts = [];
-  for (let deg = 0; deg <= 89; deg += 0.5) {
-    const dir   = beamDir(shape.entryInN, deg);
-    const start = beamStart(shape.entryMid, dir);
-    const segs  = traceRay(start, dir, shape, nP, nM);
-    if (segs.length < 2) break;
-    const last  = segs[segs.length-1];
-    if (last.inside) break;
-    const exitD = V.norm(V.sub(last.to, last.from));
-    const angle = Math.atan2(exitD.y, exitD.x) * 180/Math.PI;
-    pts.push({ deg, angle });
+  // 1: deviazione D(θ₁), con il minimo; con la dispersione anche rosso e violetto
+  const ext = params.dispersion ? [[680, '#ff3030'], [400, '#9b5cff']].map(([lam, col]) =>
+    [sweep(shape, getN(params.presetPrism, params.nPrismC, lam), getN(params.presetMedium, params.nMediumC, lam)), col]) : [];
+  let dMax = 10; for (const P_ of [pts, ...ext.map(e => e[0])]) for (const p of P_) if (p[1] > dMax) dMax = p[1];
+  let f = Lab.axes(gctx, { ...box(0), title: 'Deviazione D (°) in funzione di θ₁', yr: [0, Lab.niceMax(dMax * 1.08)] });
+  shadeTIR(f, pts, 1);
+  for (const [P_, col] of ext) plotGaps(f, P_, 1, col, 1.4);
+  plotGaps(f, pts, 1, '#00d4ff', 2);
+  let iMin = -1; pts.forEach((p, i) => { if (Number.isFinite(p[1]) && (iMin < 0 || p[1] < pts[iMin][1])) iMin = i; });
+  if (iMin > 0 && iMin < pts.length - 1 && Number.isFinite(pts[iMin - 1][1]) && Number.isFinite(pts[iMin + 1][1])) {
+    gctx.save(); gctx.setLineDash([3, 3]); gctx.strokeStyle = f.C.amber; gctx.beginPath(); gctx.moveTo(f.L, f.Y(pts[iMin][1])); gctx.lineTo(f.R, f.Y(pts[iMin][1])); gctx.stroke(); gctx.restore();
+    Lab.dot(gctx, f, pts[iMin][0], pts[iMin][1], f.C.amber, 3.5);
   }
+  if (cur) Lab.dot(gctx, f, params.theta1, cur.D, '#00d4ff', 4.5);
+  Lab.legend(gctx, f.L + 8, f.T + 8, params.dispersion ? [['#ff3030', 'rosso'], ['#9b5cff', 'violetto'], [f.C.amber, 'D minima', [3, 3]]] : [[f.C.amber, 'deviazione minima', [3, 3]]]);
 
-  const angles = pts.map(p => p.angle);
-  const angMin = Math.min(...angles, -5), angMax = Math.max(...angles, 5);
-  const span   = angMax - angMin || 10;
+  // 2: angolo d'uscita θ₄ dalla normale alla faccia d'uscita; in rosso le zone di riflessione totale
+  f = Lab.axes(gctx, { ...box(1), title: 'Angolo d’uscita θ₄ (°) dalla normale', yr: [0, 90], yStep: 15 });
+  shadeTIR(f, pts, 2);
+  plotGaps(f, pts, 2, '#2ecc71', 2);
+  if (cur && cur.th4 != null) Lab.dot(gctx, f, params.theta1, cur.th4, '#2ecc71', 4.5);
+  if (pts.some(p => !Number.isFinite(p[2]))) { gctx.fillStyle = f.C.light ? 'rgba(200,40,40,0.8)' : 'rgba(255,110,110,0.85)'; gctx.font = '9.5px "DM Sans",sans-serif';
+    gctx.textAlign = 'left'; gctx.textBaseline = 'middle'; gctx.fillText('zona rossa: riflessione totale, il raggio non esce', f.L + 6, f.T + 8); }
 
-  gctx.strokeStyle = '#2ecc71'; gctx.lineWidth = 1.8; gctx.beginPath();
-  pts.forEach(({ deg, angle }, i) => {
-    const x = l + (deg/90)*iW;
-    const y = t + iH - ((angle - angMin)/span)*iH;
-    i===0 ? gctx.moveTo(x,y) : gctx.lineTo(x,y);
-  });
-  gctx.stroke();
-
-  const curX = l + (params.theta1/90)*iW;
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.13)';
-  gctx.lineWidth = 1; gctx.setLineDash([3,3]);
-  gctx.beginPath(); gctx.moveTo(curX,t); gctx.lineTo(curX,t+iH); gctx.stroke();
-  gctx.setLineDash([]);
-
-  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
-  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
-  gctx.textAlign = 'center';
-  gctx.fillText('0°', l, t+iH+16); gctx.fillText('45°', l+iW/2, t+iH+16); gctx.fillText('90°', l+iW, t+iH+16);
-  gctx.textAlign = 'right';
-  gctx.fillText(`${angMin.toFixed(0)}°`, l-4, t+iH+4);
-  gctx.fillText(`${angMax.toFixed(0)}°`, l-4, t+4);
-  panelTitle(gctx, ox, oy, pw, 'Angolo uscita vs θ₁', dark);
+  // 3: indice di rifrazione n(λ) (legge di Cauchy): la dispersione separa i colori
+  const nOf = (pi, nc, lam) => pi === CUSTOM ? nc : cauchyN(MEDIA[pi], lam);
+  let lo = Infinity, hi = -Infinity;
+  // si disegna solo il prisma (e il mezzo se è dispersivo): con l'aria sulla stessa scala la curva sembrerebbe piatta
+  const medDisp = params.presetMedium !== CUSTOM && MEDIA[params.presetMedium].B > 0;
+  for (let lam = 380; lam <= 700; lam += 10) for (const v of [nOf(params.presetPrism, params.nPrismC, lam), ...(medDisp ? [nOf(params.presetMedium, params.nMediumC, lam)] : [])]) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  const sp = Math.max(hi - lo, 0.02), ys = Lab.niceStep(sp * 1.4);
+  f = Lab.axes(gctx, { ...box(2), xr: [380, 700], xStep: 50, xLabel: 'λ (nm)', title: 'Indice di rifrazione n(λ)',
+    yr: [Math.floor((lo - sp * 0.2) / ys) * ys, Math.ceil((hi + sp * 0.2) / ys) * ys], yStep: ys, padL: 52 });
+  for (let x = f.L; x < f.R; x += 2) { const lam = 380 + (x - f.L) / (f.R - f.L) * 320; gctx.fillStyle = lamColor(lam); gctx.fillRect(x, f.B - 4, 2, 4); }
+  Lab.plot(gctx, f, lam => nOf(params.presetPrism, params.nPrismC, lam), [380, 700], '#00d4ff', 2);
+  if (medDisp) Lab.plot(gctx, f, lam => nOf(params.presetMedium, params.nMediumC, lam), [380, 700], '#2ecc71', 1.6, [4, 3]);
+  Lab.legend(gctx, f.L + 8, f.T + 8, [['#00d4ff', MEDIA[params.presetPrism].name], ...(medDisp ? [['#2ecc71', MEDIA[params.presetMedium].name, [4, 3]]] : [])]);
 }
-
-/* Panel: n(λ) curves for prism and medium */
-function drawNPanel(ox, oy, pw, ph, dark) {
-  const { l, t, iW, iH } = panelBase(gctx, ox, oy, pw, ph, dark);
-  const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-  const textC = dark ? '#6b8099' : '#4a6278';
-  const lamMin = WAVELENGTHS[0].lam, lamMax = WAVELENGTHS[WAVELENGTHS.length-1].lam;
-
-  const entries = [
-    { pi: params.presetPrism,  nc: params.nPrismC,  col: '#00d4ff' },
-    { pi: params.presetMedium, nc: params.nMediumC, col: '#2ecc71' },
-  ];
-
-  let nMin = Infinity, nMax = -Infinity;
-  entries.forEach(e => WAVELENGTHS.forEach(w => {
-    const n = e.pi === CUSTOM ? e.nc : cauchyN(MEDIA[e.pi], w.lam);
-    if (n < nMin) nMin = n; if (n > nMax) nMax = n;
-  }));
-  const sp = Math.max(nMax-nMin, 0.05);
-  const nLo = nMin-sp*0.18, nHi = nMax+sp*0.18;
-
-  // Spectrum strip
-  WAVELENGTHS.forEach((w, i) => {
-    const x1 = l + ((w.lam-lamMin)/(lamMax-lamMin))*iW;
-    const x2 = i+1 < WAVELENGTHS.length ? l + ((WAVELENGTHS[i+1].lam-lamMin)/(lamMax-lamMin))*iW : l+iW;
-    gctx.fillStyle = hexToRgba(w.color, 0.65);
-    gctx.fillRect(x1, t+iH+2, x2-x1, 5);
-  });
-
-  entries.forEach(e => {
-    gctx.strokeStyle = e.col; gctx.lineWidth = 2; gctx.setLineDash([]);
-    gctx.beginPath();
-    WAVELENGTHS.forEach((w, i) => {
-      const n = e.pi === CUSTOM ? e.nc : cauchyN(MEDIA[e.pi], w.lam);
-      const x = l + ((w.lam-lamMin)/(lamMax-lamMin))*iW;
-      const y = t + iH - ((n-nLo)/(nHi-nLo))*iH;
-      i===0 ? gctx.moveTo(x,y) : gctx.lineTo(x,y);
-    });
-    gctx.stroke();
-  });
-
-  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
-  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
-  gctx.textAlign = 'center';
-  gctx.fillText(`${lamMin}`, l, t+iH+16); gctx.fillText(`${Math.round((lamMin+lamMax)/2)}`, l+iW/2, t+iH+16); gctx.fillText(`${lamMax} nm`, l+iW, t+iH+16);
-  gctx.textAlign = 'right';
-  gctx.fillText(nLo.toFixed(3), l-4, t+iH+4); gctx.fillText(nHi.toFixed(3), l-4, t+4);
-  panelTitle(gctx, ox, oy, pw, 'n(λ) — dispersione', dark);
+// colore approssimato di una lunghezza d'onda visibile
+function lamColor(l) {
+  let r = 0, g = 0, b = 0;
+  if (l < 440) { r = (440 - l) / 60; b = 1; } else if (l < 490) { g = (l - 440) / 50; b = 1; } else if (l < 510) { g = 1; b = (510 - l) / 20; }
+  else if (l < 580) { r = (l - 510) / 70; g = 1; } else if (l < 645) { r = 1; g = (645 - l) / 65; } else r = 1;
+  const k = l < 420 ? 0.3 + 0.7 * (l - 380) / 40 : l > 680 ? 0.3 + 0.7 * (700 - l) / 20 : 1;
+  return `rgb(${Math.round(255 * r * k)},${Math.round(255 * g * k)},${Math.round(255 * b * k)})`;
 }
 
 /* ── Controls ────────────────────────────────────────────── */
@@ -713,12 +600,12 @@ function buildControls() {
 
   /* ---- Forma ---- */
   const secF = Lab.Section('Forma del prisma');
-  secF.add(Lab.RadioGroup({ label:'shape', options: [
+  secF.add(Lab.RadioGroup({ label:'Forma', options: [
     { label:'Triangolo', value:'triangle' },
     { label:'Quadrato',  value:'square'   },
     { label:'Pentagono', value:'pentagon' },
     { label:'Esagono',   value:'hexagon'  },
-    { label:'Cerchio',   value:'circle'   },
+    { label:'Cerchio (goccia)', value:'circle' },
   ], value: params.prismType,
     onChange(v) { params.prismType = v; apexSub[v==='triangle'?'show':'hide'](); requestRedraw(); },
   }));
@@ -750,7 +637,7 @@ function buildControls() {
     onChange(v) { params.nPrismC = v; requestRedraw(); },
   }));
   if (params.presetPrism !== CUSTOM) nPSub.hide();
-  secP.add(Lab.RadioGroup({ label:'np', options: MEDIA.map((m,i)=>({ label:m.name, value:i })),
+  secP.add(Lab.RadioGroup({ label:'Materiale', options: MEDIA.map((m,i)=>({ label:m.name, value:i })),
     value: params.presetPrism,
     onChange(v) { params.presetPrism=v; if(v<CUSTOM){params.nPrismC=MEDIA[v].n;nPSub.hide();}else nPSub.show(); requestRedraw(); },
   }));
@@ -765,7 +652,7 @@ function buildControls() {
     onChange(v) { params.nMediumC = v; requestRedraw(); },
   }));
   if (params.presetMedium !== CUSTOM) nMSub.hide();
-  secM.add(Lab.RadioGroup({ label:'nm', options: MEDIA.map((m,i)=>({ label:m.name, value:i })),
+  secM.add(Lab.RadioGroup({ label:'Mezzo', options: MEDIA.map((m,i)=>({ label:m.name, value:i })),
     value: params.presetMedium,
     onChange(v) { params.presetMedium=v; if(v<CUSTOM){params.nMediumC=MEDIA[v].n;nMSub.hide();}else nMSub.show(); requestRedraw(); },
   }));
@@ -834,7 +721,6 @@ function init() {
   initResizeHandle();
   initFullscreen();
 
-  document.getElementById('btnPlay').addEventListener('click', requestRedraw);
   document.getElementById('btnReset').addEventListener('click', () => {
     params.prismType = 'triangle'; params.apexAngle = 60; params.theta1 = 30;
     params.presetPrism = 2; params.nPrismC = 1.520;

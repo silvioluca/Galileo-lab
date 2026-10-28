@@ -439,8 +439,7 @@ function drawLabels(ctx, W, H) {
 
 // ═══ Disegno ══════════════════════════════════════════════════════════════════
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   G.W = W; G.H = H;
   T = pal();
   if (needsRetrace) retrace(!!camDrag);
@@ -472,78 +471,53 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Buco Nero — vista ray-traced', 14, 20);
   ctx.fillStyle = 'rgba(230,240,250,0.9)'; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`M=${P.massSolar}M☉ (rs=${D.rsKm.toFixed(1)}km)   a*=${D.aStar.toFixed(2)}   disco: ${D.rDiskIn.toFixed(1)}M–${D.rDiskOut.toFixed(1)}M`, 14, 36);
+  ctx.fillText(`M=${P.massSolar}M☉ (rs=${Lab.fmt(D.rsKm,1)}km)   a*=${Lab.fmt(D.aStar,2)}   disco: ${Lab.fmt(D.rDiskIn,1)}M–${Lab.fmt(D.rDiskOut,1)}M`, 14, 36);
   ctx.fillStyle = 'rgba(200,215,230,0.8)'; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText('trascina per ruotare · rotella per lo zoom — la luce del lato lontano del disco è piegata sopra e sotto l\'ombra', W / 2, H - 8);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
+// 1: deflessione totale della luce in funzione del parametro d'impatto, dalla tabella delle geodetiche;
+//    tratteggiata la formula di Einstein per campo debole Δφ = 4M/b: le due coincidono lontano, divergono vicino a b_crit
 function drawGraphDeflection() {
-  const cv = gCanvas[0]; if (!cv || !cv.width || !deflTable) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 32, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const bMaxPlot = 15;
-  const xOf = b => PAD.l + b / bMaxPlot * gW;
-  const defl = b => { const u = lookupU(b, Math.PI); return u === null || u === -1 ? null : 1 / u; }; // placeholder non usato
-  // angolo di deflessione totale (rispetto a una linea retta) in funzione di b, dalla tabella
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  let started = false;
-  for (let i = 0; i <= 120; i++) {
-    const b = B_CRIT * 1.01 + i / 120 * (bMaxPlot - B_CRIT * 1.01);
-    // trova il phi a cui u torna vicino a 1/CAM_R (uscita) per stimare la deflessione totale
+  if (!deflTable) return;
+  const g = Lab.panel(gCanvas[0], { title: 'Deflessione della luce Δφ (°)', xr: [4, 16], xStep: 2, yr: [0, 360], yStep: 90, xLabel: 'parametro d’impatto b (M)' });
+  if (!g) return; const [ctx, f] = g;
+  ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,90,90,0.8)'; ctx.beginPath(); ctx.moveTo(f.X(B_CRIT), f.T); ctx.lineTo(f.X(B_CRIT), f.B); ctx.stroke(); ctx.restore();
+  const pts = [];
+  for (let i = 0; i <= 160; i++) {
+    const b = B_CRIT * 1.003 + i / 160 * (16 - B_CRIT * 1.003);
     let phiExit = null;
     for (let s = 1; s < N_PHI; s++) { const u = deflTable[Math.round(indexOfB(b)) * N_PHI + s]; if (u >= 0 && u < 1 / CAM_R * 1.02 && s * PHI_STEP > 0.05) { phiExit = s * PHI_STEP; break; } }
     if (phiExit == null) continue;
-    const flatBase = Math.PI - 2 * Math.asin(Math.min(1, b / CAM_R));
-    const deflection = phiExit - flatBase;
-    const x = xOf(b), y = PAD.t + gH - clamp(deflection / 2, 0, 1) * gH;
-    if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    pts.push([b, (phiExit - (Math.PI - 2 * Math.asin(Math.min(1, b / CAM_R)))) * 180 / Math.PI]);
   }
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('deflessione totale Δφ(b) — cresce verso b_crit', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('b (M)', PAD.l + gW - 2, PAD.t + gH - 3);
+  Lab.plotPts(ctx, f, pts, '#00d4ff', 2);
+  Lab.plot(ctx, f, b => 4 / b * 180 / Math.PI, [4, 16], f.C.amber, 1.4, [4, 3]);
+  Lab.legend(ctx, Math.max(f.L + 8, f.R - 250), f.T + 8, [['#00d4ff', 'geodetica esatta'], [f.C.amber, 'Einstein 4M/b', [4, 3]], ['rgba(255,90,90,0.8)', 'b_crit', [3, 3]]]);
 }
+// 2: flusso emesso dal disco sottile e colore del gas, dal bordo interno (ISCO) a quello esterno
 function drawGraphTemp() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 8, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  for (let i = 0; i < gW; i++) {
-    const r = D.rDiskIn + (i / gW) * (D.rDiskOut - D.rDiskIn);
-    const F = fluxOf(r);
-    const col = bbColor(P.tempK * Math.pow(Math.max(F, 1e-6), COLOR_EXP));
-    const v = 255 * (1 - Math.exp(-EXPOSURE * Math.pow(F, TONE_EXP)));
-    ctx.fillStyle = `rgb(${col[0] * v | 0},${col[1] * v | 0},${col[2] * v | 0})`;
-    ctx.fillRect(PAD.l + i, PAD.t, 1, gH * 0.55);
+  const g = Lab.panel(gCanvas[1], { title: 'Luce emessa dal disco (massimo = 1) e colore del gas', xr: [0, D.rDiskOut], xStep: Lab.niceStep(D.rDiskOut, 5), yr: [0, 1.1], yStep: 0.25, xLabel: 'r (M)' });
+  if (!g) return; const [ctx, f] = g;
+  const y0 = f.B - (f.B - f.T) * 0.18;
+  for (let x = Math.ceil(f.X(D.rDiskIn)); x < f.X(D.rDiskOut); x++) {
+    const r = D.rDiskIn + (x - f.X(D.rDiskIn)) / (f.X(D.rDiskOut) - f.X(D.rDiskIn)) * (D.rDiskOut - D.rDiskIn), F = fluxOf(r);
+    const col = bbColor(P.tempK * Math.pow(Math.max(F, 1e-6), COLOR_EXP)), v = 255 * (1 - Math.exp(-EXPOSURE * Math.pow(F, TONE_EXP)));
+    ctx.fillStyle = `rgb(${col[0] * v | 0},${col[1] * v | 0},${col[2] * v | 0})`; ctx.fillRect(x, y0, 1.5, f.B - y0);
   }
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left';
-  ctx.fillText(`colore del gas dal bordo interno (${D.rDiskIn.toFixed(1)}M) a quello esterno`, PAD.l + 2, PAD.t + gH * 0.55 + 12);
-  ctx.textAlign = 'right'; ctx.fillText(`${D.rDiskOut.toFixed(0)}M`, PAD.l + gW - 2, PAD.t + gH * 0.55 + 12);
+  Lab.plot(ctx, f, r => (r < D.rDiskIn ? NaN : fluxOf(r)), [0, D.rDiskOut], '#ff9d4d', 2, [], 300);
+  ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(`bordo interno (ISCO) ${Lab.fmt(D.rDiskIn, 2)} M`, Math.min(f.X(D.rDiskIn) + 4, f.R - 150), f.T + 8);
 }
+// 3: frequenza orbitale del gas Ω/2π (orbite circolari di Kerr), in hertz per la massa scelta
 function drawGraphOmega() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 32, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const xOf = r => PAD.l + (r - D.rDiskIn) / (D.rDiskOut - D.rDiskIn) * gW;
-  const maxOm = omegaOf(D.rDiskIn) * 1.05;
-  const yOf = om => PAD.t + gH - clamp(om / maxOm, 0, 1) * gH;
-  ctx.strokeStyle = '#7fe0a0'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 80; i++) { const r = D.rDiskIn + i / 80 * (D.rDiskOut - D.rDiskIn); const x = xOf(r), y = yOf(omegaOf(r)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('Ω(r) del gas nel disco (Kerr)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('r (M)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const toHz = om => om * 2.0302e5 / P.massSolar / TWO;     // c³/(G·M☉) = 2,03·10⁵ s⁻¹
+  const g = Lab.panel(gCanvas[2], { title: `Giri al secondo del gas (Hz), M = ${Lab.fmt(P.massSolar, 0)} M☉`, xr: [0, D.rDiskOut], xStep: Lab.niceStep(D.rDiskOut, 5), yr: [0, Lab.niceMax(toHz(omegaOf(D.rDiskIn)) * 1.1)], xLabel: 'r (M)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, r => (r < D.rDiskIn ? NaN : toHz(omegaOf(r))), [0, D.rDiskOut], '#7fe0a0', 2, [], 300);
 }
-function drawGraphs() {
-  const titles = ['Deflessione Δφ(b)', 'Profilo di temperatura', 'Velocità angolare Ω(r)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphDeflection(); drawGraphTemp(); drawGraphOmega();
-}
+function drawGraphs() { drawGraphDeflection(); drawGraphTemp(); drawGraphOmega(); }
 
 // ═══ Passo di simulazione ═══════════════════════════════════════════════════
 function step(dt) { animT += dt * P.speed; }
@@ -575,23 +549,16 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'rs', label: 'Raggio di Schwarzschild' }, { key: 'spin', label: 'Spin a*' },
-    { key: 'isco', label: 'ISCO (bordo interno disco)' }, { key: 'bcrit', label: 'Parametro d\'impatto critico' },
-    { key: 'inc', label: 'Inclinazione camera' }, { key: 'diskout', label: 'Raggio esterno disco' },
+    { key: 'rs', label: 'raggio di Schwarzschild' }, { key: 'spin', label: 'spin a*' },
+    { key: 'isco', label: 'bordo interno del disco (ISCO)' }, { key: 'bcrit', label: 'parametro d\'impatto critico' },
+    { key: 'inc', label: 'inclinazione della vista' }, { key: 'diskout', label: 'raggio esterno del disco' },
   ]);
 }
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -638,9 +605,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
     needsRetrace = true;
   }
   resize();
@@ -655,12 +621,12 @@ function init() {
     if (!P.paused) step(dt);
     try {
       draw(simCanvas); drawGraphs();
-      readout.set('rs', `${D.rsKm.toFixed(2)} km`);
-      readout.set('spin', D.aStar.toFixed(2));
-      readout.set('isco', `${D.rDiskIn.toFixed(2)} M`);
-      readout.set('bcrit', `${B_CRIT.toFixed(3)} M`);
-      readout.set('inc', `${P.incDeg.toFixed(0)}°`);
-      readout.set('diskout', `${D.rDiskOut.toFixed(1)} M`);
+      readout.set('rs', `${Lab.fmt(D.rsKm,2)} km`);
+      readout.set('spin', Lab.fmt(D.aStar,2));
+      readout.set('isco', `${Lab.fmt(D.rDiskIn,2)} M`);
+      readout.set('bcrit', `${Lab.fmt(B_CRIT,3)} M`);
+      readout.set('inc', `${Lab.fmt(P.incDeg,0)}°`);
+      readout.set('diskout', `${Lab.fmt(D.rDiskOut,1)} M`);
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

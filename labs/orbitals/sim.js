@@ -242,8 +242,7 @@ function buildSlice() {
 
 // ═══ Rendering canvas ════════════════════════════════════════════════════════
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   ctx.fillStyle = T.canvasBg;
   ctx.fillRect(0,0,W,H);
 
@@ -566,111 +565,44 @@ function roundRect(ctx,x,y,w,h,r){
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
 let GC='rgba(150,205,225,0.88)';
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-
-// Grafico 1: distribuzione radiale P(r)=|R|²r²
+// 1: probabilità radiale P(r) = r²·|R_nl|² (massimo = 1)
 function drawRadial() {
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:14,l:14,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-
-  const rmax=P.n*P.n*4+6, NS=240;
-  const v=new Float32Array(NS); let mx=0;
-  for(let i=0;i<NS;i++){ const r=(i+0.5)/NS*rmax; const R=R_nl(P.n,P.l,r); v[i]=R*R*r*r; if(v[i]>mx)mx=v[i]; }
-  if(mx<1e-30)return;
-  ctx.strokeStyle=T.gCurve; ctx.lineWidth=1.3; ctx.beginPath();
-  for(let i=0;i<NS;i++){ const x=PAD.l+i/NS*gW, y=PAD.t+gH-(v[i]/mx)*gH; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
-  ctx.stroke();
-  // nodi radiali = n-l-1
-  const nodes=P.n-P.l-1;
-  ctx.fillStyle=T.gNode; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText(`nodi radiali: ${nodes}`,PAD.l+4,PAD.t+8);
-  ctx.fillStyle=GC; ctx.fillText('r (a₀)',PAD.l+gW-22,PAD.t+gH+11);
+  const rmax=P.n*P.n*4+6; let mx=0;
+  for(let i=1;i<=240;i++){ const r=i/240*rmax, R=R_nl(P.n,P.l,r); mx=Math.max(mx,R*R*r*r); }
+  const g=Lab.panel(gCanvas[0],{ title:`Probabilità radiale P(r) · nodi radiali: ${P.n-P.l-1}`, xr:[0,rmax], yr:[0,1.1], yStep:0.25, xLabel:'r (raggi di Bohr a₀)' });
+  if(!g||!(mx>0)) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,r=>{ const R=R_nl(P.n,P.l,r); return R*R*r*r/mx; },[0,rmax],T.gCurve,2,[],300);
 }
-
-// Grafico 2: distribuzione angolare |Y(θ)|² (polare, sezione φ=0)
+// 2: distribuzione angolare |Y_lm|² nel piano xz (diagramma polare), colorata secondo il segno della funzione
 function drawAngular() {
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-
-  const cx=W/2, cy=H/2+4, NS=360;
-  // campiona |Y|² nel piano xz: dir = (sinθ, 0, cosθ)
-  const vals=new Float32Array(NS+1); const sgn=new Int8Array(NS+1);
-  let mx=1e-12;
-  for(let i=0;i<=NS;i++){
-    const th=i/NS*Math.PI*2;
-    const A=angular(P.l,P.m, Math.sin(th),0,Math.cos(th));
-    vals[i]=A*A; sgn[i]=A>=0?1:-1;
-    if(vals[i]>mx)mx=vals[i];
-  }
-  const rad=Math.min(W,H)*0.40;
-
-  // assi
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.5;
-  ctx.beginPath(); ctx.moveTo(cx-rad,cy); ctx.lineTo(cx+rad,cy);
-  ctx.moveTo(cx,cy-rad); ctx.lineTo(cx,cy+rad); ctx.stroke();
-
-  const pc=`rgba(${T.posRGB[0]},${T.posRGB[1]},${T.posRGB[2]},0.92)`;
-  const nc=`rgba(${T.negRGB[0]},${T.negRGB[1]},${T.negRGB[2]},0.92)`;
-  // curva polare colorata per fase
+  const cv=gCanvas[1]; if(!cv||!cv._dpr) return;
+  const [ctx,W,H]=Lab.ctx2d(cv), C=Lab.graphColors();
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=C.text; ctx.font='10.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText(`Distribuzione angolare |Y|² (piano xz) · nodi angolari: ${P.l}`,8,11);
+  const cx=W/2, cy=H/2+8, NS=360, rad=Math.min(W,H-24)*0.42;
+  const vals=new Float32Array(NS+1), sgn=new Int8Array(NS+1); let mx=1e-12;
+  for(let i=0;i<=NS;i++){ const th=i/NS*Math.PI*2, A=angular(P.l,P.m,Math.sin(th),0,Math.cos(th)); vals[i]=A*A; sgn[i]=A>=0?1:-1; if(vals[i]>mx) mx=vals[i]; }
+  ctx.strokeStyle=C.grid; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(cx,cy,rad,0,Math.PI*2); ctx.moveTo(cx-rad,cy); ctx.lineTo(cx+rad,cy); ctx.moveTo(cx,cy-rad); ctx.lineTo(cx,cy+rad); ctx.stroke();
+  const pc=`rgb(${T.posRGB.join(',')})`, nc=`rgb(${T.negRGB.join(',')})`;
+  ctx.lineWidth=1.8;
   for(let i=0;i<NS;i++){
-    const th0=i/NS*Math.PI*2, th1=(i+1)/NS*Math.PI*2;
-    const r0=vals[i]/mx*rad, r1=vals[i+1]/mx*rad;
-    const x0=cx+Math.sin(th0)*r0, y0=cy-Math.cos(th0)*r0;
-    const x1=cx+Math.sin(th1)*r1, y1=cy-Math.cos(th1)*r1;
-    ctx.strokeStyle = sgn[i]>=0 ? pc : nc;
-    ctx.lineWidth=1.4;
-    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    const th0=i/NS*Math.PI*2, th1=(i+1)/NS*Math.PI*2, r0=vals[i]/mx*rad, r1=vals[i+1]/mx*rad;
+    ctx.strokeStyle=sgn[i]>=0?pc:nc; ctx.beginPath(); ctx.moveTo(cx+Math.sin(th0)*r0,cy-Math.cos(th0)*r0); ctx.lineTo(cx+Math.sin(th1)*r1,cy-Math.cos(th1)*r1); ctx.stroke();
   }
-  ctx.fillStyle=T.axisLab; ctx.font='8px "Space Mono",monospace';
-  ctx.fillText('z',cx+3,cy-rad+2); ctx.fillText('x',cx+rad-8,cy-3);
-  ctx.fillStyle=T.gNode; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText(`nodi angolari: ${P.l}`,6,H-4);
+  ctx.fillStyle=C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.fillText('z',cx+4,cy-rad+6); ctx.fillText('x',cx+rad-10,cy-8);
+  Lab.legend(ctx,8,H-10,[[pc,'Ψ > 0'],[nc,'Ψ < 0']]);
 }
-
-// Grafico 3: funzione d'onda radiale R_nl(r) — mostra i nodi (zeri)
+// 3: funzione d'onda radiale R_nl(r): i nodi sono gli zeri
 function drawRadialWave() {
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:14,b:14,l:16,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-
-  const rmax=P.n*P.n*4+6, NS=300;
-  const v=new Float32Array(NS); let mx=0;
-  for(let i=0;i<NS;i++){ const r=(i+0.5)/NS*rmax; v[i]=R_nl(P.n,P.l,r); const a=Math.abs(v[i]); if(a>mx)mx=a; }
-  if(mx<1e-30)return;
-  const zeroY=PAD.t+gH*0.5;
-
-  // linea zero
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.5;
-  ctx.beginPath(); ctx.moveTo(PAD.l,zeroY); ctx.lineTo(PAD.l+gW,zeroY); ctx.stroke();
-
-  // curva R(r)
-  ctx.strokeStyle=T.gCurve; ctx.lineWidth=1.3; ctx.beginPath();
-  for(let i=0;i<NS;i++){ const x=PAD.l+i/NS*gW, y=zeroY-(v[i]/mx)*(gH*0.46); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
-  ctx.stroke();
-
-  // marca i nodi (cambi di segno)
-  let nodes=0;
-  for(let i=1;i<NS;i++){
-    if(v[i-1]*v[i]<0){
-      nodes++;
-      const x=PAD.l+i/NS*gW;
-      ctx.fillStyle=T.gNode;
-      ctx.beginPath(); ctx.arc(x,zeroY,2.2,0,Math.PI*2); ctx.fill();
-    }
-  }
-  ctx.fillStyle=T.gNode; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText(`nodi radiali: ${nodes}`,PAD.l+4,PAD.t+8);
-  ctx.fillStyle=GC; ctx.fillText('r (a₀)',PAD.l+gW-22,PAD.t+gH+11);
+  const rmax=P.n*P.n*4+6; let mx=0;
+  for(let i=1;i<=300;i++){ mx=Math.max(mx,Math.abs(R_nl(P.n,P.l,i/300*rmax))); }
+  const g=Lab.panel(gCanvas[2],{ title:'Funzione d’onda radiale R(r) (massimo = 1)', xr:[0,rmax], yr:[-1.1,1.1], yStep:0.5, xLabel:'r (raggi di Bohr a₀)' });
+  if(!g||!(mx>0)) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,r=>R_nl(P.n,P.l,r)/mx,[0,rmax],T.gCurve,2,[],300);
+  let prev=R_nl(P.n,P.l,1e-3);
+  for(let i=1;i<=600;i++){ const r=i/600*rmax, v=R_nl(P.n,P.l,r); if(prev*v<0) Lab.dot(ctx,f,r,0,T.gNode,3.5); prev=v; }
 }
 
 function drawGraphs(){ drawRadial(); drawAngular(); drawRadialWave(); }
@@ -771,21 +703,9 @@ function initDrag(canvas) {
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs() {
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:145px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Distribuzione Radiale P(r)','Distribuzione Angolare |Y|²','Funzione d\'onda R(r)'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -796,9 +716,9 @@ function init() {
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'energy', label:'Eₙ (idrogenoide)'},
-    {key:'qn',     label:'n,l,mₗ,mₛ'},
-    {key:'view',   label:'Vista'},
+    {key:'energy', label:'energia Eₙ (atomo idrogenoide)'},
+    {key:'qn',     label:'numeri quantici n, l, mₗ, mₛ'},
+    {key:'view',   label:'vista'},
   ]);
 
   document.getElementById('btnView').addEventListener('click',()=>{
@@ -822,9 +742,8 @@ function init() {
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea');
     const gaH=ga?ga.offsetHeight:0;
-    simCanvas.width=Math.floor(ar.width);
-    simCanvas.height=Math.max(60,Math.floor(ar.height-rb.height-gaH-4));
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(60,Math.floor(ar.height-rb.height-gaH-4)));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -835,7 +754,7 @@ function init() {
     draw(simCanvas);
     drawGraphs();
     const E = -13.6*P.Z*P.Z/(P.n*P.n);
-    readout.set('energy', `${E.toFixed(1)} eV`);
+    readout.set('energy', `${Lab.fmt(E,1)} eV`);
     readout.set('qn', `${P.n}, ${P.l}, ${P.m>0?'+':''}${P.m}, ${P.s>0?'+½':'−½'}`);
     readout.set('view', VIEW_LABELS[P.view]);
     requestAnimationFrame(frame);

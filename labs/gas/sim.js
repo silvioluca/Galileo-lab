@@ -217,13 +217,13 @@ function drawStateLabels(cx, cylTop, cylH, state, num, dark) {
 
   ctx.font = `${fS-2}px 'Space Mono', monospace`;
   ctx.fillStyle = sub;
-  ctx.fillText(`P = ${P.toFixed(1)} kPa`, cx, cylTop - 8);
+  ctx.fillText(`P = ${Lab.fmt(P,1)} kPa`, cx, cylTop - 8);
 
   // Valori sotto
   ctx.font = `${fS-1}px 'Space Mono', monospace`;
   ctx.fillStyle = sub;
-  ctx.fillText(`V = ${V.toFixed(2)} L`,   cx, bottom + 16);
-  ctx.fillText(`T = ${T.toFixed(0)} K`,   cx, bottom + 30);
+  ctx.fillText(`V = ${Lab.fmt(V,2)} L`,   cx, bottom + 16);
+  ctx.fillText(`T = ${Lab.fmt(T,0)} K`,   cx, bottom + 30);
 
   // Barra temperatura
   const bW = Math.min(70, cw*0.12), bH = 5;
@@ -245,7 +245,7 @@ function drawTransformArrow(x1, x2, y, s1, dark) {
   const labels = { isobaric:'ISOBARA', isochoric:'ISOCORA', isothermal:'ISOTERMA' };
   const constLabels = {
     isobaric:   `P = ${params.P1} kPa`,
-    isochoric:  `V = ${s1.V.toFixed(2)} L`,
+    isochoric:  `V = ${Lab.fmt(s1.V,2)} L`,
     isothermal: `T = ${params.T1} K`,
   };
   const midX = (x1+x2) / 2;
@@ -276,18 +276,18 @@ function drawTransformArrow(x1, x2, y, s1, dark) {
 function updateReadout(s1, s2, th) {
   const sgn = v => v >= 0 ? '+' : '';
   const items = [
-    { label:'P₁', value:`${s1.P.toFixed(1)} kPa` },
-    { label:'V₁', value:`${s1.V.toFixed(2)} L`   },
-    { label:'T₁', value:`${s1.T.toFixed(0)} K`   },
-    { label:'P₂', value:`${s2.P.toFixed(1)} kPa` },
-    { label:'V₂', value:`${s2.V.toFixed(2)} L`   },
-    { label:'T₂', value:`${s2.T.toFixed(0)} K`   },
-    { label:'W',  value:`${sgn(th.W)}${th.W.toFixed(0)} J`  },
-    { label:'ΔU', value:`${sgn(th.dU)}${th.dU.toFixed(0)} J` },
-    { label:'Q',  value:`${sgn(th.Q)}${th.Q.toFixed(0)} J`  },
+    { label:'P₁', value:`${Lab.fmt(s1.P,1)} kPa` },
+    { label:'V₁', value:`${Lab.fmt(s1.V,2)} L`   },
+    { label:'T₁', value:`${Lab.fmt(s1.T,0)} K`   },
+    { label:'P₂', value:`${Lab.fmt(s2.P,1)} kPa` },
+    { label:'V₂', value:`${Lab.fmt(s2.V,2)} L`   },
+    { label:'T₂', value:`${Lab.fmt(s2.T,0)} K`   },
+    { label:'W',  value:`${sgn(th.W)}${Lab.fmt(th.W,0)} J`  },
+    { label:'ΔU', value:`${sgn(th.dU)}${Lab.fmt(th.dU,0)} J` },
+    { label:'Q',  value:`${sgn(th.Q)}${Lab.fmt(th.Q,0)} J`  },
   ];
   readoutEl.innerHTML = items.map(it =>
-    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(it.label)}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
 }
 
@@ -295,62 +295,43 @@ function updateReadout(s1, s2, th) {
 function drawGraphs() {
   if (!gw || !gh) return;
   gctx.clearRect(0,0,gw,gh);
-  const dark = document.documentElement.dataset.theme !== 'light';
-  const pw = Math.floor(gw/3);
-  drawPVPanel(0,    0, pw,       gh, dark);
-  drawVTPanel(pw,   0, pw,       gh, dark);
-  drawPTPanel(pw*2, 0, gw-pw*2, gh, dark);
+  const { s1, s2 } = getStates();
+  const tr = params.transform, nR = params.n * R_GAS;
+  // assi che cambiano solo a scatti (Lab.niceMax): spostando un parametro si vede muovere il punto
+  const Vm = Lab.niceMax(Math.max(s1.V, s2.V) * 1.4), Pm = Lab.niceMax(Math.max(s1.P, s2.P) * 1.4), Tm = Lab.niceMax(Math.max(s1.T, s2.T) * 1.4);
+  const pw = gw / 3;
+  // curva di riferimento della trasformazione: funzione y(x) oppure retta verticale x = cost
+  drawStatePanel(0, pw, { title:'Diagramma p–V', x:'V', y:'P', xr:[0,Vm], yr:[0,Pm], xLabel:'V (L)', yUnit:'p (kPa)', col:'#00d4ff',
+    ref: tr==='isobaric' ? { f:()=>s1.P } : tr==='isochoric' ? { vx:s1.V } : { f:v=>s1.P*s1.V/v } });
+  drawStatePanel(pw, pw, { title:'Diagramma V–T', x:'T', y:'V', xr:[0,Tm], yr:[0,Vm], xLabel:'T (K)', yUnit:'V (L)', col:'#2ecc71',
+    ref: tr==='isobaric' ? { f:T=>nR*T/s1.P } : tr==='isochoric' ? { f:()=>s1.V } : { vx:s1.T } });
+  drawStatePanel(2*pw, gw-2*pw, { title:'Diagramma p–T', x:'T', y:'P', xr:[0,Tm], yr:[0,Pm], xLabel:'T (K)', yUnit:'p (kPa)', col:'#f39c12',
+    ref: tr==='isobaric' ? { f:()=>s1.P } : tr==='isochoric' ? { f:T=>nR*T/s1.V } : { vx:s1.T } });
 }
 
-const GP = { l:40, r:10, t:20, b:28 };
-
-function panelBase(gc, ox, oy, pw, ph, dark) {
-  gc.fillStyle = dark ? '#0b1018' : '#f0f2f5';
-  gc.fillRect(ox, oy, pw, ph);
-  const l=ox+GP.l, t=oy+GP.t, iW=pw-GP.l-GP.r, iH=ph-GP.t-GP.b;
-  gc.strokeStyle = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'; gc.lineWidth=1;
-  for (let i=0; i<=4; i++) {
-    const x=l+(i/4)*iW; gc.beginPath(); gc.moveTo(x,t); gc.lineTo(x,t+iH); gc.stroke();
-    const y=t+(i/4)*iH; gc.beginPath(); gc.moveTo(l,y); gc.lineTo(l+iW,y); gc.stroke();
-  }
-  if (ox > 0) {
-    gc.strokeStyle = dark ? 'rgba(0,212,255,0.07)' : 'rgba(0,100,160,0.07)';
-    gc.beginPath(); gc.moveTo(ox,oy); gc.lineTo(ox,oy+ph); gc.stroke();
-  }
-  return { l, t, iW, iH };
+function drawStatePanel(ox, pw, o) {
+  const { s1, s2 } = getStates();
+  const f = Lab.axes(gctx, { x:ox+3, y:3, w:pw-6, h:gh-6, title:o.title, xr:o.xr, yr:o.yr, xLabel:o.xLabel, padL:50 });
+  const C = f.C;
+  // riferimento tenue su tutta la gamma
+  if (o.ref.f) Lab.plot(gctx, f, o.ref.f, o.xr, C.light ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.16)', 1.2, [4,3]);
+  else { gctx.save(); gctx.setLineDash([4,3]); gctx.strokeStyle = C.light ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.16)';
+    gctx.beginPath(); gctx.moveTo(f.X(o.ref.vx), f.T); gctx.lineTo(f.X(o.ref.vx), f.B); gctx.stroke(); gctx.restore(); }
+  // percorso 1 → 2 (sull'isoterma nel piano p–V è un ramo d'iperbole)
+  const a = s1[o.x], b = s2[o.x];
+  if (o.ref.f && params.transform === 'isothermal') Lab.plot(gctx, f, o.ref.f, [Math.min(a,b), Math.max(a,b)], o.col, 2.4, [], 120);
+  else { gctx.strokeStyle = o.col; gctx.lineWidth = 2.4; gctx.beginPath(); gctx.moveTo(f.X(a), f.Y(s1[o.y])); gctx.lineTo(f.X(b), f.Y(s2[o.y])); gctx.stroke(); }
+  midArrow(gctx, f.X(a), f.Y(s1[o.y]), f.X(b), f.Y(s2[o.y]), o.col);
+  drawDot(gctx, f.X(a), f.Y(s1[o.y]), '#2ecc71', '1', s1[o.y] >= s2[o.y]);
+  drawDot(gctx, f.X(b), f.Y(s2[o.y]), '#ff6b6b', '2', s2[o.y] > s1[o.y]);
+  gctx.fillStyle = C.text; gctx.font = '9.5px "DM Sans",sans-serif'; gctx.textAlign = 'left'; gctx.textBaseline = 'middle';
+  gctx.fillText(o.yUnit, f.L + 4, f.T + 8);
 }
-
-function panelTitle(gc, ox, oy, pw, title, dark) {
-  gc.fillStyle = dark ? 'rgba(200,220,255,0.50)' : 'rgba(40,60,100,0.50)';
-  gc.font = `10px 'Space Mono', monospace`; gc.textAlign='center';
-  gc.fillText(title, ox+pw/2, oy+13);
-}
-
-function fmtTick(v) {
-  if (Math.abs(v) >= 1000) return v.toFixed(0);
-  if (Math.abs(v) >= 10)   return v.toFixed(1);
-  return v.toFixed(2);
-}
-
-function axisLabels(gc, l, t, iW, iH, xMin, xMax, yMin, yMax, xUnit, yUnit, dark) {
-  const tc = dark ? '#6b8099' : '#4a6278';
-  gc.fillStyle = tc; gc.font = `9px 'Space Mono', monospace`;
-  gc.textAlign='center';
-  gc.fillText(fmtTick(xMin),           l,       t+iH+14);
-  gc.fillText(fmtTick((xMin+xMax)/2),  l+iW/2,  t+iH+14);
-  gc.fillText(fmtTick(xMax)+' '+xUnit, l+iW,    t+iH+14);
-  gc.textAlign='right';
-  gc.fillText(fmtTick(yMax)+' '+yUnit, l-3, t+4);
-  gc.fillText(fmtTick(yMin),           l-3, t+iH+4);
-}
-
-function tx(v, vMin, vMax, l, iW) { return l + (v-vMin)/(vMax-vMin)*iW; }
-function ty(v, vMin, vMax, t, iH) { return t + iH - (v-vMin)/(vMax-vMin)*iH; }
 
 function drawDot(gc, x, y, col, lbl, above) {
   gc.fillStyle = col;
   gc.beginPath(); gc.arc(x, y, 4.5, 0, Math.PI*2); gc.fill();
-  gc.font = `bold 10px 'Space Mono', monospace`; gc.textAlign='center';
+  gc.font = `bold 10px 'Space Mono', monospace`; gc.textAlign='center'; gc.textBaseline='alphabetic';
   gc.fillText(lbl, x, above ? y-9 : y+16);
 }
 
@@ -366,170 +347,6 @@ function midArrow(gc, x1, y1, x2, y2, col) {
   gc.closePath(); gc.fill();
 }
 
-/* ─ Pannello P-V ─ */
-function drawPVPanel(ox, oy, pw, ph, dark) {
-  const { l,t,iW,iH } = panelBase(gctx, ox, oy, pw, ph, dark);
-  const { s1, s2 } = getStates();
-  const Vlo=0, Plo=0;
-  const Vhi = Math.max(s1.V, s2.V) * 2.0;
-  const Phi = Math.max(s1.P, s2.P) * 2.0;
-
-  const X = v => tx(v, Vlo, Vhi, l, iW);
-  const Y = v => ty(v, Plo, Phi, t, iH);
-
-  gctx.lineWidth = 1.5;
-
-  // Curva di riferimento (leggera, tutta la gamma)
-  gctx.strokeStyle = dark ? 'rgba(0,212,255,0.12)' : 'rgba(0,130,200,0.10)';
-  switch (params.transform) {
-    case 'isobaric':
-      gctx.beginPath(); gctx.moveTo(X(Vlo), Y(s1.P)); gctx.lineTo(X(Vhi), Y(s1.P)); gctx.stroke();
-      break;
-    case 'isochoric':
-      gctx.beginPath(); gctx.moveTo(X(s1.V), Y(Plo)); gctx.lineTo(X(s1.V), Y(Phi)); gctx.stroke();
-      break;
-    case 'isothermal': {
-      const PV = s1.P * s1.V;
-      gctx.beginPath();
-      let first=true;
-      for (let v=Vhi*0.04; v<=Vhi; v+=Vhi/300) {
-        const p = PV/v; if (p>Phi*1.05) continue;
-        const cx=X(v), cy=Y(p); first ? gctx.moveTo(cx,cy) : gctx.lineTo(cx,cy); first=false;
-      }
-      gctx.stroke();
-      break;
-    }
-  }
-
-  // Percorso trasformazione (spesso, colorato)
-  gctx.strokeStyle = '#00d4ff'; gctx.lineWidth = 2.2;
-  switch (params.transform) {
-    case 'isobaric':
-      gctx.beginPath();
-      gctx.moveTo(X(s1.V), Y(s1.P)); gctx.lineTo(X(s2.V), Y(s2.P));
-      gctx.stroke(); break;
-    case 'isochoric':
-      gctx.beginPath();
-      gctx.moveTo(X(s1.V), Y(s1.P)); gctx.lineTo(X(s2.V), Y(s2.P));
-      gctx.stroke(); break;
-    case 'isothermal': {
-      const PV = s1.P * s1.V;
-      const vA = Math.min(s1.V,s2.V), vB = Math.max(s1.V,s2.V);
-      gctx.beginPath();
-      let first=true;
-      for (let v=vA; v<=vB; v+=(vB-vA)/150) {
-        const p=PV/v; if(p>Phi*1.05) continue;
-        const cx=X(v), cy=Y(p); first ? gctx.moveTo(cx,cy) : gctx.lineTo(cx,cy); first=false;
-      }
-      gctx.lineTo(X(vB), Y(PV/vB));
-      gctx.stroke(); break;
-    }
-  }
-
-  // Freccia a metà percorso
-  const midV = params.transform==='isothermal' ? Math.sqrt(s1.V*s2.V) : (s1.V+s2.V)/2;
-  const midP = params.transform==='isothermal' ? s1.P*s1.V/midV
-             : params.transform==='isobaric'   ? s1.P : (s1.P+s2.P)/2;
-  midArrow(gctx, X(s1.V), Y(s1.P), X(s2.V), Y(s2.P), '#00d4ff');
-
-  // Assi
-  gctx.strokeStyle = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-  gctx.lineWidth=1; gctx.strokeRect(l,t,iW,iH);
-  axisLabels(gctx, l,t,iW,iH, Vlo,Vhi,Plo,Phi, 'L','kPa', dark);
-
-  // Punti
-  drawDot(gctx, X(s1.V), Y(s1.P), '#2ecc71', '1', s1.P > s2.P || s1.P===s2.P);
-  drawDot(gctx, X(s2.V), Y(s2.P), '#ff6b6b', '2', s2.P > s1.P);
-
-  panelTitle(gctx, ox, oy, pw, 'Diagramma P-V', dark);
-}
-
-/* ─ Pannello V-T ─ */
-function drawVTPanel(ox, oy, pw, ph, dark) {
-  const { l,t,iW,iH } = panelBase(gctx, ox, oy, pw, ph, dark);
-  const { s1, s2 } = getStates();
-  const Tlo=0, Vlo=0;
-  const Thi = Math.max(s1.T, s2.T) * 1.8;
-  const Vhi = Math.max(s1.V, s2.V) * 2.0;
-
-  const X = v => tx(v, Tlo, Thi, l, iW);
-  const Y = v => ty(v, Vlo, Vhi, t, iH);
-
-  gctx.lineWidth = 1.5;
-
-  // Riferimento
-  gctx.strokeStyle = dark ? 'rgba(46,204,113,0.12)' : 'rgba(30,150,80,0.10)';
-  switch (params.transform) {
-    case 'isobaric': {
-      const sl = params.n * R_GAS / params.P1;
-      gctx.beginPath(); gctx.moveTo(X(0), Y(0)); gctx.lineTo(X(Thi), Y(sl*Thi)); gctx.stroke();
-      break;
-    }
-    case 'isochoric':
-      gctx.beginPath(); gctx.moveTo(X(Tlo), Y(s1.V)); gctx.lineTo(X(Thi), Y(s1.V)); gctx.stroke();
-      break;
-    case 'isothermal':
-      gctx.beginPath(); gctx.moveTo(X(s1.T), Y(Vlo)); gctx.lineTo(X(s1.T), Y(Vhi)); gctx.stroke();
-      break;
-  }
-
-  // Percorso
-  gctx.strokeStyle = '#2ecc71'; gctx.lineWidth = 2.2;
-  gctx.beginPath(); gctx.moveTo(X(s1.T), Y(s1.V)); gctx.lineTo(X(s2.T), Y(s2.V)); gctx.stroke();
-  midArrow(gctx, X(s1.T), Y(s1.V), X(s2.T), Y(s2.V), '#2ecc71');
-
-  gctx.strokeStyle = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-  gctx.lineWidth=1; gctx.strokeRect(l,t,iW,iH);
-  axisLabels(gctx, l,t,iW,iH, Tlo,Thi,Vlo,Vhi, 'K','L', dark);
-
-  drawDot(gctx, X(s1.T), Y(s1.V), '#2ecc71', '1', s1.V > s2.V || s1.V===s2.V);
-  drawDot(gctx, X(s2.T), Y(s2.V), '#ff6b6b', '2', s2.V > s1.V);
-  panelTitle(gctx, ox, oy, pw, 'Diagramma V-T', dark);
-}
-
-/* ─ Pannello P-T ─ */
-function drawPTPanel(ox, oy, pw, ph, dark) {
-  const { l,t,iW,iH } = panelBase(gctx, ox, oy, pw, ph, dark);
-  const { s1, s2 } = getStates();
-  const Tlo=0, Plo=0;
-  const Thi = Math.max(s1.T, s2.T) * 1.8;
-  const Phi = Math.max(s1.P, s2.P) * 2.0;
-
-  const X = v => tx(v, Tlo, Thi, l, iW);
-  const Y = v => ty(v, Plo, Phi, t, iH);
-
-  gctx.lineWidth = 1.5;
-
-  // Riferimento
-  gctx.strokeStyle = dark ? 'rgba(243,156,18,0.12)' : 'rgba(200,120,0,0.10)';
-  switch (params.transform) {
-    case 'isobaric':
-      gctx.beginPath(); gctx.moveTo(X(Tlo), Y(s1.P)); gctx.lineTo(X(Thi), Y(s1.P)); gctx.stroke();
-      break;
-    case 'isochoric': {
-      const sl = params.n * R_GAS / s1.V;
-      gctx.beginPath(); gctx.moveTo(X(0), Y(0)); gctx.lineTo(X(Thi), Y(sl*Thi)); gctx.stroke();
-      break;
-    }
-    case 'isothermal':
-      gctx.beginPath(); gctx.moveTo(X(s1.T), Y(Plo)); gctx.lineTo(X(s1.T), Y(Phi)); gctx.stroke();
-      break;
-  }
-
-  // Percorso
-  gctx.strokeStyle = '#f39c12'; gctx.lineWidth = 2.2;
-  gctx.beginPath(); gctx.moveTo(X(s1.T), Y(s1.P)); gctx.lineTo(X(s2.T), Y(s2.P)); gctx.stroke();
-  midArrow(gctx, X(s1.T), Y(s1.P), X(s2.T), Y(s2.P), '#f39c12');
-
-  gctx.strokeStyle = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-  gctx.lineWidth=1; gctx.strokeRect(l,t,iW,iH);
-  axisLabels(gctx, l,t,iW,iH, Tlo,Thi,Plo,Phi, 'K','kPa', dark);
-
-  drawDot(gctx, X(s1.T), Y(s1.P), '#2ecc71', '1', s1.P > s2.P || s1.P===s2.P);
-  drawDot(gctx, X(s2.T), Y(s2.P), '#ff6b6b', '2', s2.P > s1.P);
-  panelTitle(gctx, ox, oy, pw, 'Diagramma P-T', dark);
-}
-
 /* ── Controlli ───────────────────────────────────────────── */
 function buildControls() {
   const el = document.getElementById('controls');
@@ -537,7 +354,7 @@ function buildControls() {
 
   /* Trasformazione */
   const secT = Lab.Section('Trasformazione');
-  secT.add(Lab.RadioGroup({ label:'transf', options: [
+  secT.add(Lab.RadioGroup({ label:'Trasformazione', options: [
     { label:'Isobara  (ΔP = 0)',  value:'isobaric'   },
     { label:'Isocora  (ΔV = 0)',  value:'isochoric'  },
     { label:'Isoterma (ΔT = 0)',  value:'isothermal' },
@@ -552,7 +369,7 @@ function buildControls() {
     value: params.n, unit:' mol',
     onChange(v) { params.n=v; requestRedraw(); },
   }));
-  secG.add(Lab.RadioGroup({ label:'gtype', options:
+  secG.add(Lab.RadioGroup({ label:'Tipo di gas', options:
     GAS_TYPES.map((g,i) => ({ label:g.name, value:i })),
     value: params.gasType,
     onChange(v) { params.gasType=v; requestRedraw(); },

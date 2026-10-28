@@ -21,6 +21,7 @@ const P = {
 let waterLevel=P.level;             // livello dinamico (cala se rifornimento off)
 let tAnim=0, last=0, tHist=0;
 let hist=[];                        // storico livello per il grafico di svuotamento
+let gTitle=[null,null,null];
 let gCanvas=[null,null,null], gCtx=[null,null,null];
 let readout;
 
@@ -62,7 +63,7 @@ function vEff(hole){ const h=waterLevel-hole.y; return h>0 ? Math.sqrt(2*GR*h) :
 function rangeM(hole){ const h=waterLevel-hole.y; return (h>0 && hole.y>0) ? 2*Math.sqrt(h*hole.y) : 0; }
 function activeHoles(){ return P.compare ? [P.holeA,P.holeB] : [P.holeA]; }
 function flowQ(){ let Q=0; for(const h of activeHoles()){ if(waterLevel>h.y) Q+=h.a*Math.sqrt(2*GR*(waterLevel-h.y)); } return Q; }   // portata totale (m²/s)
-function fmtM(m){ return m<1 ? (m*100).toFixed(1)+' cm' : m.toFixed(2)+' m'; }
+function fmtM(m){ return m<1 ? Lab.fmt((m*100),1)+' cm' : Lab.fmt(m,2)+' m'; }
 function niceStep(x){ const e=Math.pow(10,Math.floor(Math.log10(x))); const f=x/e; return (f<1.5?1:f<3.5?2:f<7.5?5:10)*e; }
 
 // ═══ Geometria ════════════════════════════════════════════════════════════════
@@ -144,8 +145,7 @@ function drawHole(ctx,hole,col){
 }
 
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal(); ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
   geom(W,H);
@@ -211,47 +211,25 @@ function drawRuler(ctx){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
 function drawGraphs(){
   const lv=clamp(waterLevel,0.001,Hcont);
-  // 1: v = √(2gh)
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height,PAD={t:14,b:18,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const hmax=Hcont, vmax=Math.sqrt(2*GR*hmax);
-    const xOf=h=>PAD.l+h/hmax*gW, yOf2=v=>PAD.t+gH-clamp(v/vmax,0,1)*gH*0.92;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let h=0;h<=hmax+1e-6;h+=hmax/60){ const x=xOf(h),y=yOf2(Math.sqrt(2*GR*h)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    const hA=Math.max(0,waterLevel-P.holeA.y);
-    ctx.fillStyle=rgb(T.jetA); ctx.beginPath(); ctx.arc(xOf(hA),yOf2(vEff(P.holeA)),3.2,0,7); ctx.fill();
-    if(P.compare){ const hB=Math.max(0,waterLevel-P.holeB.y); ctx.fillStyle=rgb(T.jetB); ctx.beginPath(); ctx.arc(xOf(hB),yOf2(vEff(P.holeB)),3.2,0,7); ctx.fill(); }
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('v',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('h',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 2: gittata = 2√(y(L−y))
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const rmax=lv;   // gittata max = L (a y=L/2)
-    const xOf=y=>PAD.l+y/Hcont*gW, yOf2=r=>PAD.t+gH-clamp(r/Math.max(rmax,1e-3),0,1)*gH*0.92;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let y=0;y<=lv+1e-6;y+=lv/60){ const r=2*Math.sqrt(Math.max(0,y*(lv-y))); const x=xOf(y),yy=yOf2(r); f?(ctx.moveTo(x,yy),f=false):ctx.lineTo(x,yy);} ctx.stroke();
-    // linea verticale a y=L/2 (gittata massima)
-    ctx.strokeStyle=rgba([150,205,225],0.35); ctx.setLineDash([3,3]); ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(xOf(lv/2),PAD.t); ctx.lineTo(xOf(lv/2),PAD.t+gH); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle=rgb(T.jetA); ctx.beginPath(); ctx.arc(xOf(P.holeA.y),yOf2(rangeM(P.holeA)),3.2,0,7); ctx.fill();
-    if(P.compare){ ctx.fillStyle=rgb(T.jetB); ctx.beginPath(); ctx.arc(xOf(P.holeB.y),yOf2(rangeM(P.holeB)),3.2,0,7); ctx.fill(); }
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('gittata',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('y foro',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 3: svuotamento  livello(t)
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height,PAD={t:14,b:18,l:24,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD);
-    const n=hist.length, yOf2=l=>PAD.t+gH-clamp(l/Hcont,0,1)*gH*0.92;
-    if(n>1){ ctx.strokeStyle=rgb(T.water); ctx.lineWidth=1.6; ctx.beginPath();
-      for(let i=0;i<n;i++){ const x=PAD.l+i/(n-1)*gW, y=yOf2(hist[i]); i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.stroke(); }
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('livello',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('t',PAD.l+gW-2,PAD.t+gH-3);
-  }
+  // 1: velocità d'efflusso v = √(2·g·h) in funzione della profondità del foro sotto il pelo libero
+  let g=Lab.panel(gCanvas[0],{ title:'Velocità d’efflusso v = √(2gh) (m/s)', xr:[0,Hcont*100], yr:[0,Lab.niceMax(Math.sqrt(2*GR*Hcont))], xLabel:'profondità del foro h (cm)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,h=>Math.sqrt(2*GR*h/100),[0,Hcont*100],T.accent,2);
+    Lab.dot(ctx,f,Math.max(0,waterLevel-P.holeA.y)*100,vEff(P.holeA),rgb(T.jetA),4.5);
+    if(P.compare) Lab.dot(ctx,f,Math.max(0,waterLevel-P.holeB.y)*100,vEff(P.holeB),rgb(T.jetB),4.5); }
+  // 2: gittata 2·√(y·(L−y)) in funzione dell'altezza del foro: massima a metà livello
+  g=Lab.panel(gCanvas[1],{ title:'Gittata (cm) in funzione dell’altezza del foro', xr:[0,Hcont*100], yr:[0,Lab.niceMax(Hcont*100)], xLabel:'altezza del foro dal fondo (cm)' });
+  if(g){ const [ctx,f]=g;
+    ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=f.C.text; ctx.beginPath(); ctx.moveTo(f.X(lv*50),f.T); ctx.lineTo(f.X(lv*50),f.B); ctx.stroke(); ctx.restore();
+    Lab.plot(ctx,f,y=>{ const yy=y/100; return yy>lv?NaN:2*Math.sqrt(Math.max(0,yy*(lv-yy)))*100; },[0,Hcont*100],T.accent,2);
+    Lab.dot(ctx,f,P.holeA.y*100,rangeM(P.holeA)*100,rgb(T.jetA),4.5);
+    if(P.compare) Lab.dot(ctx,f,P.holeB.y*100,rangeM(P.holeB)*100,rgb(T.jetB),4.5);
+    Lab.legend(ctx,f.L+8,f.T+8,[[f.C.text,'massimo a metà livello',[3,3]]]); }
+  // 3: svuotamento: il livello scende sempre più lentamente (dh/dt ∝ √h)
+  g=Lab.panel(gCanvas[2],{ title:'Livello dell’acqua (cm)', xr:[0,Math.max(5,hist.length*0.05)], yr:[0,Hcont*100], xLabel:'t (s)' });
+  if(g){ const [ctx,f]=g; Lab.plotPts(ctx,f,hist.map((l,i)=>[i*0.05,l*100]),rgb(T.water),2); }
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -280,18 +258,10 @@ function buildControls(){
 }
 
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Velocità di efflusso  v(h)','Gittata vs altezza foro','Svuotamento  livello(t)'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -323,10 +293,9 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(240,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    geom(simCanvas.width,simCanvas.height);
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    geom(simCanvas.width/(simCanvas._dpr||1),simCanvas.height/(simCanvas._dpr||1));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -341,10 +310,10 @@ function init(){
     try{
       step(dt); draw(simCanvas); drawGraphs();
       readout.set('liv', fmtM(waterLevel));
-      readout.set('Q', (flowQ()*1000).toFixed(1)+' L/(s·m)');
-      readout.set('vA', vEff(P.holeA).toFixed(2)+' m/s');
+      readout.set('Q', Lab.fmt((flowQ()*1000),1)+' L/(s·m)');
+      readout.set('vA', Lab.fmt(vEff(P.holeA),2)+' m/s');
       readout.set('rA', fmtM(rangeM(P.holeA)));
-      readout.set('vB', P.compare? vEff(P.holeB).toFixed(2)+' m/s' : '—');
+      readout.set('vB', P.compare? Lab.fmt(vEff(P.holeB),2)+' m/s' : '—');
       readout.set('rB', P.compare? fmtM(rangeM(P.holeB)) : '—');
     }catch(err){ console.error(err); }
     requestAnimationFrame(frame);

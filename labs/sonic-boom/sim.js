@@ -273,7 +273,7 @@ function drawCone(C) {
   ctx.font = '10px Space Mono, monospace';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  ctx.fillText('μ = ' + (mu * 180 / Math.PI).toFixed(1) + '°',
+  ctx.fillText('μ = ' + Lab.fmt((mu * 180 / Math.PI),1) + '°',
     ax - (rArc + 8) * Math.cos(mu / 2), ay + (rArc + 8) * Math.sin(mu / 2) + 2);
 }
 
@@ -380,7 +380,7 @@ function drawHud(C) {
   ctx.fillStyle = sup ? C.shock : C.accent;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText(`M = ${P.mach.toFixed(2)}  ·  ${regime}`, 12, 12);
+  ctx.fillText(`M = ${Lab.fmt(P.mach,2)}  ·  ${regime}`, 12, 12);
   ctx.font = '10px DM Sans, sans-serif';
   ctx.fillStyle = C.muted;
   ctx.fillText(sup
@@ -453,14 +453,14 @@ function drawNWavePanel(C, offX, pw) {
   gctx.textAlign = 'center';
   gctx.textBaseline = 'top';
   for (let t = 0; t <= NW_TMAX + 1e-9; t += 0.1) {
-    gctx.fillText((t * 1000).toFixed(0), tx(t), PAD.t + ih + 3);
+    gctx.fillText(Lab.fmt((t * 1000),0), tx(t), PAD.t + ih + 3);
   }
   gctx.fillText('t (ms)', x0 + iw / 2, GH - 11);
   gctx.textAlign = 'right';
   gctx.textBaseline = 'middle';
-  gctx.fillText('+' + dp.toFixed(0), x0 - 4, midY - amp);
+  gctx.fillText('+' + Lab.fmt(dp,0), x0 - 4, midY - amp);
   gctx.fillText('0', x0 - 4, midY);
-  gctx.fillText('−' + dp.toFixed(0), x0 - 4, midY + amp);
+  gctx.fillText('−' + Lab.fmt(dp,0), x0 - 4, midY + amp);
   gctx.fillText('Pa', x0 - 4, PAD.t - 6);
 
   gctx.save();
@@ -481,7 +481,7 @@ function drawNWavePanel(C, offX, pw) {
   gctx.font = '700 10px Space Mono, monospace';
   gctx.textAlign = 'right';
   gctx.textBaseline = 'top';
-  gctx.fillText(`Δp = ${dp.toFixed(0)} Pa · durata ${(tau * 1000).toFixed(0)} ms`, offX + pw - PAD.r, 7);
+  gctx.fillText(`Δp = ${Lab.fmt(dp,0)} Pa · durata ${Lab.fmt((tau * 1000),0)} ms`, offX + pw - PAD.r, 7);
 }
 
 // Destra: sovrappressione di picco in funzione della quota
@@ -555,23 +555,23 @@ function drawGraph(C) {
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(readoutEl, [
-  { key: 'v',     label: 'Velocità' },
-  { key: 'c',     label: 'v suono' },
-  { key: 'mu',    label: 'Angolo di Mach' },
-  { key: 'delay', label: 'Ritardo boom' },
-  { key: 'dp',    label: 'Δp al suolo' },
-  { key: 'db',    label: 'Livello' },
+  { key: 'v',     label: 'velocità dell\'aereo' },
+  { key: 'c',     label: 'velocità del suono' },
+  { key: 'mu',    label: 'angolo di Mach' },
+  { key: 'delay', label: 'ritardo del boom' },
+  { key: 'dp',    label: 'sovrappressione al suolo' },
+  { key: 'db',    label: 'livello sonoro' },
 ]);
 
 function updateReadout() {
   const sup = isSupersonic();
-  readout.set('v', (planeSpeed() * 3600).toFixed(0) + ' km/h');
-  readout.set('c', (soundSpeed() * 1000).toFixed(0) + ' m/s');
-  readout.set('mu', sup ? (machAngle() * 180 / Math.PI).toFixed(1) + '°' : '—');
-  readout.set('delay', sup ? boomDelay().toFixed(1) + ' s' : '—');
+  readout.set('v', Lab.fmt((planeSpeed() * 3600),0) + ' km/h');
+  readout.set('c', Lab.fmt((soundSpeed() * 1000),0) + ' m/s');
+  readout.set('mu', sup ? Lab.fmt((machAngle() * 180 / Math.PI),1) + '°' : '—');
+  readout.set('delay', sup ? Lab.fmt(boomDelay(),1) + ' s' : '—');
   const dp = overpressure(P.altitude);
-  readout.set('dp', sup ? dp.toFixed(0) + ' Pa' : '—');
-  readout.set('db', sup && dp > 0 ? (20 * Math.log10(dp / 2e-5)).toFixed(0) + ' dB' : '—');
+  readout.set('dp', sup ? Lab.fmt(dp,0) + ' Pa' : '—');
+  readout.set('db', sup && dp > 0 ? Lab.fmt((20 * Math.log10(dp / 2e-5)),0) + ' dB' : '—');
 }
 
 // ── Controls ──────────────────────────────────────────────────────────────────

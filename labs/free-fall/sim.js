@@ -1,10 +1,10 @@
 /* ── Free Fall Simulation ─────────────────────────────────── */
 
 const PLANETS = [
-  { value: 'luna',  label: 'Luna',  hint: '1.62 m/s²', g: 1.62  },
-  { value: 'marte', label: 'Marte', hint: '3.72 m/s²', g: 3.72  },
-  { value: 'terra', label: 'Terra', hint: '9.81 m/s²', g: 9.81  },
-  { value: 'giove', label: 'Giove', hint: '24.79 m/s²', g: 24.79 },
+  { value: 'luna',  label: 'Luna',  hint: '1,62 m/s²', g: 1.62  },
+  { value: 'marte', label: 'Marte', hint: '3,72 m/s²', g: 3.72  },
+  { value: 'terra', label: 'Terra', hint: '9,81 m/s²', g: 9.81  },
+  { value: 'giove', label: 'Giove', hint: '24,79 m/s²', g: 24.79 },
 ];
 
 // Colors for comparison mode (primary is always index 0)
@@ -24,6 +24,8 @@ const params = {
   v0: 0,       // initial velocity (+= upward, -= downward)
   airResistance: false,
   Cd: 0.47,
+  strobe: true,    // fotografia stroboscopica: un'immagine della pallina a ogni lampo
+  strobeDt: 0.4,   // intervallo fra due lampi (s)
 };
 
 /* ── SimInstance ──────────────────────────────────────────── */
@@ -51,8 +53,10 @@ class SimInstance {
 
   reset() {
     this.state = { t: 0, h: params.h0, v: params.v0, a: 0, done: false };
-    this.trail   = [];
+    this.trail   = [];   // altezze recenti (m), per la scia continua
     this.history = []; // { t, v, a }
+    this.flashes = [{ t: 0, h: params.h0 }];   // posizioni ai lampi dello stroboscopio
+    this.lastFlashMs = -1e9;
     this._stepCount = 0;
   }
 
@@ -67,12 +71,22 @@ class SimInstance {
       a = -this.g + drag;
     }
 
+    const t0 = this.state.t, h0 = this.state.h;
+    // passo esatto per accelerazione costante nell'intervallo dt: h += v·dt + ½·a·dt²
     this.state.a  = a;
+    this.state.h += this.state.v * dt + 0.5 * a * dt * dt;
     this.state.v += a * dt;
-    this.state.h += this.state.v * dt;
     this.state.t += dt;
 
-    this.trail.push(ballY(this.state.h));
+    // lampo dello stroboscopio: posizione interpolata all'istante esatto k·Δt
+    const k = this.flashes.length, tf = k * params.strobeDt;
+    if (tf <= this.state.t && this.state.h > 0) {
+      const f = (tf - t0) / dt;
+      this.flashes.push({ t: tf, h: h0 + (this.state.h - h0) * f });
+      this.lastFlashMs = performance.now();
+    }
+
+    this.trail.push(this.state.h);
     if (this.trail.length > 280) this.trail.shift();
 
     this._stepCount++;
@@ -81,6 +95,10 @@ class SimInstance {
     }
 
     if (this.state.h <= 0) {
+      // istante e velocità d'impatto ricavati all'interno del passo
+      const f = h0 / (h0 - this.state.h);
+      this.state.t = t0 + f * dt;
+      this.state.vImpact = this.state.v - a * dt * (1 - f);
       this.state.h = 0; this.state.v = 0; this.state.a = 0;
       this.state.done = true;
     }
@@ -295,7 +313,8 @@ function draw() {
   drawScaleRuler();
   drawStartLine();
   if (params.v0 > 0) active.forEach((inst, i) => drawPeakMarker(inst, i));
-  active.forEach((inst, i) => drawTrail(inst, i));
+  if (params.strobe) active.forEach((inst, i) => drawStrobe(inst, i, i === 0));
+  else active.forEach((inst, i) => drawTrail(inst, i));
   drawGround();
   active.forEach((inst, i) => {
     if (inst.state.h > 0 || !inst.state.done) {
@@ -325,7 +344,7 @@ function drawScaleRuler() {
     const y = ballY(h);
     if (y < -4 || y > ch + 4) continue;
     ctx.fillStyle = isDark() ? 'rgba(0,212,255,0.35)' : 'rgba(0,100,160,0.5)';
-    ctx.fillText(h + 'm', PAD_L - 5, y + 3.5);
+    ctx.fillText(h + ' m', PAD_L - 5, y + 3.5);
     ctx.strokeStyle = isDark() ? 'rgba(0,212,255,0.2)' : 'rgba(0,100,160,0.25)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(PAD_L - 3, y); ctx.lineTo(PAD_L + 2, y); ctx.stroke();
@@ -375,9 +394,75 @@ function drawTrail(inst, idx) {
     const alpha = (i / inst.trail.length) * 0.5;
     const r     = 1 + (i / inst.trail.length) * 2;
     ctx.beginPath();
-    ctx.arc(x, inst.trail[i], r, 0, Math.PI * 2);
+    ctx.arc(x, ballY(inst.trail[i]), r, 0, Math.PI * 2);
     ctx.fillStyle = hexToRgba(inst.color, alpha);
     ctx.fill();
+  }
+}
+
+// Fotografia stroboscopica: a intervalli di tempo uguali Δt la pallina viene "fotografata".
+// Le immagini restano sulla scena; a destra le distanze percorse fra un lampo e l'altro e il loro
+// rapporto con la prima: partendo da ferma, senza aria, crescono come 1 : 3 : 5 : 7 … (Galileo).
+function drawStrobe(inst, idx, labels) {
+  const F = inst.flashes, x = instanceX(idx), r = ballPx(), dark = isDark();
+  // un istante di luce bianca quando scatta il lampo
+  const since = performance.now() - inst.lastFlashMs;
+  if (simRunning && since < 110) {
+    const a = 1 - since / 110, y = ballY(inst.state.h);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r * 7);
+    g.addColorStop(0, `rgba(255,255,255,${0.55 * a})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r * 7, 0, Math.PI * 2); ctx.fill();
+  }
+  // immagini ai lampi
+  drawStrobe.lastY = -1e9;
+  F.forEach((f, k) => {
+    const y = ballY(f.h);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = hexToRgba(inst.color, 0.28); ctx.fill();
+    ctx.strokeStyle = dark ? 'rgba(255,255,255,0.75)' : 'rgba(20,40,70,0.7)';
+    ctx.lineWidth = 1.2; ctx.stroke();
+    if (!labels) return;
+    // trattino verso la colonna delle misure
+    ctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.18)';
+    ctx.setLineDash([2, 3]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x + r + 3, y); ctx.lineTo(x + 70, y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = dark ? 'rgba(221,238,255,0.55)' : 'rgba(13,26,38,0.6)';
+    // l'etichetta del tempo solo se c'è spazio rispetto alla precedente scritta
+    if (k === 0 || y - drawStrobe.lastY >= 11) { ctx.fillText(`t = ${Lab.fmt(f.t, 2)} s`, x - r - 70, y); drawStrobe.lastY = y; }
+  });
+  if (!labels || F.length < 2) return;
+  // distanze fra lampi successivi e rapporto con la prima
+  const d1 = F[0].h - F[1].h;
+  ctx.font = '9.5px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (let k = 1; k < F.length; k++) {
+    const yA = ballY(F[k - 1].h), yB = ballY(F[k].h);
+    if (yB - yA < 11) continue;                 // troppo vicine per scriverci accanto
+    const xb = x + 74;
+    ctx.strokeStyle = hexToRgba(inst.color, 0.7); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(xb, yA + 1); ctx.lineTo(xb + 4, yA + 1); ctx.lineTo(xb + 4, yB - 1); ctx.lineTo(xb, yB - 1); ctx.stroke();
+    const dh = F[k - 1].h - F[k].h;
+    ctx.fillStyle = dark ? 'rgba(221,238,255,0.8)' : 'rgba(13,26,38,0.8)';
+    ctx.fillText(`Δh = ${Lab.fmt(dh, dh < 10 ? 2 : 1)} m`, xb + 9, (yA + yB) / 2);
+    if (d1 > 1e-6) {
+      ctx.fillStyle = hexToRgba(inst.color, 0.95);
+      ctx.fillText(`× ${Lab.fmt(dh / d1, 1)}`, xb + 112, (yA + yB) / 2);
+    }
+  }
+  // didascalia della fotografia
+  const free = params.v0 === 0 && !params.airResistance;
+  ctx.font = '10.5px "DM Sans",sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+  ctx.fillStyle = dark ? 'rgba(221,238,255,0.7)' : 'rgba(13,26,38,0.75)';
+  ctx.fillText(`Stroboscopio: un lampo ogni ${Lab.fmt(params.strobeDt, 2)} s`, cw - 12, 10);
+  if (free) {
+    // rapporti misurati sulle prime distanze: 1 : 3 : 5 : 7 …
+    const rat = [];
+    for (let k = 1; k < Math.min(F.length, 7); k++) rat.push(Lab.fmt((F[k - 1].h - F[k].h) / d1, k === 1 ? 0 : 1));
+    ctx.fillStyle = hexToRgba(inst.color, 0.95);
+    ctx.fillText(`distanze fra lampi successivi  ${rat.join(' : ')}${F.length > 7 ? ' …' : ''}  (numeri dispari)`, cw - 12, 26);
+  } else if (params.airResistance) {
+    ctx.fillText('con l’aria le distanze crescono sempre meno: si arriva alla velocità limite', cw - 12, 26);
   }
 }
 
@@ -591,7 +676,7 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
     gctx.beginPath(); gctx.moveTo(gx, oy + pt + iH); gctx.lineTo(gx, oy + pt + iH + 4); gctx.stroke();
     if (tv > tRange * 0.03) {
       gctx.fillStyle = tickClr;
-      gctx.fillText(fmtTick(tv) + 's', gx, oy + pt + iH + 16);
+      gctx.fillText(fmtTick(tv) + ' s', gx, oy + pt + iH + 16);
     }
   });
 
@@ -622,6 +707,13 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
     gctx.arc(toX(last.t), toY(getValue(last)), 2.5, 0, Math.PI * 2);
     gctx.fillStyle = inst.color; gctx.fill();
   });
+  // istanti dei lampi dello stroboscopio sul grafico dell'altezza
+  if (params.strobe && label.startsWith('h')) {
+    toShow.forEach(inst => inst.flashes.forEach(f => {
+      gctx.beginPath(); gctx.arc(toX(f.t), toY(f.h), 3, 0, Math.PI * 2);
+      gctx.strokeStyle = inst.color; gctx.lineWidth = 1.2; gctx.stroke();
+    }));
+  }
 
   // Current-time marker
   const t = toShow[0]?.state.t ?? 0;
@@ -637,21 +729,21 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
 
 /* ── Readout ──────────────────────────────────────────────── */
 const readout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 't',  label: 't' },
-  { key: 'h',  label: 'h' },
-  { key: 'v',  label: 'v' },
-  { key: 'a',  label: 'a' },
-  { key: 'vt', label: 'v∞' },
+  { key: 't',  label: 'tempo t' },
+  { key: 'h',  label: 'altezza h' },
+  { key: 'v',  label: 'velocità v' },
+  { key: 'a',  label: 'accelerazione a' },
+  { key: 'vt', label: 'velocità limite' },
 ]);
 
 function updateReadout() {
   const s = instances[0].state;
-  readout.set('t',  s.t.toFixed(2) + ' s');
-  readout.set('h',  s.h.toFixed(1) + ' m');
-  readout.set('v',  (s.v >= 0 ? '+' : '') + s.v.toFixed(2) + ' m/s');
-  readout.set('a',  (s.a >= 0 ? '+' : '') + s.a.toFixed(2) + ' m/s²');
+  readout.set('t',  Lab.fmt(s.t, 2) + ' s');
+  readout.set('h',  Lab.fmt(s.h, 1) + ' m');
+  readout.set('v',  s.done ? Lab.fmt(s.vImpact, 2) + ' m/s all’impatto' : (s.v > 0 ? '+' : '') + Lab.fmt(s.v, 2) + ' m/s');
+  readout.set('a',  (s.a > 0 ? '+' : '') + Lab.fmt(s.a, 2) + ' m/s²');
   const vt = instances[0].terminalV;
-  readout.set('vt', isFinite(vt) ? vt.toFixed(1) + ' m/s' : '—');
+  readout.set('vt', isFinite(vt) ? Lab.fmt(vt, 1) + ' m/s' : '— (senza aria)');
 }
 
 /* ── Controls ─────────────────────────────────────────────── */
@@ -723,13 +815,31 @@ function buildControls() {
   subAirEl.style.display = 'none';
 
   const sliderCd = Lab.SliderInput({
-    label: 'Coeff. drag (Cᴅ)', min: 0.1, max: 2.0, value: params.Cd, step: 0.01, unit: '',
+    label: 'Coefficiente di resistenza C_D', min: 0.1, max: 2.0, value: params.Cd, step: 0.01, unit: '',
     onChange(v) { params.Cd = v; },
   });
 
   subAir.add(sliderCd);
   secEnv.add(toggleAir).add(subAir);
   container.appendChild(secEnv.el);
+
+  // ── Stroboscopio
+  const secStrobe = Lab.Section('Fotografia stroboscopica');
+  const subStrobe = Lab.SubPanel();
+  secStrobe.add(Lab.Toggle({
+    label: 'Effetto stroboscopico', value: params.strobe,
+    onChange(v) { params.strobe = v; subStrobe.el.style.display = v ? '' : 'none'; draw(); drawGraphs(); },
+  }));
+  subStrobe.add(Lab.Slider({
+    label: 'Intervallo fra i lampi Δt', min: 0.1, max: 1, step: 0.05, value: params.strobeDt, unit: ' s',
+    onChange(v) { params.strobeDt = v; resetSim(); },
+  }));
+  const note = document.createElement('div');
+  note.className = 'lab-note';
+  note.innerHTML = 'Come in una foto con il flash che scatta a intervalli regolari: le immagini si <b>allontanano</b> sempre di più perché la velocità cresce. Partendo da ferma le distanze stanno come i <b>numeri dispari</b> 1 : 3 : 5 : 7, quindi h ∝ t².';
+  subStrobe.add(note);
+  secStrobe.add(subStrobe);
+  container.appendChild(secStrobe.el);
 
   // ── Confronto
   compareSec = Lab.Section('Confronto');
@@ -894,7 +1004,7 @@ function fmtTick(v) {
             abs >= 10  ? v.toFixed(1) :
             abs >= 1   ? v.toFixed(1) :
                          v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 function hexToRgba(hex, alpha) {

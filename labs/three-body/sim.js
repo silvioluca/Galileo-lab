@@ -318,7 +318,7 @@ function drawEnergyPanel(offX, pw) {
     gctx.strokeStyle=gc; gctx.lineWidth=0.5;
     gctx.beginPath(); gctx.moveTo(offX+pad.l,y); gctx.lineTo(offX+pad.l+iw,y); gctx.stroke();
     gctx.fillStyle=tc; gctx.font='9px "Space Mono",monospace'; gctx.textAlign='right';
-    gctx.fillText((yMax-(yMax-yMin)*i/4).toFixed(2), offX+pad.l-4, y+3);
+    gctx.fillText(Lab.fmt((yMax-(yMax-yMin)*i/4),2), offX+pad.l-4, y+3);
   }
   for (const ln of lines) {
     if (ln.data.length<2) continue;
@@ -334,7 +334,7 @@ function drawEnergyPanel(offX, pw) {
   gctx.moveTo(offX+pad.l,pad.t); gctx.lineTo(offX+pad.l,pad.t+ih); gctx.lineTo(offX+pad.l+iw,pad.t+ih);
   gctx.stroke();
   gctx.fillStyle=tc; gctx.font='9px "Space Mono",monospace'; gctx.textAlign='right';
-  gctx.fillText('t='+tMax.toFixed(1), offX+pad.l+iw, pad.t+ih+14);
+  gctx.fillText('t='+Lab.fmt(tMax,1), offX+pad.l+iw, pad.t+ih+14);
 }
 
 function drawLyapPanel(offX, pw) {
@@ -379,7 +379,7 @@ function drawLyapPanel(offX, pw) {
     gctx.strokeStyle=gc; gctx.lineWidth=0.5;
     gctx.beginPath(); gctx.moveTo(offX+pad.l,y); gctx.lineTo(offX+pad.l+iw,y); gctx.stroke();
     gctx.fillStyle=tc; gctx.font='9px "Space Mono",monospace'; gctx.textAlign='right';
-    gctx.fillText((yMax-(yMax-yMin)*i/4).toFixed(3), offX+pad.l-4, y+3);
+    gctx.fillText(Lab.fmt((yMax-(yMax-yMin)*i/4),3), offX+pad.l-4, y+3);
   }
 
   // λ=0 line (border between stable and chaotic)
@@ -417,24 +417,24 @@ function drawLyapPanel(offX, pw) {
   gctx.moveTo(offX+pad.l,pad.t); gctx.lineTo(offX+pad.l,pad.t+ih); gctx.lineTo(offX+pad.l+iw,pad.t+ih);
   gctx.stroke();
   gctx.fillStyle=tc; gctx.font='9px "Space Mono",monospace'; gctx.textAlign='right';
-  gctx.fillText('t='+tMax.toFixed(1), offX+pad.l+iw, pad.t+ih+14);
+  gctx.fillText('t='+Lab.fmt(tMax,1), offX+pad.l+iw, pad.t+ih+14);
   gctx.textAlign='start';
 }
 
 /* ── Readout ─────────────────────────────────────────────── */
 function updateReadout() {
   const en=computeEnergy(bodies), Lz=computeL(bodies);
-  const lam=histLyap.length>0 ? histLyap[histLyap.length-1].toFixed(4) : '—';
+  const lam=histLyap.length>0 ? Lab.fmt(histLyap[histLyap.length-1],4) : '—';
   const items=[
-    {label:'t',   value:simT.toFixed(2)},
-    {label:'E',   value:en.E.toFixed(3)},
-    {label:'K',   value:en.K.toFixed(3)},
-    {label:'U',   value:en.U.toFixed(3)},
-    {label:'L_z', value:Lz.toFixed(3)},
-    {label:'λ',   value:lam},
+    {label:'tempo t', value:Lab.fmt(simT,2)},
+    {label:'energia totale E', value:Lab.fmt(en.E,3)},
+    {label:'energia cinetica K', value:Lab.fmt(en.K,3)},
+    {label:'energia potenziale U', value:Lab.fmt(en.U,3)},
+    {label:'momento angolare L_z', value:Lab.fmt(Lz,3)},
+    {label:'esponente di Lyapunov λ', value:lam},
   ];
   readoutEl.innerHTML=items.map(r=>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 

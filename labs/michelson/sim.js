@@ -84,7 +84,7 @@ function drawSim() {
   ctx.font = '12px "Space Mono", monospace';
   ctx.fillStyle = `rgba(${wr},${wg},${wb},0.90)`;
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText(`vento etere  →  ${P.etherV} km/s     β = ${beta().toExponential(2)}`, 10, 8);
+  ctx.fillText(`vento etere  →  ${P.etherV} km/s     β = ${Lab.sci(beta(),3)}`, 10, 8);
 }
 
 // ── Meteo-style animated streamlines ─────────────────────────
@@ -193,9 +193,9 @@ function drawApparatus(CX, CY, ARM, srcDist, detDist) {
     ctx.fillStyle = dc;
     ctx.font = '9px "Space Mono", monospace';
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText(`L=${P.L_m.toFixed(1)}m`, -5, -ARM / 2);
+    ctx.fillText(`L=${Lab.fmt(P.L_m,1)}m`, -5, -ARM / 2);
     ctx.textAlign = 'left';
-    ctx.fillText(`L=${P.L_m.toFixed(1)}m`, ARM / 2 + 5, 8);
+    ctx.fillText(`L=${Lab.fmt(P.L_m,1)}m`, ARM / 2 + 5, 8);
   }
 
   ctx.restore(); // end apparatus rotation
@@ -372,7 +372,7 @@ function drawGPanel(x0, x1, y0, y1, fn, xLbl, yLbl, color, markerX, markerY) {
   gctx.textAlign = 'right'; gctx.textBaseline = 'middle';
   for (let i = 0; i <= 4; i++) {
     const v = yMin + (yMax - yMin) * i / 4;
-    gctx.fillText(v.toFixed(3), x0 - 3, y1 - h * i / 4);
+    gctx.fillText(Lab.fmt(v,3), x0 - 3, y1 - h * i / 4);
   }
   // X labels
   gctx.textAlign = 'center'; gctx.textBaseline = 'top';
@@ -440,23 +440,23 @@ function drawInterferogram(x0, y0, x1, y1) {
   gctx.font = '9px "Space Mono", monospace';
   gctx.fillStyle = dark ? 'rgba(255,180,60,0.88)' : 'rgba(200,100,0,0.88)';
   gctx.textAlign = 'center'; gctx.textBaseline = 'bottom';
-  gctx.fillText(`Δn = ${currentDN.toFixed(4)} λ`, cx, y1 - 4);
+  gctx.fillText(`Δn = ${Lab.fmt(currentDN,4)} frange`, cx, y1 - 4);
 }
 
 // ── Readout ───────────────────────────────────────────────────
 function updateReadout() {
   const mS = maxShift();
   const items = [
-    { label: 'φ',         value: `${P.angle.toFixed(1)}°` },
-    { label: 'β = v/c',   value: beta().toExponential(2) },
-    { label: 'Δn',        value: `${currentDN.toFixed(4)} λ` },
-    { label: 'Δn max',    value: `${mS.toFixed(4)} λ` },
-    { label: 'Intensità', value: currentI.toFixed(3) },
-    { label: 'L',         value: `${P.L_m.toFixed(1)} m` },
-    { label: 'λ',         value: `${P.lambda_nm} nm` },
+    { label: 'rotazione φ', value: `${Lab.fmt(P.angle,1)}°` },
+    { label: 'β = v/c',   value: Lab.sci(beta(),3) },
+    { label: 'spostamento frange Δn', value: `${Lab.fmt(currentDN,4)} frange` },
+    { label: 'Δn massimo atteso', value: `${Lab.fmt(mS,4)} frange` },
+    { label: 'intensità al centro', value: Lab.fmt(currentI,3) },
+    { label: 'lunghezza bracci L', value: `${Lab.fmt(P.L_m,1)} m` },
+    { label: 'lunghezza d’onda λ', value: `${P.lambda_nm} nm` },
   ];
   readoutEl.innerHTML = items.map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 

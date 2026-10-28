@@ -239,8 +239,7 @@ function update(dt) {
 
 // ── Rendering canvas principale ────────────────────────────────────────────────
 function draw(canvas) {
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width, H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   const cx=W/2, cy=H/2;
   const R=Math.min(W,H)*0.40;  // raggio di riferimento
 
@@ -373,7 +372,7 @@ function drawBohr(ctx,cx,cy,R) {
     ctx.beginPath(); ctx.arc(cx,cy,or,0,Math.PI*2); ctx.stroke();
 
     // Label En
-    const E=bohrEnergy(n).toFixed(2);
+    const E=Lab.fmt(bohrEnergy(n),2);
     ctx.fillStyle=active?ORBIT_COLORS[n]:'rgba(140,165,200,0.55)';
     ctx.font=`${active?'bold ':''} 9px "Space Mono",monospace`;
     ctx.fillText(`n=${n}  ${E} eV`,cx+or+4,cy-3);
@@ -443,126 +442,49 @@ function drawQuantum(ctx,cx,cy,R,W,H) {
 // ── Grafici ────────────────────────────────────────────────────────────────────
 const GC='rgba(150,205,225,0.88)';
 
-function gBase(ctx,W,H,PAD) {
-  ctx.fillStyle='rgb(3,9,22)'; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle='rgba(100,155,210,0.26)'; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-
+// 1: livelli energetici dell'idrogeno E_n = −13,6 eV / n² (evidenziato il livello del modello di Bohr)
 function drawEnergyLevels() {
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0], W=cv.width, H=cv.height;
-  const PAD={t:14,b:14,l:50,r:10};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
   const COLORS=['','#ff6644','#ff9922','#aaee33','#33ccff','#8855ff','#ff55cc'];
-
-  // Axis labels
-  ctx.fillStyle=GC; ctx.font='8px "Space Mono",monospace';
-  ctx.fillText('Energia (eV)',2,PAD.t+gH/2);
-
-  const Emin=-14, Emax=0.5;
-  for (let n=1;n<=6;n++) {
-    const E=bohrEnergy(n);
-    const y=PAD.t + (Emax-E)/(Emax-Emin)*gH;
-    const active=(n===bohrLevel && currentModel==='bohr');
-    ctx.strokeStyle=active?COLORS[n]:'rgba(140,170,200,0.45)';
-    ctx.lineWidth=active?2:1;
-    ctx.beginPath(); ctx.moveTo(PAD.l,y); ctx.lineTo(PAD.l+gW,y); ctx.stroke();
-    ctx.fillStyle=active?COLORS[n]:GC;
-    ctx.font=`${active?'bold ':''} 8px "Space Mono",monospace`;
-    ctx.fillText(`n=${n}  ${E.toFixed(1)}`,2,y+3);
+  const g=Lab.panel(gCanvas[0],{ title:'Livelli energetici dell’idrogeno (eV)', xr:[0,1], xStep:1e9, xFmt:()=> '', yr:[-14,0], yStep:2 });
+  if(!g) return; const [ctx,f]=g;
+  ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=f.C.text; ctx.beginPath(); ctx.moveTo(f.L,f.Y(0)); ctx.lineTo(f.R,f.Y(0)); ctx.stroke(); ctx.restore();
+  for(let n=1;n<=6;n++){
+    const E=bohrEnergy(n), on=n===bohrLevel&&currentModel==='bohr';
+    ctx.strokeStyle=on?COLORS[n]:f.C.text; ctx.lineWidth=on?2.5:1.2; ctx.globalAlpha=on?1:0.7;
+    ctx.beginPath(); ctx.moveTo(f.X(0.05),f.Y(E)); ctx.lineTo(f.X(0.7),f.Y(E)); ctx.stroke(); ctx.globalAlpha=1;
+    if(n<=3||on){ ctx.fillStyle=on?COLORS[n]:f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText(`n = ${n}`,f.X(0.74),f.Y(E)); }
   }
-  // Ground state label
-  ctx.fillStyle='rgba(255,140,60,0.7)'; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('E∞=0',PAD.l+gW-22,PAD.t+6);
+  ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='right'; ctx.textBaseline='top'; ctx.fillText('E = 0: elettrone libero',f.R-4,f.Y(0)+2);
 }
-
+// 2: righe di Balmer (transizioni verso n = 2) nel visibile
 function drawEmissionSpectrum() {
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1], W=cv.width, H=cv.height;
-  ctx.fillStyle='rgb(3,9,22)'; ctx.fillRect(0,0,W,H);
-
-  // Background rainbow gradient
-  const bgrad=ctx.createLinearGradient(10,0,W-10,0);
-  bgrad.addColorStop(0,'rgba(148,0,255,0.12)');
-  bgrad.addColorStop(0.15,'rgba(0,50,255,0.10)');
-  bgrad.addColorStop(0.35,'rgba(0,200,255,0.10)');
-  bgrad.addColorStop(0.55,'rgba(0,255,100,0.10)');
-  bgrad.addColorStop(0.70,'rgba(255,255,0,0.10)');
-  bgrad.addColorStop(0.85,'rgba(255,100,0,0.10)');
-  bgrad.addColorStop(1,'rgba(200,0,0,0.10)');
-  ctx.fillStyle=bgrad; ctx.fillRect(10,H*0.3,W-20,H*0.4);
-  ctx.strokeStyle='rgba(100,150,180,0.18)'; ctx.lineWidth=0.5;
-  ctx.strokeRect(10,H*0.3,W-20,H*0.4);
-
-  ctx.fillStyle=GC; ctx.font='8px "Space Mono",monospace';
-  ctx.fillText('380 nm',8,H*0.3-2); ctx.fillText('750 nm',W-45,H*0.3-2);
-  ctx.fillText('Spettro emissione (Balmer → n=2)',10,H-3);
-
-  // Righe di Balmer (n=3→6 verso n=2)
-  for (let ni=3;ni<=7;ni++) {
-    const lambda=transitionWavelength(ni,2);
-    if(!lambda)continue;
-    const [r,g,b]=nmToRgb(lambda);
-    const x=10+(lambda-380)/(750-380)*(W-20);
-    ctx.strokeStyle=`rgba(${r},${g},${b},0.90)`;
-    ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(x,H*0.28); ctx.lineTo(x,H*0.72); ctx.stroke();
-    ctx.fillStyle=`rgba(${r},${g},${b},0.70)`;
-    ctx.font='7px "Space Mono",monospace';
-    ctx.fillText(`${lambda.toFixed(0)}`,x-8,H*0.22);
-    ctx.fillText(`H${String.fromCharCode(0x03B1+ni-3)}`,x-6,H*0.80);
+  const g=Lab.panel(gCanvas[1],{ title:'Spettro di emissione: serie di Balmer (n → 2)', xr:[380,750], xStep:50, yr:[0,1], yStep:1e9, yFmt:()=> '', xLabel:'λ (nm)', padL:14 });
+  if(!g) return; const [ctx,f]=g;
+  ctx.fillStyle='#04060c'; ctx.fillRect(f.L,f.T,f.R-f.L,f.B-f.T);
+  for(let ni=3;ni<=7;ni++){
+    const lambda=transitionWavelength(ni,2); if(!lambda) continue;
+    const [r,gg,b]=nmToRgb(lambda), x=f.X(lambda);
+    ctx.strokeStyle=`rgb(${r},${gg},${b})`; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(x,f.T+16); ctx.lineTo(x,f.B); ctx.stroke();
+    ctx.fillStyle=`rgb(${r},${gg},${b})`; ctx.font='9px "Space Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    if(ni<=5) ctx.fillText(Lab.fmt(lambda,0),x,f.T+8);
   }
 }
-
+// 3: densità di probabilità radiale P(r) = r²·|R_nl|², con il raggio di Bohr n²·a₀
 function drawRadialDensity() {
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2], W=cv.width, H=cv.height;
-  const PAD={t:14,b:14,l:12,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-
-  ctx.fillStyle=GC; ctx.font='8px "Space Mono",monospace';
-  ctx.fillText('P(r)=|R|²r²',PAD.l,PAD.t-2);
-
-  const maxR=qN*qN*8+4;
-  const N=200;
-  const vals=new Float32Array(N);
-  let maxV=0;
-  for(let i=0;i<N;i++){
-    const r=(i+0.5)/N*maxR;
-    let R;
-    if     (qN===1&&qL===0) R=2*Math.exp(-r);
-    else if(qN===2&&qL===0) R=1/(2*Math.SQRT2)*(2-r)*Math.exp(-r/2);
-    else if(qN===2&&qL===1) R=1/(2*Math.sqrt(6))*r*Math.exp(-r/2);
-    else if(qN===3&&qL===0) R=2/(81*Math.sqrt(3))*(27-18*r+2*r*r)*Math.exp(-r/3);
-    else if(qN===3&&qL===1) R=8/(27*Math.sqrt(6))*(6-r)*r*Math.exp(-r/3);
-    else if(qN===3&&qL===2) R=4/(81*Math.sqrt(30))*r*r*Math.exp(-r/3);
-    else R=0;
-    vals[i]=R*R*r*r;
-    if(vals[i]>maxV)maxV=vals[i];
-  }
-  if(maxV<1e-30)return;
-
-  ctx.strokeStyle='rgba(0,210,255,0.90)'; ctx.lineWidth=1.3;
-  ctx.beginPath();
-  for(let i=0;i<N;i++){
-    const x=PAD.l+i/N*gW;
-    const y=PAD.t+gH-(vals[i]/maxV)*gH;
-    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-  }
-  ctx.stroke();
-
-  // Bohr radius reference: n²·a₀
-  const rBohr=qN*qN;
-  const xB=PAD.l+(rBohr/maxR)*gW;
-  ctx.strokeStyle='rgba(255,200,60,0.45)'; ctx.lineWidth=0.7; ctx.setLineDash([3,3]);
-  ctx.beginPath(); ctx.moveTo(xB,PAD.t); ctx.lineTo(xB,PAD.t+gH); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle='rgba(255,200,60,0.65)'; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText(`n²a₀`,xB+2,PAD.t+8);
-  ctx.fillText('r (a₀)',PAD.l+gW-20,PAD.t+gH+12);
+  const maxR=qN*qN*8+4, N=240, R=r=>{
+    if(qN===1&&qL===0) return 2*Math.exp(-r);
+    if(qN===2&&qL===0) return 1/(2*Math.SQRT2)*(2-r)*Math.exp(-r/2);
+    if(qN===2&&qL===1) return 1/(2*Math.sqrt(6))*r*Math.exp(-r/2);
+    if(qN===3&&qL===0) return 2/(81*Math.sqrt(3))*(27-18*r+2*r*r)*Math.exp(-r/3);
+    if(qN===3&&qL===1) return 8/(27*Math.sqrt(6))*(1-r/6)*r*Math.exp(-r/3);
+    if(qN===3&&qL===2) return 4/(81*Math.sqrt(30))*r*r*Math.exp(-r/3);
+    return 0; };
+  let mx=0; for(let i=1;i<=N;i++){ const r=i/N*maxR; mx=Math.max(mx,r*r*R(r)**2); }
+  const g=Lab.panel(gCanvas[2],{ title:`Densità radiale P(r) = r²·|R|² (n = ${qN}, l = ${qL})`, xr:[0,maxR], yr:[0,1.1], yStep:0.25, yFmt:v=>Lab.fmt(v,2), xLabel:'r (raggi di Bohr a₀)' });
+  if(!g||!(mx>0)) return; const [ctx,f]=g;
+  ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=f.C.amber; ctx.beginPath(); ctx.moveTo(f.X(qN*qN),f.T); ctx.lineTo(f.X(qN*qN),f.B); ctx.stroke(); ctx.restore();
+  Lab.plot(ctx,f,r=>r*r*R(r)**2/mx,[0,maxR],'rgba(0,210,255,0.95)',2,[],300);
+  ctx.fillStyle=f.C.amber; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText(`Bohr: r = n²·a₀ = ${qN*qN} a₀`,f.X(qN*qN)+4,f.T+8);
 }
 
 function drawGraphs() {
@@ -577,15 +499,15 @@ function renderInfoCard() {
   el.innerHTML=`
 <div style="padding:10px 8px 14px;border-top:1px solid rgba(100,200,255,0.15);margin-top:10px;">
   <div style="font-family:'Space Mono',monospace;font-size:9px;color:#00d4ff;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">INFO MODELLO</div>
-  <div style="font-family:'DM Sans',sans-serif;font-size:12px;color:rgba(200,225,245,0.92);line-height:1.6;">
+  <div style="font-family:'DM Sans',sans-serif;font-size:12px;color:var(--text-primary);line-height:1.6;">
     <div style="margin-bottom:4px"><strong>${m.name}</strong> — <em>${m.nickname}</em></div>
     <div style="color:rgba(0,210,255,0.80);margin-bottom:2px">👤 ${m.physicist}</div>
-    <div style="color:rgba(180,205,220,0.65);font-size:11px;margin-bottom:2px">${m.info}</div>
+    <div style="color:var(--text-secondary);font-size:11px;margin-bottom:2px">${m.info}</div>
     <div style="color:rgba(255,200,80,0.80);margin-bottom:6px">📅 ${m.year}</div>
-    <div style="margin-bottom:8px;color:rgba(195,220,240,0.85);font-size:11px;line-height:1.5">${m.desc}</div>
-    <div style="background:rgba(0,20,40,0.5);border-left:2px solid rgba(0,200,255,0.40);padding:6px 8px;border-radius:3px;font-family:'Space Mono',monospace;font-size:9px;color:rgba(180,230,255,0.80);margin-bottom:8px;white-space:pre-wrap">${m.energy}</div>
+    <div style="margin-bottom:8px;color:var(--text-secondary);font-size:11px;line-height:1.5">${m.desc}</div>
+    <div style="background:var(--bg2);border-left:2px solid rgba(0,200,255,0.40);padding:6px 8px;border-radius:3px;font-family:'Space Mono',monospace;font-size:9px;color:var(--text-primary);margin-bottom:8px;white-space:pre-wrap">${m.energy}</div>
     <div style="font-size:10px;color:rgba(255,120,80,0.80);margin-bottom:4px;font-weight:600">⚠ Limiti del modello:</div>
-    <ul style="margin:0;padding-left:14px;font-size:11px;color:rgba(195,215,230,0.80);line-height:1.5">${problems}</ul>
+    <ul style="margin:0;padding-left:14px;font-size:11px;color:var(--text-secondary);line-height:1.5">${problems}</ul>
   </div>
 </div>`;
 }
@@ -683,21 +605,9 @@ function initCanvasInteraction(canvas) {
 
 // ── Graph panel setup ──────────────────────────────────────────────────────────
 function initGraphs() {
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:145px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Livelli Energetici (eV)','Spettro di Emissione (idrogeno)','Densità Radiale P(r)'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.80);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────────
@@ -710,10 +620,10 @@ function init() {
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'model', label:'Modello'},
-    {key:'year',  label:'Anno'},
-    {key:'phys',  label:'Fisico'},
-    {key:'hint',  label:''},
+    {key:'model', label:'modello'},
+    {key:'year',  label:'anno'},
+    {key:'phys',  label:'fisico'},
+    {key:'hint',  label:'stato'},
   ]);
 
   function updateReadout(){
@@ -722,7 +632,7 @@ function init() {
     readout.set('year',  String(m.year));
     readout.set('phys',  m.physicist);
     if(currentModel==='bohr')
-      readout.set('hint',`E${bohrLevel} = ${bohrEnergy(bohrLevel).toFixed(2)} eV`);
+      readout.set('hint',`E${bohrLevel} = ${Lab.fmt(bohrEnergy(bohrLevel),2)} eV`);
     else if(currentModel==='quantum')
       readout.set('hint',`n=${qN}  l=${qL}  mₗ=${qM}`);
     else
@@ -753,13 +663,8 @@ function init() {
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea');
     const gaH=ga?ga.offsetHeight:0;
-    simCanvas.width =Math.floor(ar.width);
-    simCanvas.height=Math.max(60,Math.floor(ar.height-rb.height-gaH-4));
-    for(const cv of gCanvas){
-      if(!cv)continue;
-      cv.width =Math.floor(cv.parentElement.clientWidth);
-      cv.height=Math.floor(cv.parentElement.clientHeight);
-    }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), Math.max(60,Math.floor(ar.height-rb.height-gaH-4)));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));

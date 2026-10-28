@@ -266,9 +266,9 @@ function drawSchematic(dark, schW, scY, scH) {
 
   /* Label a, d */
   ctx.fillStyle = dimC; ctx.textAlign = 'left';
-  ctx.fillText(`a = ${(params.slitW*1000).toFixed(0)} μm`, aperX + 14, midY - scH*0.10);
+  ctx.fillText(`a = ${Lab.fmt((params.slitW*1000),0)} μm`, aperX + 14, midY - scH*0.10);
   if (['double','triple','grating'].includes(params.aperture))
-    ctx.fillText(`d = ${(params.slitD*1000).toFixed(0)} μm`, aperX + 14, midY - scH*0.18);
+    ctx.fillText(`d = ${Lab.fmt((params.slitD*1000),0)} μm`, aperX + 14, midY - scH*0.18);
 
   /* Arco inclinazione */
   if (Math.abs(params.tilt) > 0.5) {
@@ -441,7 +441,7 @@ function drawScreenFrame(scX, scY, scW, scH, yFixed, dark) {
     const py = scY + scH/2 + (v/yFixed)*scH/2;
     ctx.fillStyle = dark ? 'rgba(200,230,255,0.55)' : 'rgba(30,60,130,0.55)';
     ctx.textAlign = 'left';
-    ctx.fillText(`${v>=0?'+':''}${v.toFixed(1)}`, scX+3, py+3);
+    ctx.fillText(`${v>=0?'+':''}${Lab.fmt(v,1)}`, scX+3, py+3);
     ctx.strokeStyle = dark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.15)';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(scX, py); ctx.lineTo(scX+6, py); ctx.stroke();
@@ -559,20 +559,20 @@ function updateReadout() {
   const L    = params.screenL;
   const y1   = L * lam / a_nm;
   const items = [
-    { label: 'λ',       value: `${lam} nm`                            },
-    { label: 'a',       value: `${(params.slitW*1000).toFixed(0)} μm` },
-    { label: 'L',       value: `${L} mm`                              },
-    { label: '1° zero', value: `± ${y1.toFixed(2)} mm`                },
+    { label: 'lunghezza d’onda λ', value: `${lam} nm`                            },
+    { label: 'apertura a', value: `${Lab.fmt((params.slitW*1000),0)} μm` },
+    { label: 'distanza schermo L', value: `${L} mm`                              },
+    { label: 'primo minimo', value: `± ${Lab.fmt(y1,2)} mm`                },
   ];
   if (['double','triple','grating'].includes(params.aperture))
-    items.push({ label: '1° max', value: `± ${(L*lam/d_nm).toFixed(2)} mm` });
+    items.push({ label: 'primo massimo d’interferenza', value: `± ${Lab.fmt((L*lam/d_nm),2)} mm` });
   if (params.aperture === 'single_circular')
-    items.push({ label: 'Airy r', value: `± ${(1.22*y1).toFixed(2)} mm` });
+    items.push({ label: 'raggio del disco di Airy', value: `± ${Lab.fmt((1.22*y1),2)} mm` });
   if (params.aperture.startsWith('obstacle'))
-    items.push({ label: 'Spot', value: 'Poisson al centro' });
+    items.push({ label: 'centro dell’ombra', value: 'macchia di Poisson' });
 
   readoutEl.innerHTML = items.map(it =>
-    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(it.label)}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
 }
 
@@ -656,9 +656,9 @@ function drawIthetaPanel(ox, oy, pw, ph, dark) {
   gctx.lineWidth=1; gctx.strokeRect(l,t,iW,iH);
   gctx.fillStyle=tc; gctx.font=`9px 'Space Mono', monospace`;
   gctx.textAlign='center';
-  gctx.fillText(`-${thetaMax.toFixed(0)}°`, l, t+iH+14);
+  gctx.fillText(`-${Lab.fmt(thetaMax,0)}°`, l, t+iH+14);
   gctx.fillText('0',                         l+iW/2, t+iH+14);
-  gctx.fillText(`+${thetaMax.toFixed(0)}°`,  l+iW,   t+iH+14);
+  gctx.fillText(`+${Lab.fmt(thetaMax,0)}°`,  l+iW,   t+iH+14);
   gctx.textAlign='right'; gctx.fillText('0',l-3,t+iH+4); gctx.fillText('1',l-3,t+4);
   panelTitle(gctx, ox, oy, pw, 'Intensità vs angolo θ', dark);
 }
@@ -709,9 +709,9 @@ function drawSpecPanel(ox, oy, pw, ph, dark) {
     gctx.stroke();
 
     gctx.fillStyle=tc; gctx.font=`9px 'Space Mono', monospace`; gctx.textAlign='center';
-    gctx.fillText(`-${yMax.toFixed(1)}`, l, t+iH+14);
+    gctx.fillText(`-${Lab.fmt(yMax,1)}`, l, t+iH+14);
     gctx.fillText('0', l+iW/2, t+iH+14);
-    gctx.fillText(`+${yMax.toFixed(1)} mm`, l+iW, t+iH+14);
+    gctx.fillText(`+${Lab.fmt(yMax,1)} mm`, l+iW, t+iH+14);
     gctx.textAlign='right'; gctx.fillText('0',l-3,t+iH+4); gctx.fillText('1',l-3,t+4);
     panelTitle(gctx, ox, oy, pw, 'Inviluppo sinc² + I totale', dark);
   }
@@ -725,7 +725,7 @@ function buildControls() {
   el.innerHTML = '';
 
   const secA = Lab.Section('Apertura / Ostacolo');
-  secA.add(Lab.RadioGroup({ label:'aper', options:[
+  secA.add(Lab.RadioGroup({ label:'Tipo di apertura', options:[
     { label:'Singola (lineare)',    value:'single_linear'    },
     { label:'Singola (circolare)', value:'single_circular'  },
     { label:'Doppia',              value:'double'           },
@@ -739,7 +739,7 @@ function buildControls() {
   el.appendChild(secA.el);
 
   const secL = Lab.Section('Sorgente luminosa');
-  secL.add(Lab.RadioGroup({ label:'light', options:[
+  secL.add(Lab.RadioGroup({ label:'Tipo di luce', options:[
     { label:'Monocromatica', value:'mono'  },
     { label:'Bianca',        value:'white' },
   ], value: params.lightType,
@@ -830,7 +830,6 @@ function init() {
   initResizeHandle();
   initFullscreen();
 
-  document.getElementById('btnPlay').addEventListener('click', requestRedraw);
   document.getElementById('btnReset').addEventListener('click', () => {
     params.aperture='single_linear'; params.lightType='mono'; params.lambda=550;
     params.slitW=0.10; params.slitD=0.30; params.numSlits=8;

@@ -151,8 +151,7 @@ function drawScene(ctx, W, H) {
   ctx.fillText('v', ax + 14, (ay0 + ay1) / 2 + 3);
 }
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = T.grid; ctx.lineWidth = 1;
@@ -165,74 +164,46 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Caduta in un Fluido Viscoso', 14, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`${D.sm.name} (Ø${(P.radiusMm * 2).toFixed(1)}mm) in ${D.fl.name}   v_term=${(D.vt * 100).toFixed(2)} cm/s`, 14, 36);
+  ctx.fillText(`${D.sm.name} (Ø${Lab.fmt((P.radiusMm * 2),1)}mm) in ${D.fl.name}   v_term=${Lab.fmt((D.vt * 100),2)} cm/s`, 14, 36);
 
   ctx.fillStyle = D.laminar ? T.sub : T.warn; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   const hint = D.laminar
-    ? `regime laminare (Re=${D.Re.toFixed(2)} < ${STOKES_RE_LIMIT}) — la legge di Stokes è una buona approssimazione`
-    : `Re=${D.Re.toFixed(1)} ≥ ${STOKES_RE_LIMIT}: fuori dal regime di validità di Stokes — nella realtà la resistenza sarebbe maggiore (turbolenta), qui mostriamo comunque la previsione della formula`;
+    ? `regime laminare (Re=${Lab.fmt(D.Re,2)} < ${STOKES_RE_LIMIT}) — la legge di Stokes è una buona approssimazione`
+    : `Re=${Lab.fmt(D.Re,1)} ≥ ${STOKES_RE_LIMIT}: fuori dal regime di validità di Stokes — nella realtà la resistenza sarebbe maggiore (turbolenta), qui mostriamo comunque la previsione della formula`;
   ctx.fillText(hint, W / 2, H - 8);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: v(t) — curva chiusa, con l'asintoto v_term tratteggiato
+// 1: velocità nel tempo, che tende alla velocità limite (tratteggiata)
 function drawGraphV() {
-  const cv = gCanvas[0]; if (!cv || !cv.width || hist.length < 2) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = Math.max(hist[hist.length - 1].t, D.tau * 0.5);
-  const vMax = D.vt * 1.15 || 1e-6;
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW, yOf = v => PAD.t + gH - clamp(v / vMax, 0, 1) * gH;
-  ctx.setLineDash([3, 3]); ctx.strokeStyle = T.warn; ctx.lineWidth = 1;
-  const yT = yOf(D.vt); ctx.beginPath(); ctx.moveTo(PAD.l, yT); ctx.lineTo(PAD.l + gW, yT); ctx.stroke(); ctx.setLineDash([]);
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText(`v(t) — v_term=${(D.vt * 100).toFixed(2)}cm/s`, PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t (s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const tMax = Math.max(hist.length ? hist[hist.length - 1].t : 0, D.tau * 0.5, 1e-3);
+  const vm = Lab.niceMax(D.vt * 100 * 1.15 || 1e-3);
+  const g = Lab.panel(gCanvas[0], { title: `Velocità (cm/s) · limite ${Lab.fmt(D.vt * 100, 2)} cm/s`, xr: [0, tMax], yr: [0, vm], xLabel: 't (s)', xFmt: v => Lab.sci(v, 2) });
+  if (!g) return; const [ctx, f] = g;
+  ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = T.warn; ctx.beginPath(); ctx.moveTo(f.L, f.Y(D.vt * 100)); ctx.lineTo(f.R, f.Y(D.vt * 100)); ctx.stroke(); ctx.restore();
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.v * 100]), '#00d4ff', 2);
 }
-// 2: x(t) — profondità percorsa, cresce curva poi si raddrizza (velocità costante)
+// 2: profondità percorsa: prima curva (accelera), poi retta (velocità costante)
 function drawGraphX() {
-  const cv = gCanvas[1]; if (!cv || !cv.width || hist.length < 2) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = Math.max(hist[hist.length - 1].t, D.tau * 0.5);
-  const xMax = TUBE_HEIGHT_M;
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW, yOf = x => PAD.t + gH - clamp(x / xMax, 0, 1) * gH;
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1.4; ctx.beginPath();
-  hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p.x); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('distanza percorsa x(t)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t (s)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const tMax = Math.max(hist.length ? hist[hist.length - 1].t : 0, D.tau * 0.5, 1e-3);
+  const g = Lab.panel(gCanvas[1], { title: 'Profondità percorsa (cm)', xr: [0, tMax], yr: [0, TUBE_HEIGHT_M * 100], xLabel: 't (s)', xFmt: v => Lab.sci(v, 2) });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.x * 100]), '#ff9d4d', 2);
 }
-// 3: v_term in funzione del raggio (a materiale/fluido fissati) — mostra la legge di scala v∝r²
+// 3: velocità limite in funzione del raggio (v ∝ r²). La legge di Stokes vale finché il numero di
+//    Reynolds resta sotto 1: oltre, la curva è tratteggiata perché la resistenza vera è maggiore
 function drawGraphScaling() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   const rMaxMm = 15;
   const vtOf = rMm => { const r = rMm / 1000; return Math.abs(G_ACC * (1 - D.rhoF / D.rhoS)) * 2 * r * r * D.rhoS / (9 * D.eta); };
-  const vMax = vtOf(rMaxMm) * 1.05 || 1e-6;
-  const xOf = rMm => PAD.l + clamp(rMm / rMaxMm, 0, 1) * gW, yOf = v => PAD.t + gH - clamp(v / vMax, 0, 1) * gH;
-  ctx.strokeStyle = '#7fe0a0'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 60; i++) { const rMm = i / 60 * rMaxMm, v = vtOf(rMm), x = xOf(rMm), y = yOf(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(P.radiusMm), yOf(D.vt), 3.4, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('v_term(r) — scala come r²', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('raggio (mm)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const reOf = rMm => D.rhoF * vtOf(rMm) * 2 * rMm / 1000 / D.eta;
+  const g = Lab.panel(gCanvas[2], { title: 'Velocità limite (m/s) in funzione del raggio', xr: [0, rMaxMm], yr: [0, Lab.niceMax(vtOf(rMaxMm))], xLabel: 'raggio (mm)', yFmt: v => Lab.sci(v, 2) });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, r => (reOf(r) <= 1 ? vtOf(r) : NaN), [0, rMaxMm], '#7fe0a0', 2);
+  Lab.plot(ctx, f, r => (reOf(r) > 1 ? vtOf(r) : NaN), [0, rMaxMm], '#7fe0a0', 1.4, [4, 4]);
+  Lab.dot(ctx, f, P.radiusMm, D.vt, '#ff9d4d', 4.5);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['#7fe0a0', 'Stokes, Re < 1'], ['#7fe0a0', 'Re > 1: non vale più', [4, 4]]]);
 }
-function drawGraphs() {
-  const titles = ['Velocità v(t)', 'Profondità x(t)', 'v_term in funzione del raggio'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphV(); drawGraphX(); drawGraphScaling();
-}
+function drawGraphs() { drawGraphV(); drawGraphX(); drawGraphScaling(); }
 
 // ═══ Passo di simulazione ═══════════════════════════════════════════════════
 function step(dt) {
@@ -272,18 +243,11 @@ function buildReadout() {
     { key: 'depth', label: 'Profondità percorsa' }, { key: 'vnow', label: 'Velocità attuale' },
   ]);
 }
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -303,9 +267,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -319,12 +282,12 @@ function init() {
     if (!P.paused) step(dt * P.speed);
     try {
       draw(simCanvas); drawGraphs();
-      readout.set('vterm', `${(D.vt * 100).toFixed(2)} cm/s`);
-      readout.set('tau', D.tau < 1 ? `${(D.tau * 1000).toFixed(1)} ms` : `${D.tau.toFixed(2)} s`);
-      readout.set('re', D.Re.toFixed(3));
+      readout.set('vterm', `${Lab.fmt((D.vt * 100),2)} cm/s`);
+      readout.set('tau', D.tau < 1 ? `${Lab.fmt((D.tau * 1000),1)} ms` : `${Lab.fmt(D.tau,2)} s`);
+      readout.set('re', Lab.fmt(D.Re,3));
       readout.set('stato', D.laminar ? 'laminare (Stokes valido)' : 'turbolento (Stokes non valido)');
-      readout.set('depth', `${(xAt(dropT) * 100).toFixed(1)} cm`);
-      readout.set('vnow', `${(vAt(dropT) * 100).toFixed(2)} cm/s`);
+      readout.set('depth', `${Lab.fmt((xAt(dropT) * 100),1)} cm`);
+      readout.set('vnow', `${Lab.fmt((vAt(dropT) * 100),2)} cm/s`);
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

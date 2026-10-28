@@ -217,9 +217,9 @@ function drawStarModel(ctx, x0, y0, w, h, st) {
   const Teff = currentTeff(st.R);
   drawSphereGlow(ctx, cx, cy, Math.max(3, r), tempColor(Teff));
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace'; ctx.textAlign = 'center';
-  const rTxt = st.R < 0.001 ? (st.R * 696000).toFixed(0) + ' km' : st.R.toFixed(st.R < 1 ? 4 : 1) + ' R☉';
+  const rTxt = st.R < 0.001 ? Lab.fmt((st.R * 696000),0) + ' km' : Lab.fmt(st.R,st.R < 1 ? 4 : 1) + ' R☉';
   ctx.fillText(`R = ${rTxt}`, cx, y0 + h - 34);
-  ctx.fillText(`T_eff ≈ ${Teff >= 1000 ? (Teff / 1000).toFixed(1) + ' mila K' : Teff.toFixed(0) + ' K'}`, cx, y0 + h - 20);
+  ctx.fillText(`T_eff ≈ ${Teff >= 1000 ? Lab.fmt((Teff / 1000),1) + ' mila K' : Lab.fmt(Teff,0) + ' K'}`, cx, y0 + h - 20);
   ctx.fillStyle = T.accent; ctx.font = 'bold 10px "Space Mono",monospace';
   ctx.fillText(STAGE_LABEL[st.stageName] || st.stageName, cx, y0 + h - 6);
 }
@@ -404,8 +404,7 @@ function drawStageRoadmap(ctx, x0, y0, w, stageName) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -427,7 +426,7 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Fusione Nucleare Stellare', 10, 20);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`M=${D.M.toFixed(2)} M☉   X₀=${D.Xh0.toFixed(2)}   Y₀=${D.Yhe0.toFixed(2)}   Z=${D.Z.toFixed(2)}`, 10, 38);
+  ctx.fillText(`M=${Lab.fmt(D.M,2)} M☉   X₀=${Lab.fmt(D.Xh0,2)}   Y₀=${Lab.fmt(D.Yhe0,2)}   Z=${Lab.fmt(D.Z,2)}`, 10, 38);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   const hint = D.canAdv ? 'stella massiccia: proseguirà oltre l\'elio fino al ferro' : D.canHe ? 'accenderà l\'elio ma non le fasi avanzate: finirà come nana bianca di carbonio-ossigeno' : 'massa troppo bassa per accendere l\'elio: finirà come nana bianca dopo la sola combustione dell\'idrogeno';
@@ -435,72 +434,38 @@ function draw(canvas) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: istogramma della percentuale di massa per elemento, dall'idrogeno al ferro, ISTANTANEO
-// (aggiornato ad ogni fotogramma con lo stato attuale — non una storia nel tempo come prima:
-// un istogramma mostra per costruzione un solo istante, ed è quello che l'utente ha chiesto)
+// 1: composizione attuale della stella: percentuale in massa di ogni elemento, dall'idrogeno al ferro
 function drawGraphHistogram() {
-  const cv = gCanvas[0]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 4, r: 4 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
+  if (!D) return;
   const s = stateAt(animT);
-  const elements = [['H', s.Xh], ['He', s.Yhe], ['C', s.Xc], ['O', s.Xo], ['Ne', s.Xne], ['Mg', s.Xmg], ['Si', s.Xsi], ['S', s.Xs], ['Fe', s.Xfe]];
-  const bw = gW / elements.length;
-  elements.forEach(([label, val], i) => {
-    const bh = clamp(val, 0, 1) * gH * 0.8;
-    const x = PAD.l + i * bw + bw * 0.16, w = bw * 0.68;
-    ctx.fillStyle = ELEMENT_COLOR[label];
-    ctx.fillRect(x, PAD.t + gH - bh, w, Math.max(1, bh));
-    ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'center';
-    ctx.fillText(label, x + w / 2, PAD.t + gH + 11);
-    if (val > 0.006) ctx.fillText((val * 100).toFixed(0) + '%', x + w / 2, PAD.t + gH - bh - 3);
+  const el = [['H', s.Xh], ['He', s.Yhe], ['C', s.Xc], ['O', s.Xo], ['Ne', s.Xne], ['Mg', s.Xmg], ['Si', s.Xsi], ['S', s.Xs], ['Fe', s.Xfe]];
+  const g = Lab.panel(gCanvas[0], { title: 'Composizione in massa (%)', xr: [0, el.length], xStep: 1e9, xFmt: () => '', yr: [0, 100], yStep: 25 });
+  if (!g) return; const [ctx, f] = g, gap = (f.R - f.L) / el.length, bw = gap * 0.65;
+  el.forEach(([lbl, v], i) => {
+    const x = f.L + gap * i + (gap - bw) / 2, y = f.Y(clamp(v, 0, 1) * 100);
+    ctx.fillStyle = ELEMENT_COLOR[lbl]; ctx.fillRect(x, y, bw, Math.max(1, f.B - y));
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '9.5px "DM Sans",sans-serif'; ctx.fillStyle = f.C.text; ctx.fillText(lbl, x + bw / 2, f.B + 10);
+    if (v > 0.006) { ctx.font = '9px "Space Mono",monospace'; ctx.fillStyle = f.C.title; ctx.fillText(Lab.fmt(v * 100, 0), x + bw / 2, Math.max(f.T + 6, y - 8)); }
   });
 }
-// 2: frazione di massa persa per irraggiamento (E=mc²) — dominio fisso, asse Y fisso (0-1%, copre
-// ampiamente il massimo possibile, che è sempre sotto l'1% della massa)
+// 2: massa trasformata in energia irradiata (E = Δm·c²): sempre meno dell'1 % della massa iniziale
 function drawGraphMassLoss() {
-  const cv = gCanvas[1]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = D.totalDur, yMax = 0.01;
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW;
-  const yOf = v => PAD.t + gH - clamp(v / yMax, 0, 1) * gH;
-  ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 160; i++) { const t = tMax * i / 160; const s = stateAt(t); const x = xOf(t), y = yOf(s.dM); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const now = stateAt(animT);
-  ctx.fillStyle = '#ffd27a'; ctx.beginPath(); ctx.arc(xOf(animT), yOf(now.dM), 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('massa persa ΔM/M₀ (E=mc²)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!D) return;
+  const g = Lab.panel(gCanvas[1], { title: 'Massa convertita in energia ΔM/M₀ (%) — E = mc²', xr: [0, D.totalDur], xStep: 1e9, xFmt: () => '', yr: [0, 1], yStep: 0.25, xLabel: 'vita della stella →' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, t => stateAt(t).dM * 100, [0, D.totalDur], '#ffd27a', 2, [], 200);
+  Lab.dot(ctx, f, animT, stateAt(animT).dM * 100, '#ffd27a', 4.5);
 }
-// 3: raggio nel tempo, scala LOGARITMICA (varia da ~10⁻⁵ a ~300 R☉: troppo per un asse lineare)
+// 3: raggio della stella (scala logaritmica: da nana bianca, ~10⁻² R☉, a supergigante, centinaia di R☉)
 function drawGraphRadius() {
-  const cv = gCanvas[2]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = D.totalDur, rMin = 1e-5, rMax = 300;
-  const logMin = Math.log10(rMin), logMax = Math.log10(rMax);
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW;
-  const yOf = r => PAD.t + gH - clamp((Math.log10(clamp(r, rMin, rMax)) - logMin) / (logMax - logMin), 0, 1) * gH;
-  ctx.strokeStyle = '#c86eff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 160; i++) { const t = tMax * i / 160; const s = stateAt(t); const x = xOf(t), y = yOf(s.R); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const now = stateAt(animT);
-  ctx.fillStyle = '#c86eff'; ctx.beginPath(); ctx.arc(xOf(animT), yOf(now.R), 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('raggio (R☉, scala log)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!D) return;
+  const g = Lab.panel(gCanvas[2], { title: 'Raggio R (R☉)', xr: [0, D.totalDur], xStep: 1e9, xFmt: () => '', yr: [1e-5, 1e3], yLog: true, xLabel: 'vita della stella →' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, t => clamp(stateAt(t).R, 1e-5, 1e3), [0, D.totalDur], '#c86eff', 2, [], 200);
+  Lab.dot(ctx, f, animT, clamp(stateAt(animT).R, 1e-5, 1e3), '#c86eff', 4.5);
 }
-function drawGraphs() {
-  const titles = ['Percentuale per elemento (H→Fe)', 'Massa persa per irraggiamento', 'Raggio (scala log)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphHistogram(); drawGraphMassLoss(); drawGraphRadius();
-}
+function drawGraphs() { drawGraphHistogram(); drawGraphMassLoss(); drawGraphRadius(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -521,27 +486,20 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'stage', label: 'Fase' },
-    { key: 'mass', label: 'Massa attuale' },
-    { key: 'radius', label: 'Raggio attuale' },
-    { key: 'h', label: 'Idrogeno' },
-    { key: 'he', label: 'Elio' },
-    { key: 'heavy', label: 'Elementi più pesanti' },
+    { key: 'stage', label: 'fase' },
+    { key: 'mass', label: 'massa attuale' },
+    { key: 'radius', label: 'raggio attuale' },
+    { key: 'h', label: 'idrogeno' },
+    { key: 'he', label: 'elio' },
+    { key: 'heavy', label: 'elementi più pesanti' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -564,9 +522,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -582,11 +539,11 @@ function init() {
       draw(simCanvas); drawGraphs();
       const st = stateAt(animT);
       readout.set('stage', STAGE_LABEL[st.stageName] || st.stageName);
-      readout.set('mass', (D.M * (1 - st.dM)).toFixed(3) + ' M☉');
-      readout.set('radius', st.R < 0.001 ? (st.R * 696000).toFixed(0) + ' km' : st.R.toFixed(st.R < 1 ? 4 : 1) + ' R☉');
-      readout.set('h', (st.Xh * 100).toFixed(1) + '%');
-      readout.set('he', (st.Yhe * 100).toFixed(1) + '%');
-      readout.set('heavy', ((st.Xc + st.Xo + st.Xne + st.Xmg + st.Xsi + st.Xs + st.Xfe) * 100).toFixed(2) + '%');
+      readout.set('mass', Lab.fmt((D.M * (1 - st.dM)),3) + ' M☉');
+      readout.set('radius', st.R < 0.001 ? Lab.fmt((st.R * 696000),0) + ' km' : Lab.fmt(st.R,st.R < 1 ? 4 : 1) + ' R☉');
+      readout.set('h', Lab.fmt((st.Xh * 100),1) + '%');
+      readout.set('he', Lab.fmt((st.Yhe * 100),1) + '%');
+      readout.set('heavy', Lab.fmt(((st.Xc + st.Xo + st.Xne + st.Xmg + st.Xsi + st.Xs + st.Xfe) * 100),2) + '%');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

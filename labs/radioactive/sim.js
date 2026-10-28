@@ -218,7 +218,7 @@ function drawSim() {
   ctx.textAlign = 'right';
   ctx.font      = `11px 'DM Sans', sans-serif`;
   ctx.fillStyle = fg + '77';
-  ctx.fillText(`T½ = ${P.preset === 'personalizzato' ? P.T12 + ' s' : chain[0].T12 + ' s'}  ·  t = ${simT.toFixed(1)} s`, SW - 10, 18);
+  ctx.fillText(`T½ = ${P.preset === 'personalizzato' ? P.T12 + ' s' : chain[0].T12 + ' s'}  ·  t = ${Lab.fmt(simT,1)} s`, SW - 10, 18);
 
   // Legend bottom-right
   let ly = SH - 10;
@@ -287,7 +287,7 @@ function drawGraph() {
     gctx.strokeStyle = grid; gctx.lineWidth = 1;
     gctx.beginPath(); gctx.moveTo(LP.l, py); gctx.lineTo(LP.l + lW, py); gctx.stroke();
     gctx.fillStyle = fg + 'aa';
-    gctx.fillText(P.showAct ? y.toFixed(1) : String(y), LP.l - 4, py + 4);
+    gctx.fillText(P.showAct ? Lab.fmt(y,1) : String(y), LP.l - 4, py + 4);
   }
 
   // T½ markers (only for non-activity mode)
@@ -387,7 +387,7 @@ function drawGraph() {
     gctx.strokeStyle = grid; gctx.lineWidth = 1;
     gctx.beginPath(); gctx.moveTo(RP.l, py); gctx.lineTo(RP.l + rW, py); gctx.stroke();
     gctx.fillStyle = fg + 'aa'; gctx.font = `9px 'Space Mono', monospace`; gctx.textAlign = 'right';
-    gctx.fillText(av.toFixed(1), RP.l - 4, py + 4);
+    gctx.fillText(Lab.fmt(av,1), RP.l - 4, py + 4);
   }
 
   for (let s = 0; s < nActive; s++) {
@@ -416,14 +416,14 @@ function updateReadout() {
   const lA      = Math.LN2 / chain[0].T12;
   const nA      = atoms.filter(a => a.state === 0).length;
   const actA    = lA * nA;
-  const thA     = (P.N0 * Math.exp(-lA * simT)).toFixed(1);
+  const thA     = Lab.fmt((P.N0 * Math.exp(-lA * simT)),1);
 
   const items = [
-    { label: 'N (genitore)', value: `<span style="color:${chain[0].color}">${nA}</span> <span style="opacity:.5">/ ${P.N0}</span>` },
-    { label: 'N teorico',    value: thA },
-    { label: 'A(t)',         value: `${actA.toFixed(2)} λ` },
-    { label: 't',            value: simT.toFixed(2) + ' s' },
-    { label: 'T½',           value: chain[0].T12 + ' s' },
+    { label: 'nuclei genitori N', value: `<span style="color:${chain[0].color}">${nA}</span> <span style="opacity:.5">/ ${P.N0}</span>` },
+    { label: 'N teorico N₀·e^(−λt)', value: thA },
+    { label: 'attività A = λN', value: `${Lab.fmt(actA,2)} Bq` },
+    { label: 'tempo t', value: Lab.fmt(simT,2) + ' s' },
+    { label: 'tempo di dimezzamento', value: Lab.fmt(chain[0].T12, 1) + ' s' },
   ];
 
   for (let s = 1; s < chain.length - 1; s++) {
@@ -432,7 +432,7 @@ function updateReadout() {
   }
 
   document.getElementById('readout').innerHTML = items
-    .map(r => `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`)
+    .map(r => `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`)
     .join('');
 }
 
@@ -533,7 +533,7 @@ function init() {
   resize();
   initAtoms();
   buildControls();
-  window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe(sc.parentElement);
   requestAnimationFrame(loop);
 }
 

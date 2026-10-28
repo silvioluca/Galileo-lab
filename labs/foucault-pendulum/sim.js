@@ -142,8 +142,7 @@ function proj3D(x, y, z) {                                    // isometrica: (x,
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -198,14 +197,14 @@ function draw(canvas) {
   const lat = P.lat_deg;
   const verso = Math.abs(lat) < 0.05 ? 'nessuna (equatore)' : (lat > 0 ? 'oraria' : 'antioraria');
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
-  ctx.fillText(`precessione ${verso} · esagerata ×${PRECESSION_EXAGGERATION} per essere visibile (periodo reale ${precessionPeriodH() === Infinity ? '∞' : precessionPeriodH().toFixed(1) + ' h'})`, G.cx, H - 8);
+  ctx.fillText(`precessione ${verso} · esagerata ×${PRECESSION_EXAGGERATION} per essere visibile (periodo reale ${precessionPeriodH() === Infinity ? '∞' : Lab.fmt(precessionPeriodH(),1) + ' h'})`, G.cx, H - 8);
 
   // intestazione
   ctx.textAlign = 'left';
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Pendolo di Foucault — precessione del piano di oscillazione', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`φ=${P.lat_deg.toFixed(1)}°   L=${P.L_m.toFixed(1)} m   T₀=${swingPeriodS().toFixed(2)} s`, 14, 40);
+  ctx.fillText(`φ=${Lab.fmt(P.lat_deg,1)}°   L=${Lab.fmt(P.L_m,1)} m   T₀=${Lab.fmt(swingPeriodS(),2)} s`, 14, 40);
 
   draw3DPanel(ctx, pos, theta);
 }
@@ -253,73 +252,42 @@ function draw3DPanel(ctx, pos, theta) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
+// riquadro quadrato centrato (per la traiettoria vista dall'alto)
+function squarePanel(cv, o) {
+  if (!cv || !cv._dpr) return null;
+  const [ctx, W, H] = Lab.ctx2d(cv), C = Lab.graphColors();
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  const side = Math.min(W - 20, H - 10);
+  return [ctx, Lab.axes(ctx, { x: (W - side) / 2, y: 0, w: side, h: H, bg: false, ...o })];
 }
-// 1: x(t) e y(t) — finestra fissa (alcuni periodi di oscillazione), mostra il "battimento" lento
-// dovuto alla precessione sovrapposto all'oscillazione veloce
+// 1: x(t) e y(t) negli ultimi periodi: con la precessione l'oscillazione passa da x a y
 function drawGraphXY_t() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 22, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const WIN_T = winT(), A = ampLinear();
-  const zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  const xOf = t => PAD.l + (t - (animT - WIN_T)) / WIN_T * gW;
-  const yOf = v => zero - clamp(v / A, -1, 1) * (gH * 0.46);
-  ctx.save(); ctx.beginPath(); ctx.rect(PAD.l, PAD.t, gW, gH); ctx.clip();
-  [['x', '#00d4ff'], ['y', '#ff9d4d']].forEach(([key, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.beginPath();
-    hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p[key]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  });
-  ctx.restore();
-  ctx.fillStyle = '#00d4ff'; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('x', PAD.l + 2, PAD.t + 7);
-  ctx.fillStyle = '#ff9d4d'; ctx.fillText('y', PAD.l + 2, PAD.t + 16);
+  const WIN_T = winT(), A = Lab.niceMax(ampLinear() * 1.05);
+  const g = Lab.panel(gCanvas[0], { title: 'Spostamento x(t) e y(t) (m)', xr: [Math.max(0, animT - WIN_T), Math.max(WIN_T, animT)], yr: [-A, A], xLabel: 't (s)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.x]), '#00d4ff', 1.6);
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.y]), '#ff9d4d', 1.6);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['#00d4ff', 'x (est)'], ['#ff9d4d', 'y (nord)']]);
 }
-// 2: velocità di precessione Ω_z in funzione della latitudine — curva analitica, ricalcolata
-// solo se cambia il riferimento (mai un'evoluzione temporale)
+// 2: velocità di precessione vera Ω·sin φ in funzione della latitudine (°/ora)
 function drawGraphOmegaLat() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
   const degPerH = rad => rad * (180 / Math.PI) * 3600;
-  const maxDegH = degPerH(OMEGA_EARTH);
-  const xOf = phi => PAD.l + (phi + 90) / 180 * gW, yOf = v => PAD.t + gH - clamp((v + maxDegH) / (2 * maxDegH), 0, 1) * gH;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, yOf(0)); ctx.lineTo(PAD.l + gW, yOf(0)); ctx.stroke();
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.6; ctx.beginPath();
-  for (let phi = -90; phi <= 90; phi += 1) { const v = degPerH(OMEGA_EARTH * Math.sin(phi * Math.PI / 180)); const x = xOf(phi), y = yOf(v); phi === -90 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
-  ctx.stroke();
-  const curV = degPerH(omegaZ());
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(P.lat_deg), yOf(curV), 3.2, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('Ω_z (°/h)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('φ', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[1], { title: 'Precessione del piano Ω·sin φ (°/ora)', xr: [-90, 90], xStep: 30, yr: [-16, 16], yStep: 8, xLabel: 'latitudine φ (°)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, phi => degPerH(OMEGA_EARTH * Math.sin(phi * Math.PI / 180)), [-90, 90], '#00d4ff', 2);
+  Lab.dot(ctx, f, P.lat_deg, degPerH(omegaZ()), '#ff9d4d', 4.5);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['#00d4ff', 'oraria a nord, antioraria a sud']]);
 }
-// 3: traiettoria X-Y pulita (rosetta), stessa scia del canvas principale ma su assi in metri
+// 3: traiettoria vista dall'alto (rosetta), in metri
 function drawGraphRosette() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 14, r: 10 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const cx = PAD.l + gW / 2, cy = PAD.t + gH / 2, A = ampLinear(), s = Math.min(gW, gH) * 0.46 / Math.max(A, 0.05);
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.setLineDash([2, 3]);
-  ctx.beginPath(); ctx.arc(cx, cy, s * A, 0, TWO); ctx.stroke(); ctx.setLineDash([]);
-  if (trail.length > 1) {
-    ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1; ctx.beginPath();
-    trail.forEach((p, i) => { const x = cx + p.x * s, y = cy - p.y * s; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  }
+  const A = Lab.niceMax(ampLinear() * 1.1);
+  const g = squarePanel(gCanvas[2], { title: 'Traiettoria vista dall\'alto (m)', xr: [-A, A], yr: [-A, A], xLabel: 'x (m)', padL: 34 });
+  if (!g) return; const [ctx, f] = g;
+  if (trail.length > 1) Lab.plotPts(ctx, f, trail.map(p => [p.x, p.y]), '#00d4ff', 1);
   const pos = positionAt(animT);
-  ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(cx + pos.x * s, cy - pos.y * s, 3, 0, TWO); ctx.fill();
+  Lab.dot(ctx, f, pos.x, pos.y, '#ff9d4d', 4);
 }
-function drawGraphs() {
-  const titles = ['x(t), y(t)', 'Ω_z(φ) — velocità di precessione', 'Traiettoria (rosetta)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphXY_t(); drawGraphOmegaLat(); drawGraphRosette();
-}
+function drawGraphs() { drawGraphXY_t(); drawGraphOmegaLat(); drawGraphRosette(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -349,18 +317,11 @@ function buildReadout() {
   ]);
 }
 
-function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+function initGraphs(){
+  // riga di grafici standard (Lab.graphPanels); i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -384,9 +345,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));

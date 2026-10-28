@@ -397,7 +397,7 @@ function card(c, x, y, w, h, title) {
   c.beginPath(); c.roundRect(x + 0.5, y + 0.5, w - 1, h - 1, 8); c.fill(); c.stroke();
   if (title) text(c, title, x + 12, y + 14, { size: 10.5, color: C.muted, align: 'left' });
 }
-const fmt = (v, d = 1) => v.toFixed(d).replace('.', ',');
+const fmt = (v, d = 1) => Lab.fmt(v, d);
 function fmtB(T) {
   const a = Math.abs(T);
   if (a >= 1e-3) return `${fmt(T * 1e3, a >= 1e-2 ? 1 : 2)} mT`;

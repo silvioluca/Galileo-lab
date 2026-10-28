@@ -385,13 +385,13 @@ function updateReadout() {
   const Tc = wc > 0 ? Lab.sci(2 * Math.PI / wc, 3) + ' s' : '∞';
   const vd = Math.abs(P.Bz) > 0 ? Lab.sci(Math.abs(P.E / P.Bz), 3) + ' m/s' : '—';
   document.getElementById('readout').innerHTML = [
-    { label: 'v_⊥',             value: Lab.sci(vp, 3) + ' m/s' },
+    { label: 'velocità perpendicolare a B', value: Lab.sci(vp, 3) + ' m/s' },
     { label: 'raggio r = mv/qB', value: rL },
     { label: 'periodo T = 2πm/qB', value: Tc },
     { label: 'deriva E/B',      value: vd },
     { label: 'energia',         value: Lab.sci(0.5 * T.m * (p.vx * p.vx + p.vy * p.vy + p.vz * p.vz) / QE, 3) + ' eV' },
   ].map(it =>
-    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(it.label)}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
 }
 

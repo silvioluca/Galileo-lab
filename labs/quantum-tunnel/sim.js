@@ -64,7 +64,7 @@ function pal() {
 }
 let T = pal();
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const fmtPct = x => (x * 100).toFixed(1) + '%';
+const fmtPct = x => Lab.fmt((x * 100),1) + '%';
 
 // ═══ Fisica ═══════════════════════════════════════════════════════════════════
 const mass = () => P.particle === 'proton' ? MP : ME;
@@ -232,8 +232,7 @@ const sy0 = () => G.marginT + G.plotH;
 const sy = d => sy0() - clamp(d / DENS_MAX, 0, 1) * G.plotH;
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -252,7 +251,7 @@ function draw(canvas) {
   ctx.strokeStyle = 'rgba(255,140,90,0.8)'; ctx.lineWidth = 1.4;
   ctx.strokeRect(sx(-halfW), sy0() - barrH, sx(halfW) - sx(-halfW), barrH);
   ctx.fillStyle = 'rgba(255,160,110,0.85)'; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
-  ctx.fillText(`V₀=${P.V0_eV.toFixed(2)} eV`, sx(0), sy0() - barrH - 6);
+  ctx.fillText(`V₀=${Lab.fmt(P.V0_eV,2)} eV`, sx(0), sy0() - barrH - 6);
 
   // linea di base
   ctx.strokeStyle = T.ring; ctx.lineWidth = 1;
@@ -286,79 +285,46 @@ function draw(canvas) {
   ctx.fillText('Effetto Tunnel — pacchetto d\'onda contro una barriera di potenziale', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
   const regime = P.E0_eV < P.V0_eV ? 'E₀ < V₀ — tunneling classicamente proibito' : 'E₀ > V₀ — riflessione parziale anche sopra la barriera';
-  ctx.fillText(`E₀=${P.E0_eV.toFixed(2)} eV   ${P.particle === 'proton' ? 'protone' : 'elettrone'}   ${regime}`, 14, 40);
+  ctx.fillText(`E₀=${Lab.fmt(P.E0_eV,2)} eV   ${P.particle === 'proton' ? 'protone' : 'elettrone'}   ${regime}`, 14, 40);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText(finished ? 'pacchetto assorbito ai bordi — premi "Nuovo pacchetto" per rilanciarlo' : 'le zone violacee ai bordi assorbono l\'onda in uscita (non sono pareti fisiche, solo il confine della simulazione)', W / 2, H - 8);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: probabilità cumulate R(t)/T(t)/rimanente — asse Y sempre 0..1 (sono probabilità). Non è un
-// grafico a finestra scorrevole come altrove nel sito: qui l'evento è UN SINGOLO transitorio (il
-// pacchetto attraversa la barriera una volta e viene assorbito ai bordi, non oscilla) quindi ha
-// più senso mostrare l'intera corsa dal lancio del pacchetto (t=0) a oggi, che si allunga finché
-// la simulazione non si ferma da sola — l'asse Y resta comunque fisso 0..1, quello che conta.
+// 1: probabilità di essere riflesso, trasmesso o ancora in volo, dal lancio del pacchetto
 function drawGraphProb() {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 20, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tSpan = Math.max(animT, 0.5);
-  const xOf = t => PAD.l + clamp(t / tSpan, 0, 1) * gW;
-  const yOf = p => PAD.t + gH - clamp(p, 0, 1) * gH;
-  [['rem', T.gAxis, 1.2], ['R', COL.R, 1.6], ['Tt', COL.T, 1.6]].forEach(([key, col, lw]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.beginPath();
-    hist.forEach((p, i) => { const x = xOf(p.t), y = yOf(p[key]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-    ctx.stroke();
-  });
-  ctx.fillStyle = COL.R; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('R', PAD.l + 2, PAD.t + 7);
-  ctx.fillStyle = COL.T; ctx.fillText('T', PAD.l + 2, PAD.t + 16);
+  const g = Lab.panel(gCanvas[0], { title: 'Probabilità: riflessa, trasmessa, in volo', xr: [0, Math.max(animT, 0.5)], xFmt: () => '', yr: [0, 1], yStep: 0.25, xLabel: 'tempo dal lancio →' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.rem]), f.C.text, 1.2);
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.R]), COL.R, 2);
+  Lab.plotPts(ctx, f, hist.map(p => [p.t, p.Tt]), COL.T, 2);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[COL.R, 'riflessa R'], [COL.T, 'trasmessa T'], [f.C.text, 'in volo']]);
 }
-// 2: coefficiente di trasmissione teorico T(E) a barriera fissa (larghezza/altezza/particella
-// correnti) — ricalcolato ad ogni cambio di parametro, non un'evoluzione temporale
+// 2: coefficiente di trasmissione teorico di una barriera rettangolare: non nullo anche sotto V₀ (effetto tunnel)
 function drawGraphTE() {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 20, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const Emax = Math.max(P.V0_eV * 2.2, P.E0_eV * 1.6, 1.5);
-  const xOf = e => PAD.l + e / Emax * gW, yOf = t => PAD.t + gH - clamp(t, 0, 1) * gH;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.5; ctx.setLineDash([2, 3]);
-  ctx.beginPath(); ctx.moveTo(xOf(P.V0_eV), PAD.t); ctx.lineTo(xOf(P.V0_eV), PAD.t + gH); ctx.stroke(); ctx.setLineDash([]);
-  ctx.strokeStyle = COL.T; ctx.lineWidth = 1.6; ctx.beginPath();
-  const m = mass();
-  for (let i = 0; i <= 200; i++) { const e = i / 200 * Emax; const x = xOf(e), y = yOf(TTheory(Math.max(e, 1e-4), P.V0_eV, P.width_nm, m)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const curT = TTheory(P.E0_eV, P.V0_eV, P.width_nm, m);
-  ctx.fillStyle = T.accent; ctx.beginPath(); ctx.arc(xOf(P.E0_eV), yOf(curT), 3, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('T', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('E (eV)', PAD.l + gW - 2, PAD.t + gH - 3);
+  const Emax = Lab.niceMax(Math.max(P.V0_eV * 2.2, P.E0_eV * 1.6, 1.5)), m = mass();
+  const g = Lab.panel(gCanvas[1], { title: 'Trasmissione teorica T(E)', xr: [0, Emax], yr: [0, 1], yStep: 0.25, xLabel: 'energia E (eV)' });
+  if (!g) return; const [ctx, f] = g;
+  ctx.fillStyle = 'rgba(255,140,90,0.10)'; ctx.fillRect(f.L, f.T, f.X(P.V0_eV) - f.L, f.B - f.T);
+  ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,140,90,0.8)'; ctx.beginPath(); ctx.moveTo(f.X(P.V0_eV), f.T); ctx.lineTo(f.X(P.V0_eV), f.B); ctx.stroke(); ctx.restore();
+  Lab.plot(ctx, f, e => TTheory(Math.max(e, 1e-4), P.V0_eV, P.width_nm, m), [0, Emax], COL.T, 2, [], 400);
+  Lab.dot(ctx, f, P.E0_eV, TTheory(P.E0_eV, P.V0_eV, P.width_nm, m), T.accent, 4.5);
+  ctx.fillStyle = 'rgba(255,140,90,0.95)'; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('E < V₀: tunnel', f.X(P.V0_eV) - 4, f.B - 10);
 }
-// 3: Re(Ψ)/Im(Ψ) istantanei
+// 3: parte reale e immaginaria del pacchetto d'onda
 function drawGraphComponents() {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 18, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const zero = PAD.t + gH / 2, YM = PSI_MAX;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  [['re', COL.re], ['im', COL.im]].forEach(([key, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.2; ctx.beginPath();
-    for (let j = 0; j < N; j += 2) { const v = key === 're' ? psiRe[j] : psiIm[j]; const x = PAD.l + (xArr[j] * 1e9 - X_MIN_NM) / (X_MAX_NM - X_MIN_NM) * gW, y = zero - clamp(v / YM, -1, 1) * (gH * 0.46); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.stroke();
-  });
-  ctx.fillStyle = COL.re; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('Re(Ψ)', PAD.l + 2, PAD.t + 7);
-  ctx.fillStyle = COL.im; ctx.textAlign = 'right'; ctx.fillText('Im(Ψ)', PAD.l + gW - 2, PAD.t + 7);
+  const g = Lab.panel(gCanvas[2], { title: 'Funzione d’onda Ψ(x) all’istante attuale', xr: [X_MIN_NM, X_MAX_NM], xStep: 5, yr: [-PSI_MAX, PSI_MAX], yFmt: () => '', xLabel: 'x (nm)', padL: 14 });
+  if (!g) return; const [ctx, f] = g;
+  ctx.fillStyle = 'rgba(255,140,90,0.14)'; ctx.fillRect(f.X(-P.width_nm / 2), f.T, f.X(P.width_nm) - f.X(0), f.B - f.T);
+  for (const [arr, col] of [[psiRe, COL.re], [psiIm, COL.im]]) {
+    const pts = []; for (let j = 0; j < N; j += 2) pts.push([xArr[j] * 1e9, clamp(arr[j], -PSI_MAX, PSI_MAX)]);
+    Lab.plotPts(ctx, f, pts, col, 1.4);
+  }
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[COL.re, 'Re Ψ'], [COL.im, 'Im Ψ']]);
 }
-function drawGraphs() {
-  const titles = ['Probabilità R(t) / T(t)', 'Trasmissione teorica T(E)', 'Re(Ψ), Im(Ψ) — istantanea'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphProb(); drawGraphTE(); drawGraphComponents();
-}
+function drawGraphs() { drawGraphProb(); drawGraphTE(); drawGraphComponents(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
@@ -388,26 +354,19 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 't', label: 'Tempo (animazione)' },
-    { key: 'T', label: 'Trasmissione (simulata)' },
-    { key: 'Tth', label: 'Trasmissione (teorica)' },
-    { key: 'R', label: 'Riflessione (simulata)' },
-    { key: 'cons', label: 'R + T + residuo' },
+    { key: 't', label: 'tempo (rallentato)' },
+    { key: 'T', label: 'trasmessa (simulazione)' },
+    { key: 'Tth', label: 'trasmessa (teoria, E media)' },
+    { key: 'R', label: 'riflessa (simulazione)' },
+    { key: 'cons', label: 'totale R + T + in volo' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -431,9 +390,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -447,7 +405,7 @@ function init() {
     if (!P.paused) step(dt * P.speed);
     try {
       draw(simCanvas); drawGraphs();
-      readout.set('t', animT.toFixed(2) + ' s');
+      readout.set('t', Lab.fmt(animT,2) + ' s');
       readout.set('T', fmtPct(transmittedProb));
       readout.set('Tth', fmtPct(TTheory(P.E0_eV, P.V0_eV, P.width_nm, mass())));
       readout.set('R', fmtPct(reflectedProb));

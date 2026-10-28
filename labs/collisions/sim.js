@@ -315,7 +315,7 @@ function drawVelocityArrow(b, color, showAngle) {
   ctx.font = '11px Space Mono, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(speed.toFixed(2) + ' m/s', ex + ux * labelDist - 5, ey - uy * labelDist + 20);
+  ctx.fillText(Lab.fmt(speed,2) + ' m/s', ex + ux * labelDist - 5, ey - uy * labelDist + 20);
 
   // angle annotation (post-collision)
   if (showAngle) {
@@ -356,7 +356,7 @@ function drawVelocityArrow(b, color, showAngle) {
     ctx.font = 'bold 11px Space Mono, monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(Math.abs(dispAngle).toFixed(1) + '°', lx2, ly2);
+    ctx.fillText(Lab.fmt(Math.abs(dispAngle),1) + '°', lx2, ly2);
   }
 }
 
@@ -506,12 +506,12 @@ function drawKEPanel(x, y, w, h, hasPost) {
     if (h1 > 14) {
       gctx.fillStyle = '#000a';
       gctx.textBaseline = 'middle';
-      gctx.fillText(g.ke1.toFixed(2), bx[gi] + barW / 2, stackBase - h1 / 2);
+      gctx.fillText(Lab.fmt(g.ke1,2), bx[gi] + barW / 2, stackBase - h1 / 2);
     }
     if (h2 > 14) {
       gctx.fillStyle = '#000a';
       gctx.textBaseline = 'middle';
-      gctx.fillText(g.ke2.toFixed(2), bx[gi] + barW / 2, stackBase - h1 - h2 / 2);
+      gctx.fillText(Lab.fmt(g.ke2,2), bx[gi] + barW / 2, stackBase - h1 - h2 / 2);
     }
 
     // total above bar
@@ -519,7 +519,7 @@ function drawKEPanel(x, y, w, h, hasPost) {
     gctx.fillStyle = g.dimmed ? themeColor('--text-secondary') : themeColor('--text-primary');
     gctx.globalAlpha = g.alpha;
     gctx.textBaseline = 'bottom';
-    gctx.fillText(ktot.toFixed(2) + ' J', bx[gi] + barW / 2, stackBase - h1 - h2 - 3);
+    gctx.fillText(Lab.fmt(ktot,2) + ' J', bx[gi] + barW / 2, stackBase - h1 - h2 - 3);
     gctx.globalAlpha = 1;
 
     // group label below
@@ -553,7 +553,7 @@ function drawKEPanel(x, y, w, h, hasPost) {
     gctx.font = '10px Space Mono, monospace';
     gctx.textAlign = 'right';
     gctx.textBaseline = 'top';
-    gctx.fillText('ΔKE = ' + (dKE >= 0 ? '+' : '') + dKE.toFixed(2) + ' J', x + w - pr, y + pt - 2);
+    gctx.fillText('ΔKE = ' + (dKE >= 0 ? '+' : '') + Lab.fmt(dKE,2) + ' J', x + w - pr, y + pt - 2);
   }
 }
 
@@ -579,38 +579,21 @@ function drawMomPanel(x, y, w, h, hasPost) {
     const gapB = (iW - 2 * barW) / 3;
     const bxs  = [cx + pl2 + gapB, cx + pl2 + 2 * gapB + barW];
 
-    // draw one signed stacked bar (A bottom, B stacked on top starting from A's end)
+    // tre barre affiancate per ogni gruppo: p di A, p di B e totale, tutte dallo zero.
+    // (Impilarle confondeva: un contributo negativo di B finiva sopra quello di A.)
     const drawStackedBar = (bxi, pa, pb_, alpha) => {
-      const ha = toH(pa); // signed px height
-      const hb = toH(pb_);
-
+      const sw = barW / 3;
       gctx.globalAlpha = alpha;
-
-      // segment A: midY → midY - ha
-      const a_top = Math.min(midY, midY - ha);
-      gctx.fillStyle = C1;
-      gctx.fillRect(bxs[bxi], a_top, barW, Math.max(1, Math.abs(ha)));
-
-      // segment B: midY-ha → midY-ha-hb
-      const aEnd  = midY - ha;
-      const b_top = Math.min(aEnd, aEnd - hb);
-      gctx.fillStyle = C2;
-      gctx.fillRect(bxs[bxi], b_top, barW, Math.max(1, Math.abs(hb)));
-
-      // total label above/below the combined bar
-      const ptot    = pa + pb_;
-      const extreme = midY - ha - hb; // canvas y at bar tip
-      gctx.fillStyle = themeColor('--text-primary');
-      gctx.font = '9px Space Mono, monospace';
-      gctx.textAlign = 'center';
-      if (ptot >= 0) {
-        gctx.textBaseline = 'bottom';
-        gctx.fillText(ptot.toFixed(2), bxs[bxi] + barW / 2, extreme - 2);
-      } else {
-        gctx.textBaseline = 'top';
-        gctx.fillText(ptot.toFixed(2), bxs[bxi] + barW / 2, extreme + 2);
-      }
-
+      [[pa, C1], [pb_, C2], [pa + pb_, themeColor('--text-secondary')]].forEach(([v, col], k) => {
+        const hv = toH(v), x0 = bxs[bxi] + k * sw;
+        gctx.fillStyle = col;
+        gctx.fillRect(x0 + 1, Math.min(midY, midY - hv), sw - 2, Math.max(1, Math.abs(hv)));
+        gctx.fillStyle = themeColor('--text-primary');
+        gctx.font = '9px Space Mono, monospace';
+        gctx.textAlign = 'center';
+        gctx.textBaseline = v >= 0 ? 'bottom' : 'top';
+        gctx.fillText(Lab.fmt(v, 1), x0 + sw / 2, midY - hv + (v >= 0 ? -2 : 2));
+      });
       gctx.globalAlpha = 1;
     };
 
@@ -668,12 +651,12 @@ function drawMomPanel(x, y, w, h, hasPost) {
   const legY = y + 8;
   gctx.font = '9px DM Sans, sans-serif';
   gctx.textBaseline = 'middle';
-  [[C1, 'A'], [C2, 'B']].forEach(([col, lbl], i) => {
+  [[C1, 'A'], [C2, 'B'], [themeColor('--text-secondary'), 'tot']].forEach(([col, lbl], i) => {
     gctx.fillStyle = col;
-    gctx.fillRect(legX + i * 28, legY - 4, 8, 8);
+    gctx.fillRect(legX - 30 + i * 28, legY - 4, 8, 8);
     gctx.fillStyle = themeColor('--text-secondary');
     gctx.textAlign = 'left';
-    gctx.fillText(lbl, legX + i * 28 + 10, legY);
+    gctx.fillText(lbl, legX - 30 + i * 28 + 10, legY);
   });
 }
 
@@ -687,20 +670,22 @@ function updateReadout() {
   const { b1, b2, merged } = sim;
   const v1 = Math.sqrt(b1.vx * b1.vx + b1.vy * b1.vy);
   const v2 = merged ? v1 : Math.sqrt(b2.vx * b2.vx + b2.vy * b2.vy);
-  const ptx  = b1.m * b1.vx + (merged ? 0 : b2.m * b2.vx);
-  const pty  = b1.m * b1.vy + (merged ? 0 : b2.m * b2.vy);
-  const KE   = ke(b1) + (merged ? 0 : ke(b2));
+  // dopo l'urto anelastico i due corpi si muovono insieme con la velocità di b1 (b2.v non è aggiornata)
+  const M2v  = merged ? { vx: b1.vx, vy: b1.vy } : b2;
+  const ptx  = b1.m * b1.vx + b2.m * M2v.vx;
+  const pty  = b1.m * b1.vy + b2.m * M2v.vy;
+  const KE   = ke(b1) + 0.5 * b2.m * (M2v.vx * M2v.vx + M2v.vy * M2v.vy);
 
   const items = [
-    { label: '|v₁|',  value: v1.toFixed(3) + ' m/s' },
-    { label: '|v₂|',  value: merged ? '— (fusi)' : v2.toFixed(3) + ' m/s' },
-    { label: 'p tot x', value: ptx.toFixed(3) + ' kg·m/s' },
-    { label: 'KE tot', value: KE.toFixed(3) + ' J' },
+    { label: 'velocità di A',  value: Lab.fmt(v1, 2) + ' m/s' },
+    { label: 'velocità di B',  value: merged ? '— (uniti)' : Lab.fmt(v2, 2) + ' m/s' },
+    { label: 'quantità di moto p_x', value: Lab.fmt(ptx, 2) + ' kg·m/s' },
+    { label: 'energia cinetica', value: Lab.fmt(KE, 2) + ' J' },
   ];
-  if (params.mode === '2d') items.push({ label: 'p tot y', value: pty.toFixed(3) + ' kg·m/s' });
+  if (params.mode === '2d') items.push({ label: 'quantità di moto p_y', value: Lab.fmt(pty, 2) + ' kg·m/s' });
 
   el.innerHTML = items.map(i =>
-    `<span class="readout-item"><span class="readout-label">${i.label}</span><span class="readout-value">${i.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(i.label)}</span><span class="readout-value">${i.value}</span></span>`
   ).join('');
 }
 
@@ -856,10 +841,10 @@ document.getElementById('btnReset').addEventListener('click', () => {
   resetSim();
 });
 
-window.addEventListener('resize', () => {
+new ResizeObserver(() => {
   resize(); resizeGraph();
   if (sim) { drawScene(); drawGraphs(); }
-});
+}).observe(document.querySelector('.lab-canvas-area'));
 
 Lab.initTheme();
 new MutationObserver(() => { drawScene(); drawGraphs(); })

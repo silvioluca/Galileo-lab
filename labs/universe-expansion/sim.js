@@ -12,7 +12,7 @@ const COSMO_COL = { r: '#4fd0ff', m: '#ffb400', l: '#c47fff' };
 
 const EPOCHS = [
   { name: 'Big Bang', t: T_DISPLAY_START, desc: "Origine dello spazio-tempo: plasma caldissimo e densissimo." },
-  { name: 'Inflazione', t: T_DISPLAY_START, desc: 'Espansione esponenziale nei primi istanti dopo il Big Bang.' },
+  { name: 'Inflazione', t: T_DISPLAY_START, desc: 'Espansione esponenziale nei primissimi istanti (circa 10⁻³² s dopo il Big Bang).' },
   { name: 'Bagliore Fossile (CMB)', t: 3.8e-4, desc: "L'universo diventa trasparente: la luce si libera (ricombinazione, z≈1100)." },
   { name: 'Età Oscura', t: 0.1, desc: 'Nessuna stella ancora accesa: solo idrogeno neutro nel buio.' },
   { name: 'Prime Stelle', t: 0.4, desc: 'Si accendono le prime stelle e galassie (reionizzazione).' },
@@ -94,9 +94,17 @@ function buildTable() {
     t = tNext;
     ts.push(t); as.push(a);
   }
-  const aToday = interpLogLogArr(ts, as, 13.8);
-  const aNorm = as.map(v => v / aToday);
+  // le densità Ω sono riferite a oggi, quindi a = 1 cade da sé nel presente: l'età dell'universo
+  // è il tempo in cui a(t) = 1 e dipende da H₀, Ωm e ΩΛ (13,8 miliardi di anni solo per i valori di Planck)
+  const aNorm = as;
   TABLE = { t: ts, a: aNorm };
+  const tWhen = aT => { for (let i = 1; i < as.length; i++) if (as[i] >= aT) { const f = Math.log(aT / as[i - 1]) / Math.log(as[i] / as[i - 1]); return Math.exp(Math.log(ts[i - 1]) + f * Math.log(ts[i] / ts[i - 1])); } return Infinity; };
+  TABLE.age = tWhen(1);
+  const today = EPOCHS.find(e => e.name === 'Oggi');
+  today.t = Math.min(TABLE.age, T_END);
+  today.desc = `L'epoca attuale, ${Lab.fmt(TABLE.age, 1)} miliardi di anni dopo il Big Bang.`;
+  // l'espansione accelera quando ΩΛ supera metà della densità di materia: a³ = Ωm / (2·ΩΛ)
+  EPOCHS.find(e => e.name === 'Accelerazione').t = P.omegaL > 0 ? tWhen(Math.cbrt(P.omegaM / (2 * P.omegaL))) : Infinity;
   TABLE.gAMin = interpLogLogArr(ts, aNorm, T_DISPLAY_START);
   TABLE.gAMax = interpLogLogArr(ts, aNorm, T_END);
 }
@@ -127,8 +135,17 @@ function coneShapeRaw(xf) {
   return v;
 }
 const CONE_NORM = coneShapeRaw(1);
-function currentEpoch(t) { let cur = EPOCHS[0]; for (const ep of EPOCHS) if (ep.t <= t * 1.0001) cur = ep; return cur; }
-function fmtTime(tGyr) { return tGyr.toFixed(1) + ' miliardi di anni'; }
+// l'inflazione dura ~10⁻³² s: dopo l'apice del cono e fino alla ricombinazione l'universo è un plasma opaco
+const PLASMA = { name: 'Plasma primordiale', desc: 'Nuclei, elettroni e fotoni in un plasma caldo e opaco: la luce non viaggia ancora libera.' };
+function currentEpoch(t) {
+  let cur = EPOCHS[0]; for (const ep of EPOCHS) if (ep.t <= t * 1.0001) cur = ep;
+  return (cur.name === 'Inflazione' || cur.name === 'Big Bang') && t > T_DISPLAY_START * 1.05 ? PLASMA : cur;
+}
+function fmtTime(tGyr) {
+  if (tGyr < 1e-3) return Lab.fmt(tGyr * 1e6, 0) + ' mila anni';
+  if (tGyr < 1) return Lab.fmt(tGyr * 1e3, 0) + ' milioni di anni';
+  return Lab.fmt(tGyr, 2) + ' mld di anni';
+}
 
 // ═══ rumore procedurale (per la mappa del CMB) ═══
 function hashRand(i, salt) { const v = Math.sin(i * 127.1 + salt * 311.7 + 13.7) * 43758.5453; return v - Math.floor(v); }
@@ -364,6 +381,7 @@ function drawTimeline(ctx, W, H, t) {
   // tacche ed etichette delle epoche: appaiono solo quando la struttura le ha raggiunte
   if (P.showAnnot) {
     EPOCHS.forEach((ep, i) => {
+      if (!(ep.t <= T_END)) return;
       const xf = xFracOfT(ep.t); if (xf > curFrac + 0.003) return;
       const x = coneX0 + xf * (coneX1 - coneX0), hh = coneHH(xf, maxHalfH);
       const off = i % 2 ? 34 : 18;
@@ -386,7 +404,7 @@ function drawTimeline(ctx, W, H, t) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText("Espansione dell'Universo — modello ΛCDM (parametri tipo Planck 2018)", 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`Ωm=${P.omegaM.toFixed(2)}   ΩΛ=${P.omegaL.toFixed(2)}   Ωr=${OMEGA_R.toExponential(1)}   H₀=${P.H0.toFixed(1)} km/s/Mpc`, 14, 40);
+  ctx.fillText(`Ωm=${Lab.fmt(P.omegaM,2)}   ΩΛ=${Lab.fmt(P.omegaL,2)}   Ωr=${Lab.sci(OMEGA_R,2)}   H₀=${Lab.fmt(P.H0,1)} km/s/Mpc`, 14, 40);
 
   // pannello descrizione epoca corrente
   const ep = currentEpoch(t);
@@ -455,14 +473,13 @@ function drawCMB(ctx, W, H) {
   ctx.fillText('spettro di potenza angolare approssimato: picchi acustici barionici a ℓ≈220, 540, 800', 14, 54);
   ctx.fillStyle = grow < 0.999 ? `rgb(${br | 0},${bg | 0},${bb | 0})` : T.sub;
   ctx.font = 'bold 10px "Space Mono",monospace';
-  ctx.fillText(`temperatura equivalente: ${tempParam >= 1000 ? (tempParam / 1000).toFixed(1) + ' mila K' : tempParam.toFixed(0) + ' K'}${grow < 0.999 ? ' — si sta raffreddando…' : ''}`, 14, 68);
+  ctx.fillText(`temperatura equivalente: ${tempParam >= 1000 ? Lab.fmt((tempParam / 1000),1) + ' mila K' : Lab.fmt(tempParam,0) + ' K'}${grow < 0.999 ? ' — si sta raffreddando…' : ''}`, 14, 68);
   ctx.textAlign = 'center';
   ctx.fillText("le macchie sono minuscole variazioni di temperatura (~1 su 100 000): i semi delle future galassie", W / 2, H - 10);
 }
 
 function draw(canvas, t) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   drawGrid(ctx, W, H);
@@ -471,78 +488,43 @@ function draw(canvas, t) {
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
+// assi logaritmici sul tempo cosmico (da 100 000 anni a 30 miliardi di anni), con la linea di "oggi"
+const TX = { xr: [T_DISPLAY_START, T_END], xLog: true, xFmt: v => v < 1e-3 ? Lab.fmt(v * 1e6, 0) + ' ka' : v < 1 ? Lab.fmt(v * 1e3, 0) + ' Ma' : Lab.fmt(v, 0) + ' Ga', xLabel: 'tempo dal Big Bang' };
+function todayLine(ctx, f) {
+  if (!(TABLE.age <= T_END)) return;
+  ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.text; ctx.beginPath(); ctx.moveTo(f.X(TABLE.age), f.T); ctx.lineTo(f.X(TABLE.age), f.B); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText('oggi', f.X(TABLE.age) - 4, f.B - 8);
 }
-const lnT0G = Math.log(T_DISPLAY_START), lnT1G = Math.log(T_END);
-
+// 1: fattore di scala a(t): a = 1 oggi; ∝ t^½ con la radiazione, t^⅔ con la materia, esponenziale con ΩΛ
 function drawGraphA(t) {
-  const cv = gCanvas[0]; if (!cv || !cv.width) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const lnAmin = Math.log(TABLE.gAMin), lnAmax = Math.log(TABLE.gAMax);
-  const xOf = tt => PAD.l + (Math.log(tt) - lnT0G) / (lnT1G - lnT0G) * gW;
-  const yOf = a => PAD.t + gH - (Math.log(a) - lnAmin) / (lnAmax - lnAmin) * gH;
-  ctx.strokeStyle = COL[0]; ctx.lineWidth = 1.6; ctx.beginPath();
-  const M = 100;
-  for (let i = 0; i <= M; i++) { const lt = lnT0G + (lnT1G - lnT0G) * i / M, tt = Math.exp(lt), a = aOfT(tt);
-    const x = xOf(tt), y = yOf(a); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const tc = clamp(t, T_DISPLAY_START, T_END);
-  ctx.fillStyle = COL[0]; ctx.beginPath(); ctx.arc(xOf(tc), yOf(aOfT(tc)), 3.4, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('a', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[0], { ...TX, title: 'Fattore di scala a(t)', yr: [1e-4, 10], yLog: true });
+  if (!g) return; const [ctx, f] = g;
+  todayLine(ctx, f);
+  Lab.plot(ctx, f, aOfT, [T_DISPLAY_START, T_END], COL[0], 2, [], 300);
+  const tc = clamp(t, T_DISPLAY_START, T_END); Lab.dot(ctx, f, tc, aOfT(tc), COL[0], 4.5);
 }
+// 2: frazioni di densità di radiazione, materia ed energia oscura
 function drawGraphOmega(t) {
-  const cv = gCanvas[1]; if (!cv || !cv.width) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 18, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const xOf = tt => PAD.l + (Math.log(tt) - lnT0G) / (lnT1G - lnT0G) * gW;
-  const yOf = v => PAD.t + gH - clamp(v, 0, 1) * gH;
-  const M = 100, series = { r: [], m: [], l: [] };
-  for (let i = 0; i <= M; i++) { const lt = lnT0G + (lnT1G - lnT0G) * i / M, tt = Math.exp(lt), f = omegaFracsAt(tt);
-    series.r.push([xOf(tt), yOf(f.r)]); series.m.push([xOf(tt), yOf(f.m)]); series.l.push([xOf(tt), yOf(f.l)]); }
-  [['r', COSMO_COL.r], ['m', COSMO_COL.m], ['l', COSMO_COL.l]].forEach(([k, col]) => {
-    ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.beginPath();
-    series[k].forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
-    ctx.stroke();
-  });
-  const tc = clamp(t, T_DISPLAY_START, T_END), fc = omegaFracsAt(tc), xc = xOf(tc);
-  ctx.fillStyle = COSMO_COL.r; ctx.beginPath(); ctx.arc(xc, yOf(fc.r), 2.8, 0, TWO); ctx.fill();
-  ctx.fillStyle = COSMO_COL.m; ctx.beginPath(); ctx.arc(xc, yOf(fc.m), 2.8, 0, TWO); ctx.fill();
-  ctx.fillStyle = COSMO_COL.l; ctx.beginPath(); ctx.arc(xc, yOf(fc.l), 2.8, 0, TWO); ctx.fill();
-  ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left';
-  ctx.fillStyle = COSMO_COL.r; ctx.fillText('Ωr', PAD.l + 2, PAD.t + 7);
-  ctx.fillStyle = COSMO_COL.m; ctx.fillText('Ωm', PAD.l + 2, PAD.t + 16);
-  ctx.fillStyle = COSMO_COL.l; ctx.fillText('ΩΛ', PAD.l + 2, PAD.t + 25);
+  const g = Lab.panel(gCanvas[1], { ...TX, title: 'Densità relative Ω(t)', yr: [0, 1], yStep: 0.25 });
+  if (!g) return; const [ctx, f] = g;
+  todayLine(ctx, f);
+  const tc = clamp(t, T_DISPLAY_START, T_END), fc = omegaFracsAt(tc);
+  for (const [k, col] of [['r', COSMO_COL.r], ['m', COSMO_COL.m], ['l', COSMO_COL.l]]) {
+    Lab.plot(ctx, f, tt => omegaFracsAt(tt)[k], [T_DISPLAY_START, T_END], col, 2, [], 300);
+    Lab.dot(ctx, f, tc, fc[k], col, 3.5);
+  }
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[COSMO_COL.r, 'radiazione'], [COSMO_COL.m, 'materia'], [COSMO_COL.l, 'energia oscura']]);
 }
+// 3: temperatura del fondo cosmico T = 2,725 K / a
 function drawGraphTemp(t) {
-  const cv = gCanvas[2]; if (!cv || !cv.width) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 16, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMaxT = tempOfT(T_DISPLAY_START), tMinT = tempOfT(T_END);
-  const lnTmpMin = Math.log(tMinT), lnTmpMax = Math.log(tMaxT);
-  const xOf = tt => PAD.l + (Math.log(tt) - lnT0G) / (lnT1G - lnT0G) * gW;
-  const yOf = temp => PAD.t + gH - (Math.log(temp) - lnTmpMin) / (lnTmpMax - lnTmpMin) * gH;
-  ctx.strokeStyle = T.accent; ctx.lineWidth = 1.6; ctx.beginPath();
-  const M = 100;
-  for (let i = 0; i <= M; i++) { const lt = lnT0G + (lnT1G - lnT0G) * i / M, tt = Math.exp(lt);
-    const x = xOf(tt), y = yOf(tempOfT(tt)); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  const tc = clamp(t, T_DISPLAY_START, T_END);
-  ctx.fillStyle = T.accent; ctx.beginPath(); ctx.arc(xOf(tc), yOf(tempOfT(tc)), 3.4, 0, TWO); ctx.fill();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('T (K)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  const g = Lab.panel(gCanvas[2], { ...TX, title: 'Temperatura della radiazione T = 2,725 K / a', yr: [0.1, 1e5], yLog: true });
+  if (!g) return; const [ctx, f] = g;
+  todayLine(ctx, f);
+  Lab.plot(ctx, f, tempOfT, [T_DISPLAY_START, T_END], T.accent, 2, [], 300);
+  const tc = clamp(t, T_DISPLAY_START, T_END); Lab.dot(ctx, f, tc, tempOfT(tc), T.accent, 4.5);
+  ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText('T (K)', f.L + 4, f.T + 8);
 }
-function drawGraphs(t) {
-  const titles = ['a(t) — fattore di scala', 'Ω(t) — densità relative', 'T(t) — temperatura'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphA(t); drawGraphOmega(t); drawGraphTemp(t);
-}
+function drawGraphs(t) { drawGraphA(t); drawGraphOmega(t); drawGraphTemp(t); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function reControls() { setTimeout(buildControls, 0); }
@@ -576,26 +558,20 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 't', label: 'Tempo cosmico' },
-    { key: 'a', label: 'Fattore a' },
-    { key: 'z', label: 'Redshift z' },
-    { key: 'T', label: 'Temperatura' },
-    { key: 'epoch', label: 'Epoca' },
+    { key: 't', label: 'tempo dal Big Bang' },
+    { key: 'a', label: 'fattore di scala a' },
+    { key: 'z', label: 'redshift z' },
+    { key: 'T', label: 'temperatura della radiazione' },
+    { key: 'epoch', label: 'epoca' },
+    { key: 'age', label: 'età dell’universo oggi' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -620,7 +596,7 @@ function init() {
   });
 
   // trascina sul cono per scorrere il tempo (solo in modalità Cronologia)
-  function evtX(e) { const r = simCanvas.getBoundingClientRect(); return (e.clientX - r.left) * (simCanvas.width / r.width); }
+  function evtX(e) { const r = simCanvas.getBoundingClientRect(); return e.clientX - r.left; }
   function setPosFromScreen(sx) {
     if (P.mode !== 'timeline' || !G.coneX1) return;
     const xf = clamp((sx - G.coneX0) / (G.coneX1 - G.coneX0), 0, 1);
@@ -636,9 +612,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -664,10 +639,11 @@ function init() {
       draw(simCanvas, t); drawGraphs(t);
       const ep = currentEpoch(t);
       readout.set('t', fmtTime(t));
-      readout.set('a', aOfT(t).toExponential(2));
-      readout.set('z', zOfT(t) > 1e4 ? zOfT(t).toExponential(2) : zOfT(t).toFixed(2));
-      readout.set('T', (tempOfT(t) >= 1000 ? tempOfT(t).toExponential(2) : tempOfT(t).toFixed(1)) + ' K');
+      readout.set('a', Lab.sci(aOfT(t), 3));
+      readout.set('z', Lab.sci(zOfT(t), 3));
+      readout.set('T', Lab.sci(tempOfT(t), 3) + ' K');
       readout.set('epoch', ep.name);
+      readout.set('age', Lab.fmt(TABLE.age, 2) + ' mld di anni');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);
   }

@@ -145,8 +145,7 @@ function step(dt){
 
 // ═══ Rendering ════════════════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal();
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   geomBands(W,H);
@@ -160,7 +159,7 @@ function draw(canvas){
   ctx.fillStyle=cls==='Conduttore'?'rgb(95,225,140)':cls==='Semiconduttore'?'rgb(255,205,70)':'rgb(255,120,100)';
   ctx.fillText(cls.toUpperCase(), W-14, 22);
   ctx.fillStyle=T.sub; ctx.font='9px "Space Mono",monospace';
-  ctx.fillText('E_g='+P.Eg.toFixed(2)+' eV · T='+P.T+' K · σ='+sigmaOf(P.T,P.Eg).toExponential(1)+' S/m', W-14, 36);
+  ctx.fillText('E_g='+Lab.fmt(P.Eg,2)+' eV · T='+P.T+' K · σ='+Lab.sci(sigmaOf(P.T,P.Eg),2)+' S/m', W-14, 36);
 }
 
 function drawCrystal(ctx){
@@ -209,50 +208,37 @@ function dashLevel(ctx,y,label){
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
+// livello di Fermi: a metà gap nel semiconduttore puro; il drogaggio lo avvicina alla banda di conduzione (n) o di valenza (p)
+function fermiLevel() {
+  if (classify() !== 'Semiconduttore' || P.doping === 'i') return P.Eg / 2;
+  return P.doping === 'n' ? Math.max(P.Eg / 2, P.Eg - 0.2) : Math.min(P.Eg / 2, 0.2);
 }
 function drawGraphs(){
-  // 1: σ(T) log
-  if(gCanvas[0]&&gCanvas[0].width){ const cv=gCanvas[0],ctx=gCtx[0],W=cv.width,H=cv.height; const PAD={t:14,b:18,l:26,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const Tmax=600, lo=-6,hi=8;
-    const xOf=t=>PAD.l+(t-50)/(Tmax-50)*gW, yOf=s=>PAD.t+gH-(clamp(Math.log10(Math.max(1e-6,s)),lo,hi)-lo)/(hi-lo)*gH;
-    // riferimenti
-    [[0,[120,140,170]],[1.12,[120,140,170]],[5.47,[120,140,170]]].forEach(r=>{ ctx.strokeStyle=rgba(r[1],0.3); ctx.lineWidth=1; ctx.beginPath(); let f=true;
-      for(let t=60;t<=Tmax;t+=20){ const x=xOf(t),y=yOf(sigmaOf(t,r[0])); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke(); });
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.7; ctx.beginPath(); let f=true;
-    for(let t=60;t<=Tmax;t+=15){ const x=xOf(t),y=yOf(sigmaOf(t,P.Eg)); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=rgb(T.fermi); ctx.beginPath(); ctx.arc(xOf(P.T),yOf(sigmaOf(P.T,P.Eg)),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('σ(log)',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('T',PAD.l+gW-2,PAD.t+gH-3);
-  }
-  // 2: distribuzione di Fermi-Dirac
-  if(gCanvas[1]&&gCanvas[1].width){ const cv=gCanvas[1],ctx=gCtx[1],W=cv.width,H=cv.height; const PAD={t:14,b:18,l:22,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const Emin=-1.2, Emax=Math.max(2,P.Eg+1.2), Ef=P.Eg/2, kT=kT_eV();
-    const xOf=E=>PAD.l+(E-Emin)/(Emax-Emin)*gW, yOf=f=>PAD.t+gH-f*gH*0.9;
-    // bande
-    ctx.fillStyle=rgba(T.val,0.18); ctx.fillRect(xOf(Emin),PAD.t,xOf(0)-xOf(Emin),gH);
-    ctx.fillStyle=rgba(T.cond,0.16); ctx.fillRect(xOf(P.Eg),PAD.t,xOf(Emax)-xOf(P.Eg),gH);
-    // f(E)
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let i=0;i<=120;i++){ const E=Emin+(Emax-Emin)*i/120, fv=1/(1+Math.exp((E-Ef)/kT)); const x=xOf(E),y=yOf(fv); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('f(E)',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('E',PAD.l+gW-2,PAD.t+gH-3);
-    ctx.fillStyle=rgb(T.val); ctx.textAlign='center'; ctx.fillText('val',xOf(-0.6),PAD.t+gH-3); ctx.fillStyle=rgb(T.cond); ctx.fillText('cond',xOf(P.Eg+0.6),PAD.t+gH-3);
-  }
-  // 3: Arrhenius ln σ vs 1/T
-  if(gCanvas[2]&&gCanvas[2].width){ const cv=gCanvas[2],ctx=gCtx[2],W=cv.width,H=cv.height; const PAD={t:14,b:18,l:30,r:8};
-    const {gW,gH}=gBase(ctx,W,H,PAD); const xs=[1/600,1/100];
-    const ys=[Math.log(sigmaOf(600,P.Eg)), Math.log(sigmaOf(100,P.Eg))];
-    let ymin=Math.min(ys[0],ys[1]), ymax=Math.max(ys[0],ys[1]); if(ymax-ymin<1){ymax+=1;ymin-=1;}
-    const xOf=it=>PAD.l+(it-xs[0])/(xs[1]-xs[0])*gW, yOf=y=>PAD.t+gH-(y-ymin)/(ymax-ymin)*gH*0.92;
-    ctx.strokeStyle=T.accent; ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-    for(let t=600;t>=100;t-=10){ const x=xOf(1/t),y=yOf(Math.log(sigmaOf(t,P.Eg))); f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y);} ctx.stroke();
-    ctx.fillStyle=rgb(T.fermi); ctx.beginPath(); ctx.arc(xOf(1/P.T),yOf(Math.log(sigmaOf(P.T,P.Eg))),3.5,0,Math.PI*2); ctx.fill();
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('ln σ',PAD.l+2,PAD.t+7); ctx.textAlign='right'; ctx.fillText('1/T',PAD.l+gW-2,PAD.t+gH-3);
-  }
+  // 1: conducibilità intrinseca in funzione della temperatura (scala logaritmica), con i riferimenti
+  //    di metallo (gap nullo), silicio (1,12 eV) e diamante (5,47 eV)
+  let g=Lab.panel(gCanvas[0],{ title:'Conducibilità σ (S/m) in funzione di T', xr:[50,600], xStep:100, yr:[1e-6,1e8], yLog:true, xLabel:'temperatura T (K)' });
+  if(g){ const [ctx,f]=g;
+    for(const eg of [0,1.12,5.47]) Lab.plot(ctx,f,t=>Math.max(1e-7,sigmaOf(t,eg)),[60,600],f.C.text,1,[3,3]);
+    Lab.plot(ctx,f,t=>Math.max(1e-7,sigmaOf(t,P.Eg)),[60,600],T.accent,2);
+    Lab.dot(ctx,f,P.T,sigmaOf(P.T,P.Eg),rgb(T.fermi),4.5);
+    Lab.legend(ctx,f.L+8,f.B-10,[[T.accent,'materiale scelto'],[f.C.text,'metallo, Si, diamante',[3,3]]]); }
+  // 2: distribuzione di Fermi–Dirac f(E): probabilità che uno stato di energia E sia occupato
+  const Emin=-1.2, Emax=Math.max(2,P.Eg+1.2), Ef=fermiLevel(), kT=kT_eV();
+  g=Lab.panel(gCanvas[1],{ title:`Occupazione f(E) di Fermi–Dirac a ${Lab.fmt(P.T,0)} K`, xr:[Emin,Emax], yr:[0,1], yStep:0.25, xLabel:'energia E (eV, 0 = cima della valenza)' });
+  if(g){ const [ctx,f]=g;
+    ctx.fillStyle=rgba(T.val,0.18); ctx.fillRect(f.L,f.T,f.X(0)-f.L,f.B-f.T);
+    ctx.fillStyle=rgba(T.cond,0.16); ctx.fillRect(f.X(P.Eg),f.T,f.R-f.X(P.Eg),f.B-f.T);
+    ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=rgb(T.fermi); ctx.beginPath(); ctx.moveTo(f.X(Ef),f.T); ctx.lineTo(f.X(Ef),f.B); ctx.stroke(); ctx.restore();
+    Lab.plot(ctx,f,E=>1/(1+Math.exp((E-Ef)/kT)),[Emin,Emax],T.accent,2,[],400);
+    ctx.font='9.5px "DM Sans",sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='center';
+    ctx.fillStyle=rgb(T.val); ctx.fillText('valenza',(f.L+f.X(0))/2,f.T+8);
+    ctx.fillStyle=rgb(T.cond); ctx.fillText('conduzione',(f.X(P.Eg)+f.R)/2,f.T+8);
+    ctx.fillStyle=rgb(T.fermi); ctx.fillText('E_F',f.X(Ef),f.B-8); }
+  // 3: grafico di Arrhenius: ln σ in funzione di 1/T è una retta di pendenza −E_g/(2k)
+  g=Lab.panel(gCanvas[2],{ title:'Grafico di Arrhenius: ln σ in funzione di 1000/T', xr:[1000/600,10], xStep:2, yr:(()=>{ const a=Math.log(sigmaOf(600,P.Eg)), b=Math.log(sigmaOf(100,P.Eg)); const lo=Math.min(a,b), hi=Math.max(a,b), st=Lab.niceStep(Math.max(hi-lo,2)); return [Math.floor(lo/st)*st, Math.ceil(hi/st)*st]; })(), xLabel:'1000 / T (K⁻¹)' });
+  if(g){ const [ctx,f]=g;
+    Lab.plot(ctx,f,x=>Math.log(sigmaOf(1000/x,P.Eg)),[1000/600,10],T.accent,2);
+    Lab.dot(ctx,f,1000/P.T,Math.log(sigmaOf(P.T,P.Eg)),rgb(T.fermi),4.5); }
 }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
@@ -260,7 +246,7 @@ function reControls(){ setTimeout(buildControls,0); }
 function buildControls(){
   const cont=document.getElementById('controls'); cont.innerHTML='';
   const secM=Lab.Section('Materiale'); cont.appendChild(secM.el);
-  secM.add(Lab.RadioGroup({ label:'Preset', options:Object.keys(MATS).map(k=>({value:k,label:MATS[k].name,hint:MATS[k].Eg.toFixed(2)+' eV'})),
+  secM.add(Lab.RadioGroup({ label:'Preset', options:Object.keys(MATS).map(k=>({value:k,label:MATS[k].name,hint:Lab.fmt(MATS[k].Eg,2)+' eV'})),
     value:P.mat, onChange(v){ P.mat=v; P.Eg=MATS[v].Eg; reControls(); } }));
   secM.add(Lab.Slider({ label:'Gap E_g', min:0, max:6, step:0.05, value:P.Eg, unit:' eV', onChange(v){ P.Eg=v; P.mat='custom'; } }));
   const secT=Lab.Section('Condizioni'); cont.appendChild(secT.el);
@@ -270,19 +256,11 @@ function buildControls(){
     value:P.doping, onChange(v){ P.doping=v; } }));
 }
 
-function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Conduttività σ(T)','Distribuzione di Fermi-Dirac','Arrhenius: ln σ vs 1/T'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d'); gTitle[i]=title;
-  }
+function initGraphs() {
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -291,12 +269,12 @@ function init(){
   buildControls(); initGraphs(); initSim();
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'cls', label:'Classificazione'},
-    {key:'eg',  label:'Gap E_g'},
-    {key:'t',   label:'Temperatura'},
-    {key:'exc', label:'Frazione eccitata'},
-    {key:'ni',  label:'n_i (relativa)'},
-    {key:'sig', label:'σ relativa'},
+    {key:'cls', label:'classificazione'},
+    {key:'eg',  label:'gap E_g'},
+    {key:'t',   label:'temperatura'},
+    {key:'exc', label:'frazione eccitata e^(−E_g/2kT)'},
+    {key:'ni',  label:'portatori intrinseci (relativi)'},
+    {key:'sig', label:'conducibilità σ'},
   ]);
   const btnHeat=document.getElementById('btnHeat');
   btnHeat.addEventListener('click',()=>{ P.T=clamp(P.T+100,50,600); buildControls(); });
@@ -310,10 +288,9 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(220,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    geomBands(simCanvas.width,simCanvas.height);
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    geomBands(simCanvas.width/(simCanvas._dpr||1),simCanvas.height/(simCanvas._dpr||1));
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -328,11 +305,11 @@ function init(){
     try{
       step(dt); draw(simCanvas); drawGraphs();
       readout.set('cls', classify());
-      readout.set('eg', P.Eg.toFixed(2)+' eV');
-      readout.set('t', P.T+' K');
-      readout.set('exc', excFrac()<1e-3? excFrac().toExponential(1) : excFrac().toFixed(3));
-      readout.set('ni', niRel().toExponential(1));
-      readout.set('sig', sigmaOf(P.T,P.Eg).toExponential(1)+' S/m');
+      readout.set('eg', Lab.fmt(P.Eg,2)+' eV');
+      readout.set('t', Lab.fmt(P.T,0)+' K');
+      readout.set('exc', excFrac()<1e-3? Lab.sci(excFrac(),2) : Lab.fmt(excFrac(),3));
+      readout.set('ni', Lab.sci(niRel(),2));
+      readout.set('sig', Lab.sci(sigmaOf(P.T,P.Eg),2)+' S/m');
     }catch(err){ console.error(err); }
     requestAnimationFrame(frame);
   }

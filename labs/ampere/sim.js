@@ -363,7 +363,7 @@ function updateReadout() {
     { label: 'lunghezza del percorso', value: Lab.fmt(Lcm, 1) + ' cm' },
     { label: 'fili interni',          value: `${enc} su ${sources.length}` },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 

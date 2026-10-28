@@ -31,7 +31,7 @@ const params = {
   preset2:     2,   // BK7
   preset3:     0,   // Aria
   n1c: 1.000, n2c: 1.520, n3c: 1.000,   // custom n per preset=CUSTOM
-  d2:      3,       // lastra (scene units 0.5–10)
+  d2:      3,       // spessore della lastra (cm)
   useN3:  false,
   dispersion: false,
 };
@@ -234,7 +234,7 @@ function drawAngles(ray, hx, y1, y2, dark) {
     const mid = a0 + (a1 - a0) * 0.5;
     ctx.fillStyle = textCol;
     ctx.fillText(
-      `θ=${(Math.abs(a0 - a1) * 180/Math.PI).toFixed(1)}°`,
+      `θ=${Lab.fmt(Math.abs(a0 - a1) * 180/Math.PI, 1)}°`,
       cx + Math.cos(mid) * (r + 18),
       cy + Math.sin(mid) * (r + 18)
     );
@@ -269,12 +269,12 @@ function drawLabels(y1, y2, dark) {
   const n2 = getN(params.preset2, params.n2c, null);
   const n3 = getN(params.preset3, params.n3c, null);
 
-  ctx.fillText(`${MEDIA[params.preset1].name}  n₁ = ${n1.toFixed(3)}`, lx, y1 * 0.50 + fSize * 0.4);
-  ctx.fillText(`${MEDIA[params.preset2].name}  n₂ = ${n2.toFixed(3)}`, lx, y1 + (y2-y1) * 0.50 + fSize * 0.4);
+  ctx.fillText(`${MEDIA[params.preset1].name}  n₁ = ${Lab.fmt(n1, 3)}`, lx, y1 * 0.50 + fSize * 0.4);
+  ctx.fillText(`${MEDIA[params.preset2].name}  n₂ = ${Lab.fmt(n2, 3)}`, lx, y1 + (y2-y1) * 0.50 + fSize * 0.4);
   const m3name = params.useN3 ? MEDIA[params.preset3].name : MEDIA[params.preset1].name;
   const n3val  = params.useN3 ? n3 : n1;
   const n3key  = params.useN3 ? 'n₃' : 'n₁';
-  ctx.fillText(`${m3name}  ${n3key} = ${n3val.toFixed(3)}`, lx, y2 + (ch-y2) * 0.50 + fSize * 0.4);
+  ctx.fillText(`${m3name}  ${n3key} = ${Lab.fmt(n3val, 3)}`, lx, y2 + (ch-y2) * 0.50 + fSize * 0.4);
 }
 
 /* ── Readout ─────────────────────────────────────────────── */
@@ -284,261 +284,97 @@ function updateReadout() {
   const n2  = getN(params.preset2, params.n2c, null);
   const n3  = params.useN3 ? getN(params.preset3, params.n3c, null) : n1;
 
-  const items = [{ label: 'θ₁', value: `${params.theta1.toFixed(1)}°` }];
-
+  const items = [{ label: 'incidenza θ₁', value: `${Lab.fmt(params.theta1, 1)}°` }];
+  const deg = r => `${Lab.fmt(r * 180 / Math.PI, 1)}°`;
   if (ray.tir12) {
-    items.push({ label: '1→2', value: 'RFT totale ⚡' });
+    items.push({ label: 'nel mezzo 2', value: 'riflessione totale' });
   } else {
-    items.push({ label: 'θ₂', value: `${(ray.t2*180/Math.PI).toFixed(2)}°` });
-    if (params.useN3) {
-      ray.tir23
-        ? items.push({ label: '2→3', value: 'RFT totale ⚡' })
-        : items.push({ label: 'θ₃', value: `${(ray.t3*180/Math.PI).toFixed(2)}°` });
-    }
-    if (!ray.tir23) {
-      const dp = (y2Int() - y1Int()) * (Math.tan(ray.t1) - Math.tan(ray.t2));
-      items.push({ label: 'Scostamento', value: `${(Math.abs(dp)*100/cw).toFixed(1)} %` });
-    }
+    items.push({ label: 'rifrazione θ₂', value: deg(ray.t2) });
+    if (params.useN3) items.push(ray.tir23 ? { label: 'nel mezzo 3', value: 'riflessione totale' } : { label: 'nel mezzo 3 θ₃', value: deg(ray.t3) });
+    // spostamento laterale del raggio uscente rispetto al prolungamento di quello incidente
+    if (!params.useN3 || Math.abs(n3 - n1) < 1e-9)
+      items.push({ label: 'spostamento laterale', value: `${Lab.fmt(params.d2 * Math.sin(ray.t1 - ray.t2) / Math.cos(ray.t2), 2)} cm` });
   }
-
-  if (n1 > n2) items.push({ label: 'θ_c (1→2)', value: `${(Math.asin(n2/n1)*180/Math.PI).toFixed(1)}°` });
-  if (params.useN3 && n2 > n3) items.push({ label: 'θ_c (2→3)', value: `${(Math.asin(n3/n2)*180/Math.PI).toFixed(1)}°` });
+  const r = fresnel(n1, n2, ray.t1);
+  items.push({ label: 'luce riflessa', value: `${Lab.fmt((r.Rs + r.Rp) * 50, 1)} %` });
+  if (n1 > n2) items.push({ label: 'angolo limite 1→2', value: deg(Math.asin(n2 / n1)) });
+  if (params.useN3 && n2 > n3) items.push({ label: 'angolo limite 2→3', value: deg(Math.asin(n3 / n2)) });
 
   readoutEl.innerHTML = items.map(it =>
-    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(it.label)}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
 }
 
 /* ── Graphs ──────────────────────────────────────────────── */
+// frazione di luce riflessa all'interfaccia a → b (formule di Fresnel), polarizzazione s e p
+function fresnel(na, nb, th) {
+  const s = na * Math.sin(th) / nb;
+  if (s >= 1) return { Rs: 1, Rp: 1 };
+  const ci = Math.cos(th), ct = Math.sqrt(1 - s * s);
+  const rs = (na * ci - nb * ct) / (na * ci + nb * ct), rp = (nb * ci - na * ct) / (nb * ci + na * ct);
+  return { Rs: rs * rs, Rp: rp * rp };
+}
+// zona di riflessione totale: da θ_c a 90°
+function shadeFrom(f, deg) {
+  if (deg == null) return;
+  gctx.fillStyle = f.C.light ? 'rgba(220,60,60,0.08)' : 'rgba(255,80,80,0.09)';
+  gctx.fillRect(f.X(deg), f.T, f.R - f.X(deg), f.B - f.T);
+  gctx.save(); gctx.setLineDash([4, 3]); gctx.strokeStyle = 'rgba(255,90,100,0.6)';
+  gctx.beginPath(); gctx.moveTo(f.X(deg), f.T); gctx.lineTo(f.X(deg), f.B); gctx.stroke(); gctx.restore();
+}
+
 function drawGraphs() {
   if (!gw || !gh) return;
-  const dark = document.documentElement.dataset.theme !== 'light';
   gctx.clearRect(0, 0, gw, gh);
-
-  const pw = Math.floor(gw / 3);
-  drawAnglePanel(0,    0, pw,        gh, dark, 1);
-  drawAnglePanel(pw,   0, pw,        gh, dark, 2);
-  params.dispersion
-    ? drawNPanel  (pw*2, 0, gw-pw*2, gh, dark)
-    : drawDevPanel(pw*2, 0, gw-pw*2, gh, dark);
-}
-
-/* Shared panel setup: background + grid, returns inner rect */
-const GP = { l:42, r:10, t:20, b:26 };
-function panelBase(ox, oy, pw, ph, dark) {
-  gctx.fillStyle = dark ? '#0b1018' : '#f0f2f5';
-  gctx.fillRect(ox, oy, pw, ph);
-  const l = ox+GP.l, t = oy+GP.t, iW = pw-GP.l-GP.r, iH = ph-GP.t-GP.b;
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
-  gctx.lineWidth = 1;
-  for (let i=0; i<=4; i++) {
-    const x=l+(i/4)*iW; gctx.beginPath(); gctx.moveTo(x,t); gctx.lineTo(x,t+iH); gctx.stroke();
-    const y=t+(i/4)*iH; gctx.beginPath(); gctx.moveTo(l,y); gctx.lineTo(l+iW,y); gctx.stroke();
-  }
-  if (ox > 0) {
-    gctx.strokeStyle = dark ? 'rgba(0,212,255,0.07)' : 'rgba(0,100,160,0.07)';
-    gctx.beginPath(); gctx.moveTo(ox,oy); gctx.lineTo(ox,oy+ph); gctx.stroke();
-  }
-  return { l, t, iW, iH };
-}
-
-function panelTitle(ox, oy, pw, title, dark) {
-  gctx.fillStyle = dark ? 'rgba(200,220,255,0.50)' : 'rgba(40,60,100,0.50)';
-  gctx.font = `10px 'Space Mono', monospace`;
-  gctx.textAlign = 'center';
-  gctx.fillText(title, ox + pw/2, oy + 13);
-}
-
-function xAxisLabels(l, t, iW, iH, dark) {
-  const textC = dark ? '#6b8099' : '#4a6278';
-  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
-  gctx.textAlign = 'center';
-  gctx.fillText('0°',  l,        t+iH+16);
-  gctx.fillText('45°', l+iW/2,   t+iH+16);
-  gctx.fillText('90°', l+iW,     t+iH+16);
-  gctx.textAlign = 'right';
-  gctx.fillText('0°',  l-4, t+iH+4);
-  gctx.fillText('90°', l-4, t+4);
-}
-
-/* Panel 1: θ₂ vs θ₁  /  Panel 2: θ_exit vs θ₁ */
-function drawAnglePanel(ox, oy, pw, ph, dark, pass) {
-  const { l, t, iW, iH } = panelBase(ox, oy, pw, ph, dark);
-  const axis = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-
-  const n1 = getN(params.preset1, params.n1c, null);
-  const n2 = getN(params.preset2, params.n2c, null);
+  const pw = gw / 3, d2r = Math.PI / 180;
+  const n1 = getN(params.preset1, params.n1c, null), n2 = getN(params.preset2, params.n2c, null);
   const n3 = params.useN3 ? getN(params.preset3, params.n3c, null) : n1;
-
-  /* TIR zone shading */
-  let tirDeg = null;
-  if (pass === 1 && n1 > n2) {
-    tirDeg = Math.asin(n2/n1) * 180/Math.PI;
-  } else if (pass === 2 && n2 > n3) {
-    const sinT1c = n3 / n1;
-    if (sinT1c < 1) tirDeg = Math.asin(sinT1c) * 180/Math.PI;
-  }
-  if (tirDeg !== null) {
-    const cx = l + (tirDeg/90)*iW;
-    gctx.fillStyle = dark ? 'rgba(255,71,87,0.12)' : 'rgba(255,71,87,0.09)';
-    gctx.fillRect(cx, t, l+iW-cx, iH);
-    gctx.strokeStyle = dark ? 'rgba(255,71,87,0.50)' : 'rgba(200,50,60,0.40)';
-    gctx.lineWidth = 1; gctx.setLineDash([4,3]);
-    gctx.beginPath(); gctx.moveTo(cx,t); gctx.lineTo(cx,t+iH); gctx.stroke();
-    gctx.setLineDash([]);
-  }
-
-  /* Snell curve */
-  const curveCol = pass === 1 ? '#00d4ff' : '#2ecc71';
-  gctx.strokeStyle = curveCol; gctx.lineWidth = 1.8; gctx.beginPath();
-  let first = true;
-  for (let deg = 0; deg <= 89.5; deg += 0.5) {
-    const s1  = Math.sin(deg * Math.PI/180);
-    const sT2 = n1 * s1 / n2;
-    if (sT2 >= 1) break;
-    const t2_ = Math.asin(sT2);
-    let refDeg;
-    if (pass === 1) {
-      refDeg = t2_ * 180/Math.PI;
-    } else {
-      const sT3 = n2 * Math.sin(t2_) / n3;
-      if (sT3 >= 1) break;
-      refDeg = Math.asin(sT3) * 180/Math.PI;
-    }
-    const x = l + (deg/90)*iW;
-    const y = t + iH - (refDeg/90)*iH;
-    first ? (gctx.moveTo(x,y), first=false) : gctx.lineTo(x,y);
-  }
-  gctx.stroke();
-
-  /* Current θ₁ crosshair */
-  const curX = l + (params.theta1/90)*iW;
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
-  gctx.lineWidth = 1; gctx.setLineDash([3,3]);
-  gctx.beginPath(); gctx.moveTo(curX,t); gctx.lineTo(curX,t+iH); gctx.stroke();
-  gctx.setLineDash([]);
-
   const ray = traceRay(params.theta1, null);
-  const curRefDeg = pass===1
-    ? (ray.tir12 ? null : ray.t2*180/Math.PI)
-    : (ray.tir12 || ray.tir23 ? null : ray.t3*180/Math.PI);
-  if (curRefDeg !== null) {
-    const curY = t + iH - (curRefDeg/90)*iH;
-    gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
-    gctx.setLineDash([3,3]);
-    gctx.beginPath(); gctx.moveTo(l,curY); gctx.lineTo(l+iW,curY); gctx.stroke();
-    gctx.setLineDash([]);
-    gctx.fillStyle = curveCol;
-    gctx.beginPath(); gctx.arc(curX, curY, 4, 0, Math.PI*2); gctx.fill();
+  const box = i => ({ x: i * pw + 3, y: 3, w: (i < 2 ? pw : gw - 2 * pw) - 6, h: gh - 6, xr: [0, 90], xStep: 15, xLabel: 'θ₁ (°)', yr: [0, 90], yStep: 15 });
+  const th2 = deg => { const s = n1 * Math.sin(deg * d2r) / n2; return s < 1 ? Math.asin(s) / d2r : NaN; };
+  const th3 = deg => { const s = n1 * Math.sin(deg * d2r) / n3; return s < 1 && Number.isFinite(th2(deg)) ? Math.asin(s) / d2r : NaN; };
+  const tc12 = n1 > n2 ? Math.asin(n2 / n1) / d2r : null, tc13 = n1 > n3 ? Math.asin(n3 / n1) / d2r : null;
+
+  // 1: legge di Snell n₁·sin θ₁ = n₂·sin θ₂
+  let f = Lab.axes(gctx, { ...box(0), title: 'Angolo di rifrazione θ₂ (°) — legge di Snell' });
+  shadeFrom(f, tc12);
+  Lab.plot(gctx, f, d => d, [0, 90], f.C.light ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.18)', 1, [3, 3]);
+  Lab.plot(gctx, f, th2, [0, 90], '#00d4ff', 2);
+  if (!ray.tir12) Lab.dot(gctx, f, params.theta1, ray.t2 / d2r, '#00d4ff', 4.5);
+  Lab.legend(gctx, f.L + 8, f.T + 8, [['#00d4ff', 'θ₂'], [f.C.light ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)', 'θ₂ = θ₁ (nessuna deviazione)', [3, 3]]]);
+
+  // 2: con il terzo mezzo, angolo nel mezzo 3; altrimenti n(λ) dei mezzi (dispersione)
+  if (params.useN3) {
+    f = Lab.axes(gctx, { ...box(1), title: 'Angolo nel terzo mezzo θ₃ (°)' });
+    shadeFrom(f, tc12 != null && tc13 != null ? Math.min(tc12, tc13) : (tc12 ?? tc13));
+    Lab.plot(gctx, f, th3, [0, 90], '#2ecc71', 2);
+    if (!ray.tir12 && !ray.tir23) Lab.dot(gctx, f, params.theta1, ray.t3 / d2r, '#2ecc71', 4.5);
+  } else {
+    // solo i mezzi dispersivi (l'aria, costante, schiaccerebbe la scala); se nessuno lo è, la lastra
+    let ms = [[params.preset1, params.n1c, MCOLORS[0]], [params.preset2, params.n2c, MCOLORS[1]]].filter(([pi]) => pi !== CUSTOM && MEDIA[pi].B > 0);
+    if (!ms.length) ms = [[params.preset2, params.n2c, MCOLORS[1]]];
+    const nOf = (pi, nc, lam) => pi === CUSTOM ? nc : cauchyN(MEDIA[pi], lam);
+    let lo = Infinity, hi = -Infinity;
+    for (const [pi, nc] of ms) for (let lam = 380; lam <= 700; lam += 10) { const v = nOf(pi, nc, lam); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const sp = Math.max(hi - lo, 0.02), ys = Lab.niceStep(sp * 1.4);
+    f = Lab.axes(gctx, { x: pw + 3, y: 3, w: pw - 6, h: gh - 6, xr: [380, 700], xStep: 50, xLabel: 'λ (nm)', title: 'Indice di rifrazione n(λ) — dispersione',
+      yr: [Math.floor((lo - sp * 0.2) / ys) * ys, Math.ceil((hi + sp * 0.2) / ys) * ys], yStep: ys, padL: 52 });
+    for (const [pi, nc, col] of ms) Lab.plot(gctx, f, lam => nOf(pi, nc, lam), [380, 700], col, 2);
+    Lab.legend(gctx, f.L + 8, f.T + 8, ms.map(([pi, , col]) => [col, MEDIA[pi].name]));
   }
 
-  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
-  xAxisLabels(l, t, iW, iH, dark);
-  panelTitle(ox, oy, pw,
-    pass===1 ? 'θ₂ vs θ₁  (n₁→n₂)' : (params.useN3 ? 'θ₃ vs θ₁  (n₂→n₃)' : 'θ_exit vs θ₁'), dark);
-}
-
-/* Panel 3a: n(λ) curves — dispersion mode */
-function drawNPanel(ox, oy, pw, ph, dark) {
-  const { l, t, iW, iH } = panelBase(ox, oy, pw, ph, dark);
-  const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-  const textC = dark ? '#6b8099' : '#4a6278';
-
-  const presets   = [params.preset1, params.preset2, ...(params.useN3 ? [params.preset3] : [])];
-  const customNs  = [params.n1c, params.n2c, params.n3c];
-  const lamMin = WAVELENGTHS[0].lam, lamMax = WAVELENGTHS[WAVELENGTHS.length-1].lam;
-
-  /* n range */
-  let nMin = Infinity, nMax = -Infinity;
-  presets.forEach((pi, mi) => {
-    WAVELENGTHS.forEach(w => {
-      const n = pi === CUSTOM ? customNs[mi] : cauchyN(MEDIA[pi], w.lam);
-      if (n < nMin) nMin = n; if (n > nMax) nMax = n;
-    });
-  });
-  const span = Math.max(nMax - nMin, 0.05);
-  const nLo = nMin - span*0.18, nHi = nMax + span*0.18;
-
-  /* Spectrum strip */
-  WAVELENGTHS.forEach((w, i) => {
-    const x1 = l + ((w.lam-lamMin)/(lamMax-lamMin))*iW;
-    const x2 = i+1 < WAVELENGTHS.length
-      ? l + ((WAVELENGTHS[i+1].lam-lamMin)/(lamMax-lamMin))*iW : l+iW;
-    gctx.fillStyle = hexToRgba(w.color, 0.65);
-    gctx.fillRect(x1, t+iH+2, x2-x1, 5);
-  });
-
-  /* n(λ) curves */
-  presets.forEach((pi, mi) => {
-    gctx.strokeStyle = MCOLORS[mi]; gctx.lineWidth = 2; gctx.setLineDash([]);
-    gctx.beginPath();
-    WAVELENGTHS.forEach((w, i) => {
-      const n = pi === CUSTOM ? customNs[mi] : cauchyN(MEDIA[pi], w.lam);
-      const x = l + ((w.lam-lamMin)/(lamMax-lamMin))*iW;
-      const y = t + iH - ((n-nLo)/(nHi-nLo))*iH;
-      i===0 ? gctx.moveTo(x,y) : gctx.lineTo(x,y);
-    });
-    gctx.stroke();
-  });
-
-  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
-  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
-  gctx.textAlign = 'center';
-  gctx.fillText(`${lamMin}`, l, t+iH+16);
-  gctx.fillText(`${Math.round((lamMin+lamMax)/2)}`, l+iW/2, t+iH+16);
-  gctx.fillText(`${lamMax} nm`, l+iW, t+iH+16);
-  gctx.textAlign = 'right';
-  gctx.fillText(nLo.toFixed(3), l-4, t+iH+4);
-  gctx.fillText(nHi.toFixed(3), l-4, t+4);
-  panelTitle(ox, oy, pw, 'n(λ) — dispersione', dark);
-}
-
-/* Panel 3b: deviation |θ₁−θ₂| or |θ₁−θ₃| vs θ₁ — monochromatic mode */
-function drawDevPanel(ox, oy, pw, ph, dark) {
-  const { l, t, iW, iH } = panelBase(ox, oy, pw, ph, dark);
-  const axis  = dark ? 'rgba(200,220,255,0.35)' : 'rgba(0,0,0,0.28)';
-  const textC = dark ? '#6b8099' : '#4a6278';
-
-  const n1 = getN(params.preset1, params.n1c, null);
-  const n2 = getN(params.preset2, params.n2c, null);
-  const n3 = params.useN3 ? getN(params.preset3, params.n3c, null) : n1;
-
-  const pts = [];
-  for (let deg = 0; deg <= 89.5; deg += 0.5) {
-    const sT2 = n1 * Math.sin(deg*Math.PI/180) / n2;
-    if (sT2 >= 1) break;
-    const t2_ = Math.asin(sT2);
-    if (params.useN3) {
-      const sT3 = n2 * Math.sin(t2_) / n3;
-      if (sT3 >= 1) break;
-      pts.push({ deg, dev: Math.abs(deg - Math.asin(sT3)*180/Math.PI) });
-    } else {
-      pts.push({ deg, dev: Math.abs(deg - t2_*180/Math.PI) });
-    }
-  }
-  const devMax = Math.max(pts.reduce((m,p) => Math.max(m,p.dev), 0), 1);
-
-  gctx.strokeStyle = '#ffb400'; gctx.lineWidth = 1.8; gctx.beginPath();
-  pts.forEach(({ deg, dev }, i) => {
-    const x = l + (deg/90)*iW, y = t + iH - (dev/devMax)*iH;
-    i===0 ? gctx.moveTo(x,y) : gctx.lineTo(x,y);
-  });
-  gctx.stroke();
-
-  const curX = l + (params.theta1/90)*iW;
-  gctx.strokeStyle = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
-  gctx.lineWidth = 1; gctx.setLineDash([3,3]);
-  gctx.beginPath(); gctx.moveTo(curX,t); gctx.lineTo(curX,t+iH); gctx.stroke();
-  gctx.setLineDash([]);
-
-  gctx.strokeStyle = axis; gctx.lineWidth = 1; gctx.strokeRect(l,t,iW,iH);
-  gctx.fillStyle = textC; gctx.font = `10px 'Space Mono', monospace`;
-  gctx.textAlign = 'center';
-  gctx.fillText('0°', l, t+iH+16); gctx.fillText('45°', l+iW/2, t+iH+16); gctx.fillText('90°', l+iW, t+iH+16);
-  gctx.textAlign = 'right';
-  gctx.fillText('0°', l-4, t+iH+4); gctx.fillText(`${devMax.toFixed(0)}°`, l-4, t+4);
-  panelTitle(ox, oy, pw,
-    params.useN3 ? '|θ₁−θ₃| deviazione' : '|θ₁−θ₂| rifrazione', dark);
+  // 3: luce riflessa alla prima superficie (Fresnel): si annulla per p all'angolo di Brewster
+  f = Lab.axes(gctx, { ...box(2), title: 'Luce riflessa R (%) — formule di Fresnel', yr: [0, 100], yStep: 25 });
+  shadeFrom(f, tc12);
+  Lab.plot(gctx, f, d => fresnel(n1, n2, d * d2r).Rs * 100, [0, 90], '#ff9d4d', 1.6);
+  Lab.plot(gctx, f, d => fresnel(n1, n2, d * d2r).Rp * 100, [0, 90], '#b48cff', 1.6);
+  Lab.plot(gctx, f, d => { const r = fresnel(n1, n2, d * d2r); return (r.Rs + r.Rp) * 50; }, [0, 90], f.C.title, 2);
+  const r0 = fresnel(n1, n2, params.theta1 * d2r);
+  Lab.dot(gctx, f, params.theta1, (r0.Rs + r0.Rp) * 50, f.C.title, 4.5);
+  if (Math.abs(n1 - n2) > 1e-6) { const tb = Math.atan(n2 / n1) / d2r; if (tc12 == null || tb < tc12) {
+    gctx.fillStyle = '#b48cff'; gctx.font = '9.5px "DM Sans",sans-serif'; gctx.textAlign = 'center'; gctx.textBaseline = 'middle';
+    gctx.fillText(`Brewster ${Lab.fmt(tb, 1)}°`, Math.min(f.R - 40, Math.max(f.L + 40, f.X(tb))), f.Y(16)); Lab.dot(gctx, f, tb, 0, '#b48cff', 3.5); } }
+  Lab.legend(gctx, f.L + 8, f.T + 8, [[f.C.title, 'luce naturale'], ['#ff9d4d', 's'], ['#b48cff', 'p']]);
 }
 
 /* ── Controls ────────────────────────────────────────────── */
@@ -563,7 +399,7 @@ function buildControls() {
     onChange(v) { params.n1c = v; requestRedraw(); },
   }));
   if (params.preset1 !== CUSTOM) n1Sub.hide();
-  sec1.add(Lab.RadioGroup({ label:'n1', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
+  sec1.add(Lab.RadioGroup({ label:'Materiale', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
     value: params.preset1,
     onChange(v) {
       params.preset1 = v;
@@ -582,7 +418,7 @@ function buildControls() {
     onChange(v) { params.n2c = v; requestRedraw(); },
   }));
   if (params.preset2 !== CUSTOM) n2Sub.hide();
-  sec2.add(Lab.RadioGroup({ label:'n2', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
+  sec2.add(Lab.RadioGroup({ label:'Materiale', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
     value: params.preset2,
     onChange(v) {
       params.preset2 = v;
@@ -592,8 +428,7 @@ function buildControls() {
   }));
   sec2.add(n2Sub);
   sec2.add(Lab.SliderInput({ label:'Spessore lastra', min:0.5, max:10, step:0.1,
-    value: params.d2, unit:' u',
-    hint: 'profondità della lastra in unità di scena',
+    value: params.d2, unit:' cm',
     onChange(v) { params.d2 = v; requestRedraw(); },
   }));
   el.appendChild(sec2.el);
@@ -610,7 +445,7 @@ function buildControls() {
   }));
   if (params.preset3 !== CUSTOM) n3Sub.hide();
 
-  n3Panel.add(Lab.RadioGroup({ label:'n3', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
+  n3Panel.add(Lab.RadioGroup({ label:'Materiale', options: MEDIA.map((m,i) => ({ label: m.name, value: i })),
     value: params.preset3,
     onChange(v) {
       params.preset3 = v;
@@ -689,7 +524,6 @@ function init() {
   initResizeHandle();
   initFullscreen();
 
-  document.getElementById('btnPlay').addEventListener('click', requestRedraw);
   document.getElementById('btnReset').addEventListener('click', () => {
     params.theta1 = 45;
     params.preset1 = 0;  params.n1c = 1.000;

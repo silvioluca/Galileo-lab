@@ -1,9 +1,11 @@
 'use strict';
 
-/* ── Unità: G=1, masse adim., distanze AU, t "anni" ── */
+/* ── Unità astronomiche: masse in masse solari, distanze in AU, tempi in anni ──
+   In queste unità G = 4π² AU³/(M☉·anno²): la Terra (1 AU dal Sole) ha periodo 1 anno e
+   velocità 2π AU/anno ≈ 29,8 km/s. */
 
 const params = {
-  G:         1.0,
+  G:         4 * Math.PI * Math.PI,
   m1:        1.0,
   m2:        0.30,
   d0:        4.0,
@@ -29,8 +31,8 @@ let collision  = false;
 let _rafId     = null;
 let _histCount = 0;
 const MAX_TRAIL = 2500;
-const HIST_MAX  = 500;
-const DT        = 0.004;
+const HIST_MAX  = 1500;   // circa 25 s di storia
+const DT        = 0.004 / (2 * Math.PI);   // anni per sotto-passo (≈ 0,6 anni al secondo)
 const SUBSTEPS  = 16;
 
 /* ── Camera ────────────────────────────────────────── */
@@ -250,7 +252,7 @@ function simStep() {
     trail1.push([state[0],state[1]]);
     trail2.push([state[4],state[5]]);
     if (trail1.length>MAX_TRAIL) { trail1.shift(); trail2.shift(); }
-    if (++_histCount%4===0) {
+    if (++_histCount%16===0) {   // un campione per fotogramma
       const op=getOrbitParams();
       if (op) {
         histT.push(simT); histE.push(op.E); histK.push(op.Ekin);
@@ -519,7 +521,7 @@ function drawOrbitLabel(dark) {
   const op=getOrbitParams();if (!op) return;
   ctx.fillStyle=dark?'rgba(0,212,255,0.70)':'rgba(0,100,180,0.75)';
   ctx.font=`11px 'Space Mono',monospace`;ctx.textAlign='right';
-  ctx.fillText(`${op.type}   e = ${op.e.toFixed(3)}`,cw-12,22);
+  ctx.fillText(`${op.type}   e = ${Lab.fmt(op.e,3)}`,cw-12,22);
 }
 
 /* ── Readout ────────────────────────────────────────── */
@@ -527,25 +529,24 @@ function updateReadout() {
   if (!state){readoutEl.innerHTML='';return;}
   const op=getOrbitParams();
   const items=params.fixedStar?[
-    {label:'Tipo',  value:op?.type??'—'},
-    {label:'e',     value:op?op.e.toFixed(3):'—'},
-    {label:'E',     value:op?op.E.toFixed(3):'—'},
-    {label:'L',     value:op?op.L.toFixed(3):'—'},
-    {label:'r',     value:op?`${op.r.toFixed(2)} AU`:'—'},
-    {label:'|v₂|',  value:op?op.v2.toFixed(3):'—'},
-    {label:'t',     value:`${simT.toFixed(1)}`},
+    {label:'orbita',        value:op?.type??'—'},
+    {label:'eccentricità e', value:op?Lab.fmt(op.e,3):'—'},
+    {label:'energia E',     value:op?Lab.sci(op.E,3):'—'},
+    {label:'distanza r',    value:op?`${Lab.fmt(op.r,2)} AU`:'—'},
+    {label:'velocità |v₂|', value:op?`${Lab.fmt(op.v2,2)} AU/anno`:'—'},
+    {label:'in km/s',       value:op?`${Lab.fmt(op.v2*4.74,1)} km/s`:'—'},
+    {label:'tempo',         value:`${Lab.fmt(simT,2)} anni`},
   ]:[
-    {label:'Tipo',  value:op?.type??'—'},
-    {label:'e',     value:op?op.e.toFixed(3):'—'},
-    {label:'E',     value:op?op.E.toFixed(3):'—'},
-    {label:'L',     value:op?op.L.toFixed(3):'—'},
-    {label:'r',     value:op?`${op.r.toFixed(2)} AU`:'—'},
-    {label:'|v₁|',  value:op?op.v1.toFixed(3):'—'},
-    {label:'|v₂|',  value:op?op.v2.toFixed(3):'—'},
-    {label:'t',     value:`${simT.toFixed(1)}`},
+    {label:'orbita',        value:op?.type??'—'},
+    {label:'eccentricità e', value:op?Lab.fmt(op.e,3):'—'},
+    {label:'energia E',     value:op?Lab.sci(op.E,3):'—'},
+    {label:'distanza r',    value:op?`${Lab.fmt(op.r,2)} AU`:'—'},
+    {label:'velocità |v₁|', value:op?`${Lab.fmt(op.v1,2)} AU/anno`:'—'},
+    {label:'velocità |v₂|', value:op?`${Lab.fmt(op.v2,2)} AU/anno`:'—'},
+    {label:'tempo',         value:`${Lab.fmt(simT,2)} anni`},
   ];
   readoutEl.innerHTML=items.map(it=>
-    `<span class="readout-item"><span class="readout-label">${it.label}</span><span class="readout-value">${it.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(it.label)}</span><span class="readout-value">${it.value}</span></span>`
   ).join('');
 }
 
@@ -571,62 +572,34 @@ function panelTitle(gc,ox,oy,pw,title,dark){
 
 function drawGraphs(){
   if (!gw||!gh) return;
-  gctx.clearRect(0,0,gw,gh);
-  const dark=document.documentElement.dataset.theme!=='light';
+  const C=Lab.graphColors();
+  gctx.fillStyle=C.bg; gctx.fillRect(0,0,gw,gh);
   const pw=Math.floor(gw/2);
-  drawEnergyPanel(0, 0,pw,   gh,dark);
-  drawRPanel     (pw,0,gw-pw,gh,dark);
+  drawEnergyPanel(0, 0,pw,   gh);
+  drawRPanel     (pw,0,gw-pw,gh);
 }
 
-function drawEnergyPanel(ox,oy,pw,ph,dark){
-  const {l,t,iW,iH}=panelBase(gctx,ox,oy,pw,ph,dark);
-  panelTitle(gctx,ox,oy,pw,'Energia vs tempo',dark);
+// energia cinetica K, potenziale U e totale E = K + U (M☉·AU²/anno²): E resta costante
+function drawEnergyPanel(ox,oy,pw,ph){
+  const t1=histT.length?histT[histT.length-1]:1, t0=histT.length?histT[0]:0;
+  const vals=[...histE,...histK,...histU];
+  const m=Lab.niceMax(Math.max(...vals.map(Math.abs),1e-6)*1.05);
+  const f=Lab.axes(gctx,{ x:ox+4, y:oy+4, w:pw-8, h:ph-8, title:'Energia (M☉·AU²/anno²)', xr:[t0,Math.max(t1,t0+1e-6)], yr:[-m,m], xLabel:'t (anni)', yFmt:v=>Lab.sci(v,2) });
   if (histT.length<2) return;
-  const tMin=histT[0],tMax=histT[histT.length-1];
-  const allV=[...histE,...histK,...histU];
-  const vMin=Math.min(...allV),vMax=Math.max(...allV);
-  const vSpan=Math.max(vMax-vMin,1e-9);
-  const tX=tt=>(tt-tMin)/Math.max(tMax-tMin,1e-9)*iW;
-  const vY=v=>t+iH-(v-vMin)/vSpan*iH;
-  const curves=[
-    {arr:histK,r:0,  g:212,b:255,lbl:'K'},
-    {arr:histU,r:255,g:71, b:87, lbl:'U'},
-    {arr:histE,r:46, g:204,b:113,lbl:'E'},
-  ];
-  curves.forEach(({arr,r,g,b,lbl},ci)=>{
-    gctx.strokeStyle=`rgba(${r},${g},${b},0.85)`;
-    gctx.lineWidth=ci===2?2.0:1.4;gctx.beginPath();
-    arr.forEach((v,i)=>{const x=l+tX(histT[i]),y=vY(v);i===0?gctx.moveTo(x,y):gctx.lineTo(x,y);});
-    gctx.stroke();
-    gctx.fillStyle=`rgba(${r},${g},${b},0.85)`;
-    gctx.font=`8px 'Space Mono',monospace`;gctx.textAlign='left';
-    gctx.fillText(lbl,l+3+ci*26,t+iH-3);
-  });
-  const tc=dark?'#6b8099':'#4a6278';
-  gctx.strokeStyle=dark?'rgba(200,220,255,0.35)':'rgba(0,0,0,0.28)';
-  gctx.lineWidth=1;gctx.strokeRect(l,t,iW,iH);
-  gctx.fillStyle=tc;gctx.font=`9px 'Space Mono',monospace`;gctx.textAlign='right';
-  gctx.fillText(vMax.toFixed(2),l-2,t+8);gctx.fillText(vMin.toFixed(2),l-2,t+iH);
+  const C=f.C;
+  Lab.plotPts(gctx,f,histT.map((t,i)=>[t,histK[i]]),C.accent,1.6);
+  Lab.plotPts(gctx,f,histT.map((t,i)=>[t,histU[i]]),C.red,1.6);
+  Lab.plotPts(gctx,f,histT.map((t,i)=>[t,histE[i]]),C.green,2.2);
+  Lab.legend(gctx,f.L+8,f.T+8,[[C.accent,'cinetica K'],[C.red,'potenziale U'],[C.green,'totale E']]);
 }
 
-function drawRPanel(ox,oy,pw,ph,dark){
-  const {l,t,iW,iH}=panelBase(gctx,ox,oy,pw,ph,dark);
-  panelTitle(gctx,ox,oy,pw,'Separazione r vs t',dark);
+// distanza fra i due corpi: oscilla fra perielio e afelio (orbita chiusa) o cresce (orbita aperta)
+function drawRPanel(ox,oy,pw,ph){
+  const t1=histT.length?histT[histT.length-1]:1, t0=histT.length?histT[0]:0;
+  const rM=Lab.niceMax(Math.max(params.d0,...histR)*1.05);
+  const f=Lab.axes(gctx,{ x:ox+4, y:oy+4, w:pw-8, h:ph-8, title:'Distanza fra i corpi r (AU)', xr:[t0,Math.max(t1,t0+1e-6)], yr:[0,rM], xLabel:'t (anni)' });
   if (histT.length<2) return;
-  const tMin=histT[0],tMax=histT[histT.length-1];
-  const rMax=Math.max(...histR)*1.08;
-  const tX=tt=>(tt-tMin)/Math.max(tMax-tMin,1e-9)*iW;
-  const rY=r_=>t+iH-(r_/Math.max(rMax,1e-9))*iH;
-  gctx.strokeStyle='rgba(139,127,255,0.88)';
-  gctx.lineWidth=1.8;gctx.beginPath();
-  histR.forEach((r_,i)=>{const x=l+tX(histT[i]),y=rY(r_);i===0?gctx.moveTo(x,y):gctx.lineTo(x,y);});
-  gctx.stroke();
-  const tc=dark?'#6b8099':'#4a6278';
-  gctx.strokeStyle=dark?'rgba(200,220,255,0.35)':'rgba(0,0,0,0.28)';
-  gctx.lineWidth=1;gctx.strokeRect(l,t,iW,iH);
-  gctx.fillStyle=tc;gctx.font=`9px 'Space Mono',monospace`;gctx.textAlign='right';
-  gctx.fillText(`${rMax.toFixed(1)} AU`,l-2,t+8);gctx.fillText('0',l-2,t+iH);
-  gctx.textAlign='center';gctx.fillText(`t = ${histT[histT.length-1].toFixed(1)}`,l+iW/2,t+iH+14);
+  Lab.plotPts(gctx,f,histT.map((t,i)=>[t,histR[i]]),f.C.violet,2);
 }
 
 /* ── Controlli ──────────────────────────────────────── */
@@ -653,10 +626,10 @@ function buildControls() {
   const planLbl=params.fixedStar?'Massa pianeta':'Massa M₂';
   const secC=Lab.Section('Corpi');
   secC.add(Lab.SliderInput({label:starLbl,min:0.1,max:20,step:0.1,
-    value:params.m1,unit:' M',onChange(v){params.m1=v;},
+    value:params.m1,unit:'M☉',onChange(v){params.m1=v;},
   }));
   secC.add(Lab.SliderInput({label:planLbl,min:0.01,max:10,step:0.05,
-    value:params.m2,unit:' M',onChange(v){params.m2=v;},
+    value:params.m2,unit:'M☉',onChange(v){params.m2=v;},
   }));
   el.appendChild(secC.el);
 
@@ -689,8 +662,8 @@ function buildControls() {
   const secV=Lab.Section(vLabel);
 
   if (!params.fixedStar) {
-    secV.add(Lab.SliderInput({label:'|v₁|',min:0,max:8,step:0.005,
-      value:+params.speed1.toFixed(4),unit:'',
+    secV.add(Lab.SliderInput({label:'|v₁|',min:0,max:40,step:0.01,
+      value:+Lab.fmt(params.speed1,2),unit:'AU/anno',
       onChange(v){params.speed1=v;params.preset='custom';buildControls();previewState();},
     }));
     secV.add(Lab.SliderInput({label:'θ₁',min:-180,max:180,step:1,
@@ -698,8 +671,8 @@ function buildControls() {
       onChange(v){params.angle1=v;params.preset='custom';buildControls();previewState();},
     }));
   }
-  secV.add(Lab.SliderInput({label:'|v₂|',min:0,max:8,step:0.005,
-    value:+params.speed2.toFixed(4),unit:'',
+  secV.add(Lab.SliderInput({label:'|v₂|',min:0,max:40,step:0.01,
+    value:+Lab.fmt(params.speed2,2),unit:'AU/anno',
     onChange(v){params.speed2=v;params.preset='custom';buildControls();previewState();},
   }));
   secV.add(Lab.SliderInput({label:'θ₂',min:-180,max:180,step:1,
@@ -810,10 +783,10 @@ new MutationObserver(()=>requestRedraw())
 /* ── Init ───────────────────────────────────────────── */
 function init() {
   Lab.initTheme();
+  applyPreset(params.preset);
   buildControls();
   graphArea.style.height=(window.innerWidth<800?130:220)+'px';
   resizeCanvases();
-  applyPreset(params.preset);
   softReset();
 
   new ResizeObserver(()=>{resizeCanvases();if(!running) requestRedraw();})
@@ -827,8 +800,7 @@ function init() {
     if (running) {
       setRunning(false);
     } else {
-      applyPreset(params.preset);
-      softReset();
+      if (simT === 0 || collision) { applyPreset(params.preset); softReset(); collision = false; }
       setRunning(true);
     }
   });

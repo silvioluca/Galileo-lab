@@ -195,6 +195,7 @@ body {
 }
 .readout-cell:last-child,
 .readout-item:last-child { border-right: none; }
+.nc { text-transform: none; }
 
 .readout-label {
   font-family: 'Space Mono', monospace;

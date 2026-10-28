@@ -181,23 +181,23 @@ function drawEngine(c, ox, oy, w, h, dk, ap) {
   // Q_H arrow (hot → engine)
   arrowLine(c, cx, hotBot + gap, cx, engCy - engR - gap, HC, 2.2);
   c.fillStyle = HC; c.font = '9px "Space Mono",monospace'; c.textAlign = 'left';
-  c.fillText(`Qᴴ=${st.QH.toFixed(0)}J`, cx + 7, (hotBot + engCy - engR) / 2 + 4);
+  c.fillText(`Qᴴ=${Lab.fmt(st.QH,0)}J`, cx + 7, (hotBot + engCy - engR) / 2 + 4);
 
   // Q_C arrow (engine → cold)
   arrowLine(c, cx, engCy + engR + gap, cx, coldTop - gap, CC, 2.2);
   c.fillStyle = CC; c.textAlign = 'left';
-  c.fillText(`Qᴄ=${st.QC.toFixed(0)}J`, cx + 7, (engCy + engR + coldTop) / 2 + 4);
+  c.fillText(`Qᴄ=${Lab.fmt(st.QC,0)}J`, cx + 7, (engCy + engR + coldTop) / 2 + 4);
 
   // W arrow (engine → right)
   const wx1 = cx + engR + gap, wx2 = ox + w - 10;
   arrowLine(c, wx1, engCy, wx2, engCy, WC, 2.2);
   c.fillStyle = WC; c.font = '9px "Space Mono",monospace'; c.textAlign = 'center';
-  c.fillText(`W=${st.Wnet.toFixed(0)}J`, (wx1 + wx2) / 2, engCy - 8);
+  c.fillText(`W=${Lab.fmt(st.Wnet,0)}J`, (wx1 + wx2) / 2, engCy - 8);
 
   // η — prominent
   c.fillStyle = dk ? '#00d4ff' : '#004f99';
   c.font = 'bold 17px "Space Mono",monospace'; c.textAlign = 'center';
-  c.fillText(`η = ${(st.eta * 100).toFixed(1)}%`, cx, oy + h - 8);
+  c.fillText(`η = ${Lab.fmt((st.eta * 100),1)}%`, cx, oy + h - 8);
 
   // Animated pulse on active heat arrow
   if (ap) {
@@ -304,24 +304,17 @@ function drawPiston(c, ox, oy, w, h, dk, ap) {
   // State values
   const oc = dk ? 'rgba(148,182,232,0.72)' : 'rgba(18,52,110,0.68)';
   c.fillStyle = oc; c.font = '9px "Space Mono",monospace'; c.textAlign = 'center';
-  c.fillText(`V=${ap.V.toFixed(2)}L  T=${Math.round(ap.T)}K`, ox + w/2, oy + h * 0.88);
-  c.fillText(`P=${ap.P.toFixed(0)} kPa`, ox + w/2, oy + h * 0.93);
+  c.fillText(`V=${Lab.fmt(ap.V,2)}L  T=${Math.round(ap.T)}K`, ox + w/2, oy + h * 0.88);
+  c.fillText(`P=${Lab.fmt(ap.P,0)} kPa`, ox + w/2, oy + h * 0.93);
 }
 
 // ── P-V diagram ────────────────────────────────────────────────────────────────
 function drawPV(c, ox, oy, gW, gH, dk, ap) {
-  const Vmax = st.V3 * 1.20, Pmax = st.P1 * 1.20;
-  const tx = v => ox + (v / Vmax) * gW;
-  const ty = p => oy + gH - (p / Pmax) * gH;
+  // assi numerati (Lab.axes) attorno al riquadro; i fondoscala cambiano solo a scatti
+  const f = Lab.axes(c, { x: ox - 46, y: oy - 24, w: gW + 56, h: gH + 54, bg: false,
+    xr: [0, Lab.niceMax(st.V3 * 1.1)], yr: [0, Lab.niceMax(st.P1 * 1.1)], title: 'Diagramma p–V (p in kPa)', xLabel: 'V (L)' });
+  const tx = f.X, ty = f.Y;
   const N  = 64;
-
-  const gc = dk ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
-  c.strokeStyle = gc; c.lineWidth = 1; c.setLineDash([2, 3]);
-  for (let i = 1; i <= 5; i++) {
-    c.beginPath(); c.moveTo(tx(Vmax*i/5), oy); c.lineTo(tx(Vmax*i/5), oy+gH); c.stroke();
-    c.beginPath(); c.moveTo(ox, ty(Pmax*i/5)); c.lineTo(ox+gW, ty(Pmax*i/5)); c.stroke();
-  }
-  c.setLineDash([]);
 
   // Filled cycle area
   c.beginPath();
@@ -362,44 +355,15 @@ function drawPV(c, ox, oy, gW, gH, dk, ap) {
     c.beginPath(); c.arc(tx(ap.V), ty(ap.P), 3, 0, Math.PI*2);
     c.fillStyle = '#fff'; c.fill();
   }
-
-  // Axes
-  const ac = dk ? 'rgba(155,185,225,0.48)' : 'rgba(28,58,118,0.38)';
-  c.strokeStyle = ac; c.lineWidth = 1;
-  c.beginPath(); c.moveTo(ox, oy); c.lineTo(ox, oy+gH); c.lineTo(ox+gW, oy+gH); c.stroke();
-
-  const lc = dk ? 'rgba(138,168,220,0.80)' : 'rgba(28,68,140,0.75)';
-  c.fillStyle = lc; c.font = '10px "Space Mono",monospace'; c.textAlign = 'center';
-  c.fillText('V (L)', ox + gW/2, oy + gH + 26);
-  c.save(); c.translate(ox - 30, oy + gH/2); c.rotate(-Math.PI/2);
-  c.fillText('P (kPa)', 0, 0); c.restore();
-
-  c.fillStyle = dk ? 'rgba(0,212,255,0.68)' : 'rgba(0,108,188,0.62)';
-  c.font = 'bold 9px "Space Mono",monospace'; c.textAlign = 'center';
-  c.fillText('DIAGRAMMA P-V', ox + gW/2, oy - 7);
-
-  const tc = dk ? 'rgba(118,148,200,0.65)' : 'rgba(48,88,158,0.60)';
-  c.fillStyle = tc; c.font = '8px "Space Mono",monospace'; c.textAlign = 'center';
-  for (let i=1;i<=5;i++) c.fillText((Vmax*i/5).toFixed(1), tx(Vmax*i/5), oy+gH+13);
-  c.textAlign = 'right';
-  for (let i=1;i<=4;i++) c.fillText(Math.round(Pmax*i/4), ox - 3, ty(Pmax*i/4) + 4);
 }
+
 
 // ── T-S diagram ────────────────────────────────────────────────────────────────
 function drawTS(c, ox, oy, gW, gH, dk, ap) {
-  const Smax = st.dS * 1.40;
-  const Tmin = st.TC  * 0.78;
-  const Tmax = st.TH  * 1.22;
-  const tx = s => ox + (s / Smax) * gW;
-  const ty = t => oy + gH - ((t - Tmin) / (Tmax - Tmin)) * gH;
-
-  const gc = dk ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
-  c.strokeStyle = gc; c.lineWidth = 1; c.setLineDash([2, 3]);
-  for (let i = 1; i <= 4; i++) {
-    c.beginPath(); c.moveTo(tx(Smax*i/4), oy); c.lineTo(tx(Smax*i/4), oy+gH); c.stroke();
-    c.beginPath(); c.moveTo(ox, oy+gH*i/4); c.lineTo(ox+gW, oy+gH*i/4); c.stroke();
-  }
-  c.setLineDash([]);
+  // T parte da zero: il rapporto fra le altezze dei due lati è Tc/Th, cioè 1 − η
+  const f = Lab.axes(c, { x: ox - 46, y: oy - 24, w: gW + 56, h: gH + 54, bg: false,
+    xr: [0, Lab.niceMax(st.dS * 1.3)], yr: [0, Lab.niceMax(st.TH * 1.15)], title: 'Diagramma T–S (T in K): l’area è il lavoro', xLabel: 'ΔS (J/K)' });
+  const tx = f.X, ty = f.Y;
 
   c.fillStyle = 'rgba(0,212,255,0.07)';
   c.fillRect(tx(0), ty(st.TH), tx(st.dS) - tx(0), ty(st.TC) - ty(st.TH));
@@ -426,8 +390,8 @@ function drawTS(c, ox, oy, gW, gH, dk, ap) {
   const rcCx = (tx(0) + tx(st.dS)) / 2, rcCy = (ty(st.TH) + ty(st.TC)) / 2;
   c.fillStyle = dk ? 'rgba(0,212,255,0.55)' : 'rgba(0,108,188,0.50)';
   c.font = '9px "Space Mono",monospace'; c.textAlign = 'center';
-  c.fillText(`W = ${st.Wnet.toFixed(0)} J`, rcCx, rcCy - 4);
-  c.fillText(`η = ${(st.eta*100).toFixed(1)}%`, rcCx, rcCy + 10);
+  c.fillText(`W = ${Lab.fmt(st.Wnet,0)} J`, rcCx, rcCy - 4);
+  c.fillText(`η = ${Lab.fmt((st.eta*100),1)}%`, rcCx, rcCy + 10);
 
   if (ap) {
     c.beginPath(); c.arc(tx(ap.S), ty(ap.T), 6.5, 0, Math.PI*2);
@@ -435,29 +399,8 @@ function drawTS(c, ox, oy, gW, gH, dk, ap) {
     c.beginPath(); c.arc(tx(ap.S), ty(ap.T), 2.5, 0, Math.PI*2);
     c.fillStyle = '#fff'; c.fill();
   }
-
-  const ac = dk ? 'rgba(155,185,225,0.48)' : 'rgba(28,58,118,0.38)';
-  c.strokeStyle = ac; c.lineWidth = 1;
-  c.beginPath(); c.moveTo(ox, oy); c.lineTo(ox, oy+gH); c.lineTo(ox+gW, oy+gH); c.stroke();
-
-  const lc = dk ? 'rgba(138,168,220,0.80)' : 'rgba(28,68,140,0.75)';
-  c.fillStyle = lc; c.font = '10px "Space Mono",monospace'; c.textAlign = 'center';
-  c.fillText('S  (J/K)', ox + gW/2, oy + gH + 26);
-  c.save(); c.translate(ox - 28, oy + gH/2); c.rotate(-Math.PI/2);
-  c.fillText('T (K)', 0, 0); c.restore();
-
-  c.fillStyle = dk ? 'rgba(0,212,255,0.68)' : 'rgba(0,108,188,0.62)';
-  c.font = 'bold 9px "Space Mono",monospace'; c.textAlign = 'center';
-  c.fillText('DIAGRAMMA T-S', ox + gW/2, oy - 7);
-
-  const tc2 = dk ? 'rgba(118,148,200,0.65)' : 'rgba(48,88,158,0.60)';
-  c.fillStyle = tc2; c.font = '8px "Space Mono",monospace'; c.textAlign = 'right';
-  c.fillText(`${st.TH}K`, ox - 3, ty(st.TH) + 4);
-  c.fillText(`${st.TC}K`, ox - 3, ty(st.TC) + 4);
-  c.textAlign = 'center';
-  c.fillText(st.dS.toFixed(2), tx(st.dS), oy + gH + 13);
-  c.fillText('0', tx(0) + 6, oy + gH + 13);
 }
+
 
 // ── Draw simulation canvas (3 panels) ─────────────────────────────────────────
 function drawSim(ap) {
@@ -478,8 +421,7 @@ function drawSim(ap) {
   drawEngine(ctx, 0,      0, pw, H, dk, ap);
   drawPiston(ctx, pw,     0, pw, H, dk, ap);
 
-  const PAD = 34;
-  drawPV(ctx, pw * 2 + PAD, PAD, pw - PAD - 6, H - PAD * 2, dk, ap);
+  drawPV(ctx, pw * 2 + 52, 40, pw - 52 - 14, H - 80, dk, ap);
 }
 
 // ── Draw graph canvas (T-S only) ───────────────────────────────────────────────
@@ -489,8 +431,7 @@ function drawGraphs(ap) {
 
   if (!st) return;
   const dk = isDark();
-  const PAD = 44;
-  drawTS(gctx, PAD, PAD, gw - PAD * 1.5, gh - PAD * 2, dk, ap);
+  drawTS(gctx, 54, 34, gw - 54 - 16, gh - 34 - 38, dk, ap);
 }
 
 // ── Readout ────────────────────────────────────────────────────────────────────
@@ -498,14 +439,14 @@ let readout;
 
 function setupReadout() {
   readout = new Lab.Readout(document.getElementById('readout'), [
-    { key:'fase', label:'Fase' },
-    { key:'T',    label:'T'    },
-    { key:'P',    label:'P'    },
-    { key:'V',    label:'V'    },
-    { key:'eta',  label:'η'    },
-    { key:'W',    label:'W'    },
-    { key:'QH',   label:'Qᴴ'  },
-    { key:'QC',   label:'Qᴄ'  },
+    { key:'fase', label:'fase del ciclo' },
+    { key:'T',    label:'temperatura T'    },
+    { key:'P',    label:'pressione p'    },
+    { key:'V',    label:'volume V'    },
+    { key:'eta',  label:'rendimento'    },
+    { key:'W',    label:'lavoro W'    },
+    { key:'QH',   label:'calore assorbito Q_H'  },
+    { key:'QC',   label:'calore ceduto Q_C'  },
   ]);
 }
 
@@ -513,12 +454,12 @@ function updateReadout(ap) {
   if (!ap || !st) return;
   readout.set('fase', `${ap.phase + 1} / 4`);
   readout.set('T',    `${Math.round(ap.T)} K`);
-  readout.set('P',    `${ap.P.toFixed(0)} kPa`);
-  readout.set('V',    `${ap.V.toFixed(2)} L`);
-  readout.set('eta',  `${(st.eta * 100).toFixed(1)} %`);
-  readout.set('W',    `${st.Wnet.toFixed(0)} J`);
-  readout.set('QH',   `${st.QH.toFixed(0)} J`);
-  readout.set('QC',   `${st.QC.toFixed(0)} J`);
+  readout.set('P',    `${Lab.fmt(ap.P,0)} kPa`);
+  readout.set('V',    `${Lab.fmt(ap.V,2)} L`);
+  readout.set('eta',  `${Lab.fmt((st.eta * 100),1)} %`);
+  readout.set('W',    `${Lab.fmt(st.Wnet,0)} J`);
+  readout.set('QH',   `${Lab.fmt(st.QH,0)} J`);
+  readout.set('QC',   `${Lab.fmt(st.QC,0)} J`);
 }
 
 // ── Main draw ──────────────────────────────────────────────────────────────────
@@ -590,7 +531,7 @@ function buildControls() {
     onChange(v) { params.V1 = v; recompute(); draw(); }
   });
   sR_s = Lab.SliderInput({ label:'V₂/V₁  (rapporto)', min:1.5, max:12, step:0.1, value:params.r, unit:'',
-    hint:`min: ${minR().toFixed(2)}`,
+    hint:`min: ${Lab.fmt(minR(),2)}`,
     onChange(v) { params.r = v; recompute(); draw(); }
   });
   const sN = Lab.SliderInput({ label:'n  (quantità)', min:0.5, max:4, step:0.5, value:params.n, unit:'mol',

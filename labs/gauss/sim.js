@@ -581,7 +581,7 @@ function updateReadout() {
     { label: P.mode === 'E' ? 'carica interna' : 'dipoli', value: P.mode === 'E' ? `${qIn > 0 ? '+' : ''}${qIn} nC` : `${sources.length}` },
     { label: 'superficie',               value: { sphere: 'sferica', cube: 'cubica', blob: 'amorfa' }[P.surface] },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 

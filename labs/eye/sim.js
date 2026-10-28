@@ -40,7 +40,7 @@ const params = {
 //   1/q = P_total / n_vit − (1/object_dist_mm)*sign  [simplified thin-lens in medium]
 //
 // For simplicity we work in air-equivalent distances:
-//   P_eff = P_emmetropic + SE_defect + P_correction
+//   P_eff = P_emmetropic − SE_defect + P_correction
 //   q_air  = 1000 / P_eff  (mm, from lens)
 //   retina is always at q_retina = 1000 / P_emmetropic = 17.95 mm (air-equivalent)
 
@@ -48,8 +48,17 @@ const P_EMMETROPIC = 55.67;        // D
 const Q_RETINA     = 1000 / P_EMMETROPIC; // ≈ 17.95 mm (air-equivalent)
 
 function totalPower() {
-  return P_EMMETROPIC + params.defect + params.correction;
+  // un occhio miope (difetto < 0) è troppo convergente: potenza P₀ − difetto; la lente si somma
+  return P_EMMETROPIC - params.defect + params.correction;
 }
+// errore residuo (D): 0 se la lente uguaglia la prescrizione. < 0: fuoco davanti alla retina
+function residualD() { return params.defect - params.correction; }
+// sfocatura complessiva: errore sferico residuo + metà del cilindro (cerchio di minima confusione)
+function blurD() { return Math.abs(residualD()) + params.astig * 0.5; }
+// acuità decimale (10/10 = 1): ~5/10 a 0,5 D, ~3/10 a 1 D, ~1/10 a 3–4 D
+function acuityOf(b) { return 1 / (1 + 2.5 * b); }
+// spostamento del fuoco rispetto alla retina: ≈ 0,45 mm per diottria nell'occhio ridotto
+const MM_PER_D = 0.45;
 
 // Image distance in air-equiv mm (from lens plane), for given object distance
 // objectMm: object distance in mm (negative = real object left of lens)
@@ -271,7 +280,7 @@ function drawCorrectiveLens(dk) {
     sc.fillStyle = col.corrBorder;
     sc.font = 'bold 10px Space Mono';
     sc.textAlign = 'center';
-    sc.fillText(dSign + params.correction.toFixed(1) + ' D', lx, cy - lH - 10);
+    sc.fillText(dSign + Lab.fmt(params.correction, 2) + ' D', lx, cy - lH - 10);
     sc.fillText('lente correttiva', lx, cy - lH - 22);
   }
   sc.restore();
@@ -302,13 +311,13 @@ function drawRays(dk) {
   const clx  = lensX();
 
   // Net ametropia after correction
-  const net = params.defect + params.correction + params.astig * 0.3;
-  // Empirical focus position: 0.45 mm shift per diopter of net error
-  const focPhysMm = EYE_AX_MM + net * 0.45;
+  const net = residualD();
+  // fuoco spostato di ~0,45 mm per diottria di errore residuo
+  const focPhysMm = EYE_AX_MM + net * MM_PER_D;
   const focX = cx + focPhysMm * s;
   const retX = cx + EYE_AX_MM * s;
 
-  const isAmetropic = Math.abs(net) > 0.15;
+  const isAmetropic = blurD() > 0.15;
   const rayColor = isAmetropic
     ? (dk ? '#ff5252' : '#cc2222')
     : (dk ? '#88aacc' : '#334466');
@@ -423,16 +432,16 @@ function drawFocusOnRetina(focX, retX, cy, s, color, dk) {
 
 // ── Vision defect label ───────────────────────────────────────────────────────
 function drawDefectLabel(dk) {
-  const defect = params.defect + params.astig;
-  const corr   = params.correction;
-  const net    = defect + corr;
+  const net    = residualD();
   const label  = Math.abs(params.defect) < 0.1 && Math.abs(params.astig) < 0.1
     ? 'Vista normale'
     : params.defect < -0.1 ? 'Miopia'
     : params.defect > 0.1  ? 'Ipermetropia'
     : 'Astigmatismo';
 
-  const corrLabel = Math.abs(net) < 0.1 ? 'corretto' : (net > 0 ? 'ipercorretto' : 'sottocorretto');
+  // ipercorretto: la lente va oltre la prescrizione (errore residuo di segno opposto al difetto)
+  const corrLabel = Math.abs(params.defect) < 0.1 ? 'lente non necessaria'
+    : Math.abs(net) < 0.1 ? 'corretto' : (net * params.defect < 0 ? 'ipercorretto' : 'sottocorretto');
 
   sc.save();
   sc.font = 'bold 13px DM Sans';
@@ -458,8 +467,8 @@ function drawObjectMode(dk) {
 
   // Image position moves with diopters (same formula as drawRays for parallel rays).
   // imgXpx === retX when net = 0 (10/10 vision, no residual error).
-  const net       = params.defect + params.correction + params.astig * 0.3;
-  const focPhysMm = EYE_AX_MM + net * 0.45;
+  const net       = residualD();
+  const focPhysMm = EYE_AX_MM + net * MM_PER_D;
   const imgXpx    = cx + focPhysMm * s;
 
   // Magnification from thin-lens formula (object at 500 mm) — just for arrow size
@@ -540,105 +549,36 @@ function drawScene() {
 }
 
 // ── Graphs ────────────────────────────────────────────────────────────────────
-const PAD = { l: 44, r: 10, t: 24, b: 22 };
-
 function drawGraphs() {
   gc.clearRect(0, 0, GW, GH);
-  const dk = isDark();
-  gc.fillStyle = dk ? '#060a10' : '#f4f8ff';
-  gc.fillRect(0, 0, GW, GH);
+  const dk = isDark(), C = Lab.graphColors();
+  const w1 = Math.floor(GW * 0.36), w2 = Math.floor(GW * 0.36), w3 = GW - w1 - w2;
+  const lens = [-10, 10], rx = params.defect;
 
-  const w1 = Math.floor(GW * 0.34);
-  const w2 = Math.floor(GW * 0.18);
-  const w3 = GW - w1 - w2;
-  drawDefectVsCorrection(0, 0, w1, GH, dk);
-  drawAcuityBar(w1, 0, w2, GH, dk);
+  // 1: posizione del fuoco rispetto alla retina in funzione della lente: si annulla alla prescrizione
+  let g = Lab.axes(gc, { x: 3, y: 3, w: w1 - 6, h: GH - 6, xr: lens, xStep: 2, yr: [-6, 6], yStep: 2,
+    title: 'Fuoco rispetto alla retina (mm)', xLabel: 'lente (D)' });
+  gc.save(); gc.setLineDash([3, 3]); gc.strokeStyle = C.amber; gc.beginPath(); gc.moveTo(g.X(rx), g.T); gc.lineTo(g.X(rx), g.B); gc.stroke(); gc.restore();
+  Lab.plot(gc, g, d => (params.defect - d) * MM_PER_D, lens, dk ? '#00d4ff' : '#0088cc', 2);
+  Lab.dot(gc, g, params.correction, residualD() * MM_PER_D, blurD() < 0.15 ? C.green : C.amber, 4.5);
+  gc.fillStyle = C.text; gc.font = '9.5px "DM Sans",sans-serif'; gc.textAlign = 'right'; gc.textBaseline = 'middle';
+  gc.fillText('dietro la retina ↑', g.R - 4, g.T + 8); gc.fillText('davanti ↓', g.R - 4, g.B - 8);
+
+  // 2: acuità visiva in funzione della lente: massima quando la lente uguaglia la prescrizione
+  g = Lab.axes(gc, { x: w1 + 3, y: 3, w: w2 - 6, h: GH - 6, xr: lens, xStep: 2, yr: [0, 10], yStep: 2,
+    title: 'Acuità visiva (decimi)', xLabel: 'lente (D)' });
+  gc.save(); gc.setLineDash([3, 3]); gc.strokeStyle = C.amber; gc.beginPath(); gc.moveTo(g.X(rx), g.T); gc.lineTo(g.X(rx), g.B); gc.stroke(); gc.restore();
+  Lab.plot(gc, g, d => 10 * acuityOf(Math.abs(params.defect - d) + params.astig * 0.5), lens, C.green, 2);
+  Lab.dot(gc, g, params.correction, 10 * acuityOf(blurD()), C.green, 4.5);
+  Lab.legend(gc, g.L + 8, g.T + 8, [[C.amber, `prescrizione ${(rx > 0 ? '+' : '') + Lab.fmt(rx, 2)} D`, [3, 3]]]);
+
   drawVisionTest(w1 + w2, 0, w3, GH, dk);
-}
-
-// Graph 1: focus position vs correction diopters
-function drawDefectVsCorrection(ox, oy, W, H, dk) {
-  const axC = dk ? 'rgba(200,220,255,0.30)' : 'rgba(0,0,0,0.22)';
-  const grC = dk ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
-  const tkC = dk ? '#6b8099' : '#4a6278';
-  const pl = ox+PAD.l, pt = oy+PAD.t, pw = W-PAD.l-PAD.r, ph = H-PAD.t-PAD.b;
-  const pr = pl+pw, pb = pt+ph;
-
-  gc.save();
-  gc.beginPath(); gc.rect(ox, oy, W, H); gc.clip();
-  gc.fillStyle = dk ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)';
-  gc.fillRect(ox, oy, W, H);
-  gc.fillStyle = dk ? '#c8dff0' : '#223';
-  gc.font = '11px DM Sans'; gc.textAlign = 'center';
-  gc.fillText('Fuoco vs Correzione', ox+W/2, oy+15);
-
-  // Axes
-  const dRange = 8;  // ±4D
-  const qRange = 6;  // ±3mm from retina
-  const mapD = d => pl + (d + dRange/2) / dRange * pw;
-  const mapQ = q => pb - (q + qRange/2) / qRange * ph;
-
-  // Grid
-  gc.strokeStyle = grC; gc.lineWidth = 1;
-  for (let d = -4; d <= 4; d += 2) {
-    gc.beginPath(); gc.moveTo(mapD(d), pt); gc.lineTo(mapD(d), pb); gc.stroke();
-    gc.fillStyle = tkC; gc.font = '8px Space Mono'; gc.textAlign = 'center';
-    gc.fillText(d + 'D', mapD(d), pb + 12);
-  }
-  for (let q = -3; q <= 3; q += 1) {
-    gc.beginPath(); gc.moveTo(pl, mapQ(q)); gc.lineTo(pr, mapQ(q)); gc.stroke();
-    if (q !== 0) {
-      gc.fillStyle = tkC; gc.textAlign = 'right';
-      gc.fillText(q.toFixed(0), pl-3, mapQ(q)+3);
-    }
-  }
-
-  // Retina line (q=0)
-  const y0 = mapQ(0);
-  gc.strokeStyle = axC; gc.lineWidth = 1.2;
-  gc.beginPath(); gc.moveTo(pl, y0); gc.lineTo(pr, y0); gc.stroke();
-  gc.fillStyle = isDark() ? '#ff8844' : '#cc4400';
-  gc.font = '8px Space Mono'; gc.textAlign = 'right';
-  gc.fillText('retina', pl - 3, y0 + 3);
-
-  // Axes border
-  gc.strokeStyle = axC; gc.lineWidth = 1;
-  gc.beginPath(); gc.moveTo(pl, pt); gc.lineTo(pl, pb); gc.lineTo(pr, pb); gc.stroke();
-
-  // Curve: focus offset = (Q_RETINA - imageDistMm(P_EMMETROPIC + defect + d, ∞)) in mm
-  gc.strokeStyle = dk ? '#00d4ff' : '#0088cc'; gc.lineWidth = 2;
-  gc.beginPath();
-  let go = false;
-  for (let i = 0; i <= 200; i++) {
-    const d = -dRange/2 + (dRange * i / 200);
-    const P  = P_EMMETROPIC + params.defect + d;
-    const qm = imageDistMm(P, Infinity);
-    const offset = qm - Q_RETINA;  // mm behind (+) or in front (-) of retina
-    const x = mapD(d), y = mapQ(offset);
-    if (y < pt - 2 || y > pb + 2) { go = false; continue; }
-    if (!go) { gc.moveTo(x, y); go = true; } else gc.lineTo(x, y);
-  }
-  gc.stroke();
-
-  // Current dot
-  const dCur = params.correction;
-  const Pcur = P_EMMETROPIC + params.defect + dCur;
-  const qCur = imageDistMm(Pcur, Infinity);
-  const offCur = qCur - Q_RETINA;
-  const xDot = mapD(dCur), yDot = mapQ(offCur);
-  if (yDot >= pt && yDot <= pb) {
-    gc.beginPath(); gc.arc(xDot, yDot, 4.5, 0, Math.PI*2);
-    gc.fillStyle = Math.abs(offCur) < 0.5 ? (dk?'#00e676':'#00a844') : (dk?'#ffdd44':'#cc8800');
-    gc.fill();
-  }
-
-  gc.restore();
 }
 
 // Graph 2: simulated vision through an optometrist's eyepiece
 function drawVisionTest(ox, oy, W, H, dk) {
-  const net    = params.defect + params.correction + params.astig * 0.3;
-  const blurPx = Math.min(Math.abs(net) * 2.8, 28);
+  const net    = residualD();
+  const blurPx = Math.min(blurD() * 2.8, 28);
 
   const mx = ox + W / 2;
   const my = oy + H / 2 + 5;
@@ -746,87 +686,30 @@ function drawVisionTest(ox, oy, W, H, dk) {
 
   // Bottom label
   gc.save();
-  const isOk = Math.abs(net) < 0.15;
+  const isOk = blurD() < 0.15;
   gc.fillStyle = isOk ? (dk ? '#00e676' : '#00a844') : (dk ? '#ff8844' : '#cc5500');
   gc.font = '9px Space Mono'; gc.textAlign = 'center';
-  gc.fillText(isOk ? 'fuoco perfetto' : (net > 0 ? '+' : '') + net.toFixed(2) + ' D — sfocata', mx, oy + H - 3);
-  gc.restore();
-}
-
-// Graph 3: visual acuity bar (simplified)
-function drawAcuityBar(ox, oy, W, H, dk) {
-  const pl = ox+PAD.l, pt = oy+PAD.t, pw = W-PAD.l-PAD.r, ph = H-PAD.t-PAD.b;
-  const axC = dk ? 'rgba(200,220,255,0.30)' : 'rgba(0,0,0,0.22)';
-  const tkC = dk ? '#6b8099' : '#4a6278';
-
-  gc.save();
-  gc.beginPath(); gc.rect(ox, oy, W, H); gc.clip();
-  gc.fillStyle = dk ? 'rgba(255,255,255,0.015)' : 'rgba(0,0,0,0.015)';
-  gc.fillRect(ox, oy, W, H);
-  gc.fillStyle = dk ? '#c8dff0' : '#223';
-  gc.font = '11px DM Sans'; gc.textAlign = 'center';
-  gc.fillText('Acuità visiva', ox+W/2, oy+15);
-
-  // Net defect after correction
-  const net = params.defect + params.correction + params.astig * 0.5;
-  // Visual acuity: simplified model, 10/10 at net=0, decreases with |net|
-  const acuity = Math.max(0, 1 - Math.abs(net) * 0.18);  // 0..1
-  const pct = acuity;
-
-  const bx = pl, by = pt + ph * 0.2, bw = pw, bh = ph * 0.38;
-
-  // Background bar
-  gc.fillStyle = dk ? '#0e1620' : '#dde4ee';
-  gc.fillRect(bx, by, bw, bh);
-
-  // Filled portion
-  const barColor = pct > 0.7 ? (dk?'#00e676':'#00a844') : pct > 0.4 ? (dk?'#ffaa22':'#cc7700') : (dk?'#ff5252':'#cc0000');
-  gc.fillStyle = barColor;
-  gc.fillRect(bx, by, bw * pct, bh);
-
-  // Border
-  gc.strokeStyle = axC; gc.lineWidth = 1;
-  gc.strokeRect(bx, by, bw, bh);
-
-  // Label
-  gc.fillStyle = dk ? '#c8dff0' : '#223';
-  gc.font = 'bold 14px Space Mono';
-  gc.textAlign = 'center';
-  gc.fillText((acuity * 10).toFixed(1) + '/10', pl + pw/2, by + bh + 16);
-
-  // Markers
-  gc.fillStyle = tkC; gc.font = '8px Space Mono'; gc.textAlign = 'center';
-  for (const v of [0, 0.25, 0.5, 0.75, 1.0]) {
-    gc.fillText((v*10).toFixed(0), bx + bw*v, by + bh + 28);
-  }
-
+  gc.fillText(isOk ? 'fuoco perfetto' : 'sfocata: errore ' + (net > 0 ? '+' : '') + Lab.fmt(net, 2) + ' D' + (params.astig > 0 ? ' + astigm.' : ''), mx, oy + H - 3);
   gc.restore();
 }
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const rdout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 'defect', label: 'Difetto' },
-  { key: 'corr',   label: 'Correzione' },
-  { key: 'net',    label: 'Netto' },
-  { key: 'focus',  label: 'Fuoco' },
-  { key: 'acuity', label: 'Acuità' },
+  { key: 'defect', label: 'difetto (prescrizione)' },
+  { key: 'corr',   label: 'lente' },
+  { key: 'net',    label: 'errore residuo' },
+  { key: 'focus',  label: 'fuoco' },
+  { key: 'acuity', label: 'acuità visiva' },
 ]);
 
 function updateReadout() {
-  const def  = params.defect + params.astig * 0.5;
-  const corr = params.correction;
-  const net  = def + corr;
-  const P    = totalPower();
-  const qMm  = imageDistMm(P, Infinity);
-  const offMm = isFinite(qMm) ? (qMm - Q_RETINA) : NaN;
-  const acuity = Math.max(0, 1 - Math.abs(net) * 0.18);
-
-  const fmtD = v => (v > 0 ? '+' : '') + v.toFixed(2) + ' D';
-  rdout.set('defect', fmtD(def));
-  rdout.set('corr',   params.correction === 0 ? 'nessuna' : fmtD(corr));
+  const net = residualD(), off = net * MM_PER_D;
+  const fmtD = v => (v > 0 ? '+' : '') + Lab.fmt(v, 2) + ' D';
+  rdout.set('defect', fmtD(params.defect) + (params.astig > 0 ? ` · cil. ${Lab.fmt(params.astig, 2)}` : ''));
+  rdout.set('corr',   params.correction === 0 ? 'nessuna' : fmtD(params.correction));
   rdout.set('net',    fmtD(net));
-  rdout.set('focus',  isFinite(offMm) ? (offMm > 0 ? '+' : '') + offMm.toFixed(1) + ' mm' : '—');
-  rdout.set('acuity', (acuity * 10).toFixed(1) + '/10');
+  rdout.set('focus',  Math.abs(off) < 0.05 ? 'sulla retina' : `${Lab.fmt(Math.abs(off), 1)} mm ${off < 0 ? 'davanti' : 'dietro'}`);
+  rdout.set('acuity', Lab.fmt(acuityOf(blurD()) * 10, 1) + '/10');
 }
 
 // ── Controls ──────────────────────────────────────────────────────────────────
@@ -848,8 +731,8 @@ function buildControls() {
 
   const secCorr = Lab.Section('Lente correttiva');
   secCorr.add(Lab.SliderInput({
-    label: 'Diottrie occhiale', min: -10, max: 10, value: params.correction, step: 0.25, unit: ' D',
-    hint: '0 = nessuna lente',
+    label: 'Lente dell’occhiale', min: -10, max: 10, value: params.correction, step: 0.25, unit: ' D',
+    hint: '− divergente (miopia), + convergente (ipermetropia)',
     onChange: v => { params.correction = v; drawScene(); drawGraphs(); },
   }));
   el.appendChild(secCorr.el);

@@ -95,6 +95,12 @@ function stateAt(tp) {
   };
 }
 function orbFreq(r) { return Math.sqrt(D.M / (r * r * r)) / TWO; }   // Hz "geometrici" (cicli per unità di tempo fisico)
+// Scala fisica: in unità G = c = 1 basta fissare una lunghezza. Con 1 unità = 100 km, una massa 0,15
+// vale GM/c² = 15 km, cioè circa 10 masse solari (GM☉/c² = 1,477 km) e il tempo unitario è 100 km / c.
+// Con le masse iniziali si ottiene un'onda a qualche decina di Hz che si fonde in circa un secondo, come GW150914.
+const UNIT_KM = 100, UNIT_S = UNIT_KM / 299792.458, MSUN_KM = 1.4766;
+const toHz = fGeom => fGeom / UNIT_S;
+const toMsun = m => m * UNIT_KM / MSUN_KM;
 function step(dtScreen) { tPhys += dtScreen * P.speed * TIME_SCALE; }
 
 function smoothstep(a, b, x) { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
@@ -235,8 +241,7 @@ function drawWaveCrest(ctx, st, armOffset) {
 }
 
 function draw(canvas) {
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T = pal();
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, W, H);
   geom(W, H); updateProjCache();
@@ -272,86 +277,55 @@ function draw(canvas) {
   ctx.fillStyle = T.accent; ctx.font = 'bold 14px "Space Mono",monospace';
   ctx.fillText('Onde Gravitazionali — fusione di due buchi neri', 14, 22);
   ctx.fillStyle = T.txt; ctx.font = '10px "Space Mono",monospace';
-  ctx.fillText(`m₁=${D.m1.toFixed(2)}   m₂=${D.m2.toFixed(2)}   r=${st.merged ? '—' : st.r.toFixed(2)}   ${st.merged ? 'fuso' : 'in avvicinamento'}`, 14, 40);
+  ctx.fillText(`m₁ = ${Lab.fmt(toMsun(D.m1), 1)} M☉   m₂ = ${Lab.fmt(toMsun(D.m2), 1)} M☉   distanza = ${st.merged ? '—' : Lab.fmt(st.r * UNIT_KM, 0) + ' km'}   ${st.merged ? 'fusi' : 'in avvicinamento'}`, 14, 40);
 
   ctx.fillStyle = T.sub; ctx.font = '9px "Space Mono",monospace'; ctx.textAlign = 'center';
   ctx.fillText((st.merged ? 'buco nero finale — l\'inspiral è concluso' : 'la separazione decresce, la frequenza aumenta: il "chirp"') + ' — trascina per ruotare la vista', W / 2, H - 10);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx, W, H, PAD) {
-  ctx.fillStyle = T.gBg; ctx.fillRect(0, 0, W, H);
-  const gW = W - PAD.l - PAD.r, gH = H - PAD.t - PAD.b;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.6;
-  ctx.beginPath(); ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + gH); ctx.lineTo(PAD.l + gW, PAD.t + gH); ctx.stroke();
-  return { gW, gH };
-}
-// 1: frequenza dell'onda gravitazionale nel tempo — il "chirp": dominio FISSO [0,tMerge] per il
-// lancio corrente (ricalcolato solo su nuovi parametri, mai sul tempo che passa)
+// tempo dall'inizio in millisecondi reali (asse comune ai tre grafici)
+const tMs = t => t * UNIT_S * 1000;
+// 1: il "chirp": la frequenza dell'onda (doppia di quella orbitale) cresce sempre più in fretta verso la fusione
 function drawGraphChirp() {
-  const cv = gCanvas[0]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[0], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 30, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = D.tMerge, fMax = 2 * orbFreq(D.rMerge);
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW;
-  const yOf = f => PAD.t + gH - clamp(f / fMax, 0, 1) * gH;
-  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 200; i++) { const t = tMax * i / 200; const r = Math.pow(Math.pow(D.r0, 4) - 4 * D.k * t, 0.25); const f = 2 * orbFreq(r); const x = xOf(t), y = yOf(f); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  if (tPhys < D.tMerge) { const st = stateAt(tPhys); ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(tPhys), yOf(2 * orbFreq(st.r)), 3, 0, TWO); ctx.fill(); }
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('frequenza onda (cicli/unità)', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!D) return;
+  const g = Lab.panel(gCanvas[0], { title: 'Frequenza dell’onda (Hz): il «chirp»', xr: [0, tMs(D.tMerge)], yr: [0, Lab.niceMax(toHz(2 * orbFreq(D.rMerge)) * 1.05)], xLabel: 't (ms)', padL: 50 });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, ms => { const t = ms / 1000 / UNIT_S; return toHz(2 * orbFreq(Math.pow(Math.max(0, Math.pow(D.r0, 4) - 4 * D.k * t), 0.25))); }, [0, tMs(D.tMerge) * 0.999], '#00d4ff', 2, [], 300);
+  if (tPhys < D.tMerge) Lab.dot(ctx, f, tMs(tPhys), toHz(2 * orbFreq(stateAt(tPhys).r)), '#ff9d4d', 4.5);
 }
-// 2: separazione r(t) — stesso dominio fisso
+// 2: separazione dei due buchi neri: decade come (r₀⁴ − 4kt)^¼, sempre più rapidamente
 function drawGraphSeparation() {
-  const cv = gCanvas[1]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[1], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 26, r: 8 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = D.tMerge;
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW;
-  const yOf = r => PAD.t + gH - clamp(r / D.r0, 0, 1) * gH;
-  ctx.strokeStyle = '#7fe0a0'; ctx.lineWidth = 1.4; ctx.beginPath();
-  for (let i = 0; i <= 200; i++) { const t = tMax * i / 200; const r = Math.pow(Math.pow(D.r0, 4) - 4 * D.k * t, 0.25); const x = xOf(t), y = yOf(r); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-  ctx.stroke();
-  if (tPhys < D.tMerge) { const st = stateAt(tPhys); ctx.fillStyle = '#ff9d4d'; ctx.beginPath(); ctx.arc(xOf(tPhys), yOf(st.r), 3, 0, TWO); ctx.fill(); }
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('separazione r', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  if (!D) return;
+  const g = Lab.panel(gCanvas[1], { title: 'Distanza fra i buchi neri (km)', xr: [0, tMs(D.tMerge)], yr: [0, Lab.niceMax(D.r0 * UNIT_KM * 1.05)], xLabel: 't (ms)', padL: 50 });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plot(ctx, f, ms => Math.pow(Math.max(0, Math.pow(D.r0, 4) - 4 * D.k * ms / 1000 / UNIT_S), 0.25) * UNIT_KM, [0, tMs(D.tMerge)], '#7fe0a0', 2, [], 300);
+  if (tPhys < D.tMerge) Lab.dot(ctx, f, tMs(tPhys), stateAt(tPhys).r * UNIT_KM, '#ff9d4d', 4.5);
 }
-// 3: forma d'onda (strain) — ampiezza ~ m₁m₂/r che oscilla a 2φ(t), il classico "chirp" del
-// segnale rivelato — dominio fisso, ampiezza normalizzata al valore massimo raggiunto alla fusione
+// 3: forma d'onda h(t) ∝ (m₁m₂/r)·cos 2φ, il segnale registrato dai rivelatori (normalizzato al massimo)
 function drawGraphStrain() {
-  const cv = gCanvas[2]; if (!cv || !cv.width || !D) return;
-  const ctx = gCtx[2], W = cv.width, H = cv.height, PAD = { t: 14, b: 14, l: 14, r: 10 };
-  const { gW, gH } = gBase(ctx, W, H, PAD);
-  const tMax = D.tMerge, hMax = (D.m1 * D.m2) / D.rMerge, zero = PAD.t + gH / 2;
-  ctx.strokeStyle = T.gAxis; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(PAD.l, zero); ctx.lineTo(PAD.l + gW, zero); ctx.stroke();
-  const xOf = t => PAD.l + clamp(t / tMax, 0, 1) * gW;
-  const yOf = h => zero - clamp(h / hMax, -1, 1) * (gH * 0.46);
-  ctx.strokeStyle = '#ff9d4d'; ctx.lineWidth = 1; ctx.beginPath();
-  for (let i = 0; i <= 900; i++) {
-    const t = tMax * i / 900, r = Math.pow(Math.pow(D.r0, 4) - 4 * D.k * t, 0.25);
+  if (!D) return;
+  const g = Lab.panel(gCanvas[2], { title: 'Forma d’onda h(t) (relativa)', xr: [0, tMs(D.tMerge)], yr: [-1, 1], yStep: 0.5, xLabel: 't (ms)' });
+  if (!g) return; const [ctx, f] = g;
+  const hMax = (D.m1 * D.m2) / D.rMerge, pts = [];
+  for (let i = 0; i <= 1200; i++) {
+    const t = D.tMerge * i / 1200, r = Math.pow(Math.max(Math.pow(D.rMerge, 4), Math.pow(D.r0, 4) - 4 * D.k * t), 0.25);
     const phi = (2 * Math.sqrt(D.M) / (5 * D.k)) * (Math.pow(D.r0, 2.5) - Math.pow(r, 2.5));
-    const h = (D.m1 * D.m2 / r) * Math.cos(2 * phi);
-    const x = xOf(t), y = yOf(h); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    pts.push([tMs(t), (D.m1 * D.m2 / r) * Math.cos(2 * phi) / hMax]);
   }
-  ctx.stroke();
-  ctx.fillStyle = T.gText; ctx.font = '7px "Space Mono",monospace'; ctx.textAlign = 'left'; ctx.fillText('h(t) — forma d\'onda', PAD.l + 2, PAD.t + 7);
-  ctx.textAlign = 'right'; ctx.fillText('t', PAD.l + gW - 2, PAD.t + gH - 3);
+  Lab.plotPts(ctx, f, pts, '#ff9d4d', 1.1);
+  if (tPhys < D.tMerge) { ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.text; ctx.beginPath(); ctx.moveTo(f.X(tMs(tPhys)), f.T); ctx.lineTo(f.X(tMs(tPhys)), f.B); ctx.stroke(); ctx.restore(); }
 }
-function drawGraphs() {
-  const titles = ['Frequenza — il "chirp"', 'Separazione r(t)', 'Forma d\'onda h(t)'];
-  for (let i = 0; i < 3; i++) if (gTitle[i]) gTitle[i].textContent = titles[i];
-  drawGraphChirp(); drawGraphSeparation(); drawGraphStrain();
-}
+function drawGraphs() { drawGraphChirp(); drawGraphSeparation(); drawGraphStrain(); }
 
 // ═══ Controlli ════════════════════════════════════════════════════════════════
 function buildControls() {
   const cont = document.getElementById('controls'); cont.innerHTML = '';
 
   const sb = Lab.Section('Buchi neri'); cont.appendChild(sb.el);
-  sb.add(Lab.Slider({ label: 'Massa 1', min: 0.05, max: 0.3, step: 0.01, value: P.m1, unit: '', onChange(v) { P.m1 = v; newRun(); } }));
-  sb.add(Lab.Slider({ label: 'Massa 2', min: 0.05, max: 0.3, step: 0.01, value: P.m2, unit: '', onChange(v) { P.m2 = v; newRun(); } }));
-  sb.add(Lab.Slider({ label: 'Separazione iniziale', min: 3, max: 9, step: 0.2, value: P.r0, unit: '', onChange(v) { P.r0 = v; newRun(); } }));
+  sb.add(Lab.Slider({ label: 'Massa 1', min: 0.05, max: 0.3, step: 0.01, value: P.m1, format: v => Lab.fmt(toMsun(v), 1) + ' M☉', onChange(v) { P.m1 = v; newRun(); } }));
+  sb.add(Lab.Slider({ label: 'Massa 2', min: 0.05, max: 0.3, step: 0.01, value: P.m2, format: v => Lab.fmt(toMsun(v), 1) + ' M☉', onChange(v) { P.m2 = v; newRun(); } }));
+  sb.add(Lab.Slider({ label: 'Separazione iniziale', min: 3, max: 9, step: 0.2, value: P.r0, format: v => Lab.fmt(v * UNIT_KM, 0) + ' km', onChange(v) { P.r0 = v; newRun(); } }));
   const bNew = document.createElement('button'); bNew.className = 'ctrl-btn'; bNew.textContent = 'Nuova fusione';
   bNew.addEventListener('click', () => newRun());
   sb.add(bNew);
@@ -365,26 +339,19 @@ function buildControls() {
 function buildReadout() {
   const cont = document.getElementById('readout'); cont.innerHTML = '';
   readout = new Lab.Readout(cont, [
-    { key: 'sep', label: 'Separazione r' },
-    { key: 'forb', label: 'Frequenza orbitale' },
-    { key: 'fgw', label: 'Frequenza onda' },
-    { key: 'ttm', label: 'Tempo alla fusione' },
-    { key: 'stato', label: 'Stato' },
+    { key: 'sep', label: 'distanza fra i buchi neri' },
+    { key: 'forb', label: 'frequenza orbitale' },
+    { key: 'fgw', label: 'frequenza dell’onda (doppia)' },
+    { key: 'ttm', label: 'tempo alla fusione' },
+    { key: 'stato', label: 'stato' },
   ]);
 }
 
 function initGraphs() {
-  const ga = document.getElementById('graphArea');
-  ga.style.cssText = 'display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  for (let i = 0; i < 3; i++) {
-    const panel = document.createElement('div');
-    panel.style.cssText = 'flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title = document.createElement('div'); title.textContent = '';
-    title.style.cssText = 'position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv = document.createElement('canvas'); cv.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i] = cv; gCtx[i] = cv.getContext('2d'); gTitle[i] = title;
-  }
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
+  gTitle = gCanvas.map(() => ({ textContent: '' }));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -427,9 +394,8 @@ function init() {
     const rb = document.getElementById('readout').getBoundingClientRect();
     const ga = document.getElementById('graphArea'); const gaH = ga ? ga.offsetHeight : 0;
     const h = Math.max(240, Math.floor(ar.height - rb.height - gaH - 4));
-    simCanvas.style.width = Math.floor(ar.width) + 'px'; simCanvas.style.height = h + 'px';
-    simCanvas.width = Math.floor(ar.width); simCanvas.height = h;
-    for (const cv of gCanvas) { if (!cv) continue; cv.width = Math.floor(cv.parentElement.clientWidth); cv.height = Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -444,10 +410,10 @@ function init() {
     try {
       draw(simCanvas); drawGraphs();
       const st = stateAt(tPhys);
-      readout.set('sep', st.merged ? '—' : st.r.toFixed(2) + ' u');
-      readout.set('forb', st.merged ? '—' : orbFreq(st.r).toFixed(3) + ' /u');
-      readout.set('fgw', st.merged ? '—' : (2 * orbFreq(st.r)).toFixed(3) + ' /u');
-      readout.set('ttm', st.merged ? 'fuso' : (D.tMerge - tPhys).toFixed(1) + ' u');
+      readout.set('sep', st.merged ? '—' : Lab.fmt(st.r * UNIT_KM, 0) + ' km');
+      readout.set('forb', st.merged ? '—' : Lab.fmt(toHz(orbFreq(st.r)), 1) + ' Hz');
+      readout.set('fgw', st.merged ? '—' : Lab.fmt(toHz(2 * orbFreq(st.r)), 1) + ' Hz');
+      readout.set('ttm', st.merged ? 'fuso' : Lab.fmt((D.tMerge - tPhys) * UNIT_S * 1000, 0) + ' ms');
       readout.set('stato', st.merged ? 'buco nero fuso' : 'in avvicinamento (chirp)');
     } catch (err) { console.error(err); }
     requestAnimationFrame(frame);

@@ -28,7 +28,7 @@ const view = { zoom: 1.0, panX: 0 };  // panX in canvas px
 const LENS_TYPES = {
   biconvex:     { R1:  80,       R2:  -80,       label: 'Biconvessa'    },
   planoconvex:  { R1: Infinity,  R2:  -80,       label: 'Piano convessa'},
-  posmenisc:    { R1: 100,       R2:   60,       label: 'Menisco convergente' },
+  posmenisc:    { R1:  60,       R2:  100,       label: 'Menisco convergente' },
   biconcave:    { R1: -80,       R2:   80,       label: 'Biconcava'     },
   planoconcave: { R1: -Infinity, R2:   80,       label: 'Piano concava' },
   negmenisc:    { R1: -60,       R2: -100,       label: 'Menisco divergente'  },
@@ -399,7 +399,7 @@ function drawObjectMode(f, dk) {
       sc.beginPath(); sc.moveTo(cx_lens, annY-4); sc.lineTo(cx_lens, annY+4); sc.stroke();
       sc.beginPath(); sc.moveTo(pCanvasX, annY-4); sc.lineTo(pCanvasX, annY+4); sc.stroke();
       sc.fillStyle = pC; sc.textAlign = 'center';
-      sc.fillText('p = ' + p.toFixed(0) + ' mm', (cx_lens + pCanvasX) / 2, annY + 12);
+      sc.fillText('p = ' + Lab.fmt(p, 0) + ' mm', (cx_lens + pCanvasX) / 2, annY + 12);
     }
 
     // q line (lens → image)
@@ -412,7 +412,7 @@ function drawObjectMode(f, dk) {
       sc.beginPath(); sc.moveTo(cx_lens,  vAnnY-4); sc.lineTo(cx_lens,  vAnnY+4); sc.stroke();
       sc.beginPath(); sc.moveTo(qCanvasX, vAnnY-4); sc.lineTo(qCanvasX, vAnnY+4); sc.stroke();
       sc.fillStyle = qC; sc.textAlign = 'center';
-      sc.fillText('q = ' + (q > 0 ? '+' : '') + q.toFixed(0) + ' mm',
+      sc.fillText('q = ' + (q > 0 ? '+' : '') + Lab.fmt(q, 0) + ' mm',
                   (cx_lens + qCanvasX) / 2, vAnnY + 12);
     }
 
@@ -444,179 +444,66 @@ function drawScene() {
 
 // ── Graphs ────────────────────────────────────────────────────────────────────
 function drawGraphs() {
+  if (!GW || !GH) return;
   gc.clearRect(0, 0, GW, GH);
-  const dk = isDark();
-  gc.fillStyle = dk ? '#060a10' : '#f4f8ff';
-  gc.fillRect(0, 0, GW, GH);
+  const f = focalLength(params.n, params.R1, params.R2), half = GW / 2;
+  // assi fissi (in mm, sulla gamma del cursore di p): cambiando la lente si vede cambiare la curva
+  const qOf = p => { const q = imageDistance(f, p); return Math.abs(q) > 2000 ? NaN : q; };
+  const mOf = p => { const q = imageDistance(f, p); const m = q / p; return Math.abs(m) > 6 ? NaN : m; };
+  const p0 = params.objectDist, show = params.viewMode === 'object';
+  const C = Lab.graphColors();
+  const fLine = g => { if (!isFinite(f) || f <= 0) return; gc.save(); gc.setLineDash([3, 3]); gc.strokeStyle = C.amber;
+    gc.beginPath(); gc.moveTo(g.X(-f), g.T); gc.lineTo(g.X(-f), g.B); gc.stroke(); gc.restore();
+    gc.fillStyle = C.amber; gc.font = '9.5px "DM Sans",sans-serif'; gc.textAlign = 'right'; gc.textBaseline = 'middle'; gc.fillText('p = −f', g.X(-f) - 4, g.T + 22); };
 
-  const PAD = { l: 42, r: 8, t: 22, b: 20 };
-  drawQvsP(gc, dk, 0,             0, Math.floor(GW*0.5), GH, PAD);
-  drawMvsP(gc, dk, Math.floor(GW*0.5), 0, GW - Math.floor(GW*0.5), GH, PAD);
+  // 1: distanza dell'immagine q(p): q > 0 immagine reale (dietro la lente), q < 0 virtuale
+  let g = Lab.axes(gc, { x: 3, y: 3, w: half - 6, h: GH - 6, xr: [-500, 0], xStep: 100, yr: [-1000, 1000], yStep: 500,
+    title: 'Distanza dell’immagine q (mm) — 1/q = 1/f + 1/p', xLabel: 'distanza dell’oggetto p (mm)', padL: 50 });
+  fLine(g);
+  if (isFinite(f)) Lab.plot(gc, g, qOf, [-500, -1], dk_() ? '#00d4ff' : '#0088cc', 2, [], 600);
+  if (show && Number.isFinite(qOf(p0))) Lab.dot(gc, g, p0, qOf(p0), C.amber, 4.5);
+  gc.fillStyle = C.text; gc.font = '9.5px "DM Sans",sans-serif'; gc.textAlign = 'right'; gc.textBaseline = 'middle';
+  gc.fillText('reale ↑', g.R - 4, g.T + 8); gc.fillText('virtuale ↓', g.R - 4, g.B - 8);
+
+  // 2: ingrandimento m = q/p: |m| > 1 ingrandita, m < 0 capovolta
+  g = Lab.axes(gc, { x: half + 3, y: 3, w: GW - half - 6, h: GH - 6, xr: [-500, 0], xStep: 100, yr: [-5, 5], yStep: 1,
+    title: 'Ingrandimento m = q/p', xLabel: 'distanza dell’oggetto p (mm)' });
+  fLine(g);
+  gc.save(); gc.setLineDash([2, 3]); gc.strokeStyle = C.axis;
+  for (const v of [1, -1]) { gc.beginPath(); gc.moveTo(g.L, g.Y(v)); gc.lineTo(g.R, g.Y(v)); gc.stroke(); }
+  gc.restore();
+  if (isFinite(f)) Lab.plot(gc, g, mOf, [-500, -1], dk_() ? '#ff8844' : '#cc4400', 2, [], 600);
+  if (show && Number.isFinite(mOf(p0))) Lab.dot(gc, g, p0, mOf(p0), C.amber, 4.5);
+  gc.fillStyle = C.text; gc.font = '9.5px "DM Sans",sans-serif'; gc.textAlign = 'right'; gc.textBaseline = 'middle';
+  gc.fillText('diritta ↑', g.R - 4, g.T + 8); gc.fillText('capovolta ↓', g.R - 4, g.B - 8);
 }
-
-function graphClip(ctx, dk, ox, oy, W, H, title) {
-  const axC = dk ? 'rgba(200,220,255,0.32)' : 'rgba(0,0,0,0.25)';
-  const grC = dk ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
-  const tkC = dk ? '#6b8099' : '#4a6278';
-  ctx.save();
-  ctx.beginPath(); ctx.rect(ox, oy, W, H); ctx.clip();
-  ctx.fillStyle = dk ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0.018)';
-  ctx.fillRect(ox, oy, W, H);
-  ctx.fillStyle = dk ? '#c8dff0' : '#223';
-  ctx.font = '11px DM Sans'; ctx.textAlign = 'center';
-  ctx.fillText(title, ox + W/2, oy + 14);
-  const pl = ox+PAD_G.l, pt = oy+PAD_G.t, pw = W-PAD_G.l-PAD_G.r, ph = H-PAD_G.t-PAD_G.b;
-  ctx.strokeStyle = axC; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(pl, pt); ctx.lineTo(pl, pt+ph); ctx.lineTo(pl+pw, pt+ph); ctx.stroke();
-  return { pl, pt, pw, ph, pr: pl+pw, pb: pt+ph, axC, grC, tkC };
-}
-const PAD_G = { l: 42, r: 8, t: 22, b: 20 };
-
-function drawQvsP(ctx, dk, ox, oy, W, H, PAD) {
-  const f = focalLength(params.n, params.R1, params.R2);
-  const { pl, pt, pw, ph, pr, pb, grC, tkC, axC } = graphClip(ctx, dk, ox, oy, W, H, 'Distanza immagine q(p)');
-  if (!isFinite(f)) { ctx.restore(); return; }
-
-  const af = Math.abs(f);
-  const pMin = -3.5*af, pMax = -0.1*af;
-  const qMin = -4*af,   qMax =  4*af;
-  const mP = p => pl + (p-pMin)/(pMax-pMin)*pw;
-  const mQ = q => pb - (q-qMin)/(qMax-qMin)*ph;
-
-  ctx.strokeStyle = grC; ctx.lineWidth = 1;
-  for (let k=-4; k<=4; k++) {
-    const qg = k*af; if (qg<qMin||qg>qMax) continue;
-    ctx.beginPath(); ctx.moveTo(pl, mQ(qg)); ctx.lineTo(pr, mQ(qg)); ctx.stroke();
-  }
-  for (let k=-3; k<=0; k++) {
-    const pg = k*af; if (pg<pMin||pg>pMax) continue;
-    ctx.beginPath(); ctx.moveTo(mP(pg), pt); ctx.lineTo(mP(pg), pb); ctx.stroke();
-  }
-  const y0 = mQ(0); ctx.strokeStyle = axC;
-  if (y0>=pt && y0<=pb) { ctx.beginPath(); ctx.moveTo(pl,y0); ctx.lineTo(pr,y0); ctx.stroke(); }
-
-  ctx.fillStyle = tkC; ctx.font = '8px Space Mono';
-  for (let k=-3; k<=-1; k++) {
-    const pg=k*af; if(pg<pMin||pg>pMax) continue;
-    ctx.textAlign='center'; ctx.fillText(k+'f', mP(pg), pb+11);
-  }
-  for (let k=-3; k<=3; k++) {
-    if (k===0) continue;
-    const qg=k*af; if(qg<qMin||qg>qMax) continue;
-    ctx.textAlign='right'; ctx.fillText(k+'f', pl-3, mQ(qg)+3);
-  }
-  ctx.textAlign='right'; ctx.font='9px Space Mono';
-  ctx.fillText('q', pl-3, pt+8); ctx.textAlign='center'; ctx.fillText('p', pr, pb+12);
-
-  ctx.strokeStyle = dk ? '#00d4ff' : '#0088cc'; ctx.lineWidth = 2;
-  ctx.beginPath(); let go = false;
-  for (let i=0; i<=400; i++) {
-    const p = pMin + (pMax-pMin)*i/400;
-    if (Math.abs(p)<1) continue;
-    const iq = 1/f + 1/p; if (Math.abs(iq)<1e-8) { go=false; continue; }
-    const q = 1/iq;
-    const x=mP(p), y=mQ(q);
-    if (y<pt-4||y>pb+4) { go=false; continue; }
-    if (!go) { ctx.moveTo(x,y); go=true; } else ctx.lineTo(x,y);
-  }
-  ctx.stroke();
-
-  const p0 = params.objectDist;
-  const iq0 = 1/f + 1/p0;
-  if (Math.abs(iq0)>1e-8) {
-    const q0=1/iq0, cx_=mP(p0), cy_=mQ(q0);
-    if (cy_>=pt && cy_<=pb) {
-      ctx.beginPath(); ctx.arc(cx_, cy_, 4.5, 0, Math.PI*2);
-      ctx.fillStyle = dk?'#ffdd44':'#cc8800'; ctx.fill();
-    }
-  }
-  ctx.restore();
-}
-
-function drawMvsP(ctx, dk, ox, oy, W, H, PAD) {
-  const f = focalLength(params.n, params.R1, params.R2);
-  const { pl, pt, pw, ph, pr, pb, grC, tkC, axC } = graphClip(ctx, dk, ox, oy, W, H, 'Ingrandimento m(p)');
-  if (!isFinite(f)) { ctx.restore(); return; }
-
-  const af = Math.abs(f);
-  const pMin=-3.5*af, pMax=-0.1*af, mMin=-4, mMax=4;
-  const mP = p => pl + (p-pMin)/(pMax-pMin)*pw;
-  const mM = m => pb - (m-mMin)/(mMax-mMin)*ph;
-
-  ctx.strokeStyle = grC; ctx.lineWidth = 1;
-  for (let k=-4; k<=4; k++) {
-    ctx.beginPath(); ctx.moveTo(pl, mM(k)); ctx.lineTo(pr, mM(k)); ctx.stroke();
-  }
-  for (let k=-3; k<=0; k++) {
-    const pg=k*af; if(pg<pMin||pg>pMax) continue;
-    ctx.beginPath(); ctx.moveTo(mP(pg), pt); ctx.lineTo(mP(pg), pb); ctx.stroke();
-  }
-  const y0=mM(0); ctx.strokeStyle = axC;
-  if (y0>=pt && y0<=pb) { ctx.beginPath(); ctx.moveTo(pl,y0); ctx.lineTo(pr,y0); ctx.stroke(); }
-
-  ctx.fillStyle=tkC; ctx.font='8px Space Mono';
-  for (let k=-3; k<=-1; k++) {
-    const pg=k*af; if(pg<pMin||pg>pMax) continue;
-    ctx.textAlign='center'; ctx.fillText(k+'f', mP(pg), pb+11);
-  }
-  for (let k=-3; k<=3; k++) {
-    if(k===0) continue;
-    ctx.textAlign='right'; ctx.fillText(k+'×', pl-3, mM(k)+3);
-  }
-  ctx.textAlign='right'; ctx.font='9px Space Mono';
-  ctx.fillText('m', pl-3, pt+8); ctx.textAlign='center'; ctx.fillText('p', pr, pb+12);
-
-  ctx.strokeStyle = dk?'#ff8844':'#cc4400'; ctx.lineWidth=2;
-  ctx.beginPath(); let go=false;
-  for (let i=0; i<=400; i++) {
-    const p=pMin+(pMax-pMin)*i/400;
-    if(Math.abs(p)<1) continue;
-    const iq=1/f+1/p; if(Math.abs(iq)<1e-8){go=false;continue;}
-    const q=1/iq, mm=q/p;
-    if(!isFinite(mm)||Math.abs(mm)>mMax+0.5){go=false;continue;}
-    const x=mP(p), y=mM(mm);
-    if(y<pt-4||y>pb+4){go=false;continue;}
-    if(!go){ctx.moveTo(x,y);go=true;}else ctx.lineTo(x,y);
-  }
-  ctx.stroke();
-
-  const p0=params.objectDist;
-  const iq0=1/f+1/p0;
-  if(Math.abs(iq0)>1e-8){
-    const q0=1/iq0, mm=q0/p0;
-    if(isFinite(mm)&&Math.abs(mm)<=mMax+0.5){
-      const cx_=mP(p0), cy_=mM(mm);
-      if(cy_>=pt&&cy_<=pb){
-        ctx.beginPath(); ctx.arc(cx_,cy_,4.5,0,Math.PI*2);
-        ctx.fillStyle=dk?'#ffdd44':'#cc8800'; ctx.fill();
-      }
-    }
-  }
-  ctx.restore();
-}
+const dk_ = () => isDark();
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const rdout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 'f',  label: 'Dist. focale' },
-  { key: 'D',  label: 'Diottrie'     },
-  { key: 'p',  label: 'p (oggetto)'  },
-  { key: 'q',  label: 'q (immagine)' },
-  { key: 'm',  label: 'Ingrandim.'   },
+  { key: 'f',  label: 'distanza focale f' },
+  { key: 'D',  label: 'potere diottrico'  },
+  { key: 'p',  label: 'oggetto p'         },
+  { key: 'q',  label: 'immagine q'        },
+  { key: 'm',  label: 'ingrandimento m'   },
+  { key: 'k',  label: 'immagine'          },
 ]);
 
 function updateReadout(f) {
-  rdout.set('f', isFinite(f) ? (f>0?'+':'') + f.toFixed(1) + ' mm' : '∞');
-  rdout.set('D', isFinite(f) && Math.abs(f)>0.01 ? (1000/f).toFixed(2) + ' D' : '—');
+  const sg = v => (v > 0 ? '+' : '');
+  rdout.set('f', isFinite(f) ? sg(f) + Lab.fmt(f, 1) + ' mm' : '∞');
+  rdout.set('D', isFinite(f) && Math.abs(f) > 0.01 ? sg(f) + Lab.fmt(1000 / f, 2) + ' D' : '0 D');
 
   if (params.viewMode === 'object') {
     const p = params.objectDist;
     const q = imageDistance(f, p);
     const m = isFinite(q) ? magnif(q, p) : null;
-    rdout.set('p', p.toFixed(0) + ' mm');
-    rdout.set('q', isFinite(q) ? (q>0?'+':'') + q.toFixed(0) + ' mm' : '∞');
-    rdout.set('m', m !== null && isFinite(m) ? m.toFixed(2) + '×' : '∞');
+    rdout.set('p', Lab.fmt(p, 0) + ' mm');
+    rdout.set('q', isFinite(q) ? sg(q) + Lab.fmt(q, 0) + ' mm' : '∞');
+    rdout.set('m', m !== null && isFinite(m) ? Lab.fmt(m, 2) + '×' : '∞');
+    rdout.set('k', !isFinite(q) ? 'all’infinito' : `${q > 0 ? 'reale' : 'virtuale'}, ${m < 0 ? 'capovolta' : 'diritta'}`);
   } else {
-    rdout.set('p', '—'); rdout.set('q', '—'); rdout.set('m', '—');
+    rdout.set('p', '—'); rdout.set('q', '—'); rdout.set('m', '—'); rdout.set('k', '—');
   }
 }
 
@@ -655,7 +542,7 @@ function buildControls() {
 
   const secMode = Lab.Section('Modalità');
   secMode.add(Lab.RadioGroup({
-    label: 'view-mode',
+    label: 'Che cosa mostrare',
     options: [
       { value: 'rays',   label: 'Raggi paralleli'    },
       { value: 'object', label: 'Oggetto e immagine' },
@@ -667,7 +554,7 @@ function buildControls() {
 
   const secType = Lab.Section('Tipo di Lente');
   secType.add(Lab.RadioGroup({
-    label: 'lens-type',
+    label: 'Forma',
     options: Object.entries(LENS_TYPES).map(([id,p]) => ({ value: id, label: p.label })),
     value: params.lensType,
     onChange: v => {
@@ -706,7 +593,7 @@ function buildControls() {
   }
   if (params.viewMode === 'object') {
     secDisp.add(Lab.SliderInput({
-      label: 'p (oggetto)', min: -500, max: -10, value: params.objectDist, step: 5, unit: ' mm',
+      label: 'Distanza dell’oggetto p', min: -500, max: -10, value: params.objectDist, step: 5, unit: ' mm',
       onChange: v => { params.objectDist = v; drawScene(); drawGraphs(); },
     }));
   }

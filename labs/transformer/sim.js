@@ -396,7 +396,7 @@ function updateReadout() {
     { label: 'potenza al carico', value: Lab.sci(V2rms() * I2peak() / Math.SQRT2, 3) + ' W' },
     { label: 'Φ di picco', value: P.ac ? `${Lab.sci(phiPeak()*1000,3)} mWb` : '0 mWb' },
   ].map(r =>
-    `<span class="readout-item"><span class="readout-label">${r.label}</span><span class="readout-value">${r.value}</span></span>`
+    `<span class="readout-item"><span class="readout-label">${Lab.keepCaseHTML(r.label)}</span><span class="readout-value">${r.value}</span></span>`
   ).join('');
 }
 

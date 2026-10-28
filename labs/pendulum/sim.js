@@ -1,10 +1,10 @@
 /* ── Simple Pendulum Simulation ─────────────────────────────── */
 
 const PLANETS = [
-  { value: 'luna',  label: 'Luna',  hint: '1.62 m/s²', g: 1.62  },
-  { value: 'marte', label: 'Marte', hint: '3.72 m/s²', g: 3.72  },
-  { value: 'terra', label: 'Terra', hint: '9.81 m/s²', g: 9.81  },
-  { value: 'giove', label: 'Giove', hint: '24.79 m/s²', g: 24.79 },
+  { value: 'luna',  label: 'Luna',  hint: '1,62 m/s²', g: 1.62  },
+  { value: 'marte', label: 'Marte', hint: '3,72 m/s²', g: 3.72  },
+  { value: 'terra', label: 'Terra', hint: '9,81 m/s²', g: 9.81  },
+  { value: 'giove', label: 'Giove', hint: '24,79 m/s²', g: 24.79 },
 ];
 
 const COLORS     = ['#00d4ff', '#ff4757', '#2ecc71', '#ffb400'];
@@ -107,7 +107,7 @@ class SimInstance {
 }
 
 /* ── Simulation state ────────────────────────────────────────── */
-let instances   = [new SimInstance(0, COLORS[0], 9.81, 1.0, 1.0, 30, 'math')];
+let instances   = [new SimInstance(0, COLORS[0], 9.81, 2.0, 1.0, 30, 'math')];   // 2 m: ben visibile con la scala fissa (5 m a tutta altezza)
 let compareMode = false;
 let simRunning  = false;
 let rafId       = null;
@@ -392,7 +392,7 @@ function drawLegend(dark) {
     ctx.fillStyle = dark ? 'rgba(221,238,255,0.85)' : 'rgba(13,26,38,0.85)';
     ctx.textAlign = 'left';
     const pLabel = inst.type === 'physical' ? 'Fisico' : 'Math';
-    ctx.fillText(`${inst.length.toFixed(1)}m · ${inst.angle0}° · ${pLabel}`, bx + 22, y + 4);
+    ctx.fillText(`${Lab.fmt(inst.length,1)}m · ${inst.angle0}° · ${pLabel}`, bx + 22, y + 4);
   });
 }
 
@@ -564,7 +564,7 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
     gctx.beginPath(); gctx.moveTo(gx, oy + pt + iH); gctx.lineTo(gx, oy + pt + iH + 4); gctx.stroke();
     if (tv > tStart + tRange * 0.03) {
       gctx.fillStyle = tickClr;
-      gctx.fillText(fmtTick(tv) + 's', gx, oy + pt + iH + 16);
+      gctx.fillText(fmtTick(tv) + ' s', gx, oy + pt + iH + 16);
     }
   });
 
@@ -610,23 +610,23 @@ function drawSingleGraph(ox, oy, gW, gH, PAD, getValue, label, dark, toShow, yFi
 
 /* ── Readout ──────────────────────────────────────────────────── */
 const readout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 't',     label: 't'      },
-  { key: 'theta', label: 'θ'      },
-  { key: 'omega', label: 'ω'      },
-  { key: 'x',     label: 'x'      },
-  { key: 'y',     label: 'y'      },
-  { key: 'v',     label: '|v|'    },
+  { key: 't',     label: 'tempo t'      },
+  { key: 'theta', label: 'angolo θ'      },
+  { key: 'omega', label: 'velocità angolare ω'      },
+  { key: 'x',     label: 'posizione x'      },
+  { key: 'y',     label: 'quota y'      },
+  { key: 'v',     label: 'velocità |v|'    },
 ]);
 
 function updateReadout() {
   const inst = instances[0];
   const s = inst.state;
-  readout.set('t',     s.t.toFixed(2)  + ' s');
-  readout.set('theta', (s.theta * 180 / Math.PI).toFixed(1) + '°');
-  readout.set('omega', s.omega.toFixed(2) + ' rad/s');
-  readout.set('x',     inst.bobX.toFixed(3) + ' m');
-  readout.set('y',     inst.bobY.toFixed(3) + ' m');
-  readout.set('v',     inst.bobV.toFixed(3) + ' m/s');
+  readout.set('t',     Lab.fmt(s.t,2)  + ' s');
+  readout.set('theta', Lab.fmt((s.theta * 180 / Math.PI),1) + '°');
+  readout.set('omega', Lab.fmt(s.omega,2) + ' rad/s');
+  readout.set('x',     Lab.fmt(inst.bobX,3) + ' m');
+  readout.set('y',     Lab.fmt(inst.bobY,3) + ' m');
+  readout.set('v',     Lab.fmt(inst.bobV,3) + ' m/s');
 }
 
 /* ── Controls ─────────────────────────────────────────────────── */
@@ -759,7 +759,7 @@ function rebuildCompareList() {
   pDot.style.cssText = `background:${primary.color};box-shadow:0 0 6px ${primary.color}`;
   const pLabel = document.createElement('span');
   pLabel.style.cssText = 'flex:1;font-size:11px;font-weight:600;color:var(--text-secondary)';
-  pLabel.textContent = `${primary.length.toFixed(1)}m · ${primary.angle0}° · ${primary.type === 'physical' ? 'Fisico' : 'Math'}`;
+  pLabel.textContent = `${Lab.fmt(primary.length,1)}m · ${primary.angle0}° · ${primary.type === 'physical' ? 'Fisico' : 'Math'}`;
   const pBadge = document.createElement('span');
   pBadge.style.cssText = 'font-size:9px;font-weight:700;font-family:"Space Mono",monospace;color:var(--text-hint);letter-spacing:0.5px';
   pBadge.textContent = 'PRINCIPALE';
@@ -870,7 +870,7 @@ function fmtTick(v) {
   if (v === 0) return '0';
   const abs = Math.abs(v);
   const s = abs >= 100 ? v.toFixed(0) : abs >= 10 ? v.toFixed(1) : abs >= 1 ? v.toFixed(1) : v.toFixed(2);
-  return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
+  return (s.includes('.') ? s.replace(/\.?0+$/, '') : s).replace('.', ',').replace('-', '−');
 }
 
 function hexToRgba(hex, alpha) {

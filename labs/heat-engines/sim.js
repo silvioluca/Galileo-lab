@@ -119,10 +119,22 @@ function netWork(samples){
   return Math.abs(A/2);
 }
 
+// ═══ Unità fisiche ════════════════════════════════════════════════════════════
+// Il ciclo è calcolato in unità ridotte (P·V = T). Per i numeri si usa un cilindro reale:
+// 0,02 mol di gas e volume massimo 0,5 L (aspirazione a ~100 kPa nei cicli Otto/Diesel/Brayton,
+// dove lo stato 1 è alla temperatura Tc dell'aria esterna).
+const N_MOL=0.02, R_GAS=8.314, V_MAX_L=0.5;
+function tScale(){ return (P.cycle==='otto'||P.cycle==='diesel'||P.cycle==='brayton')?P.Tc:1; }
+function vScale(cy){ let m=0; for(const p of cy.pts) m=Math.max(m,p.V); return V_MAX_L/(m||1); }
+// stato in unità SI: V in L, p in MPa, T in K
+function phys(st,cy){
+  const T_=st.T*tScale(), V=st.V*vScale(cy);
+  return { V, p:N_MOL*R_GAS*T_/(V/1000)/1e6, T:T_ };
+}
+
 // ═══ Rendering ════════════════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx,W,H]=Lab.ctx2d(canvas);
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   drawGrid(ctx,W,H);
 
@@ -142,7 +154,7 @@ function draw(canvas){
 
   // intestazione
   ctx.fillStyle=T.accent; ctx.font='bold 15px "Space Mono",monospace'; ctx.textAlign='left';
-  ctx.fillText(`Ciclo ${CYCLE_NAMES[P.cycle]} · η = ${(cy.eff*100).toFixed(1)}%`, 14, 24);
+  ctx.fillText(`Ciclo ${CYCLE_NAMES[P.cycle]} · η = ${Lab.fmt(cy.eff*100,1)} %`, 14, 24);
   ctx.fillStyle=T.sub; ctx.font='11px "DM Sans",sans-serif';
   ctx.fillText(cy.names[seg], 14, 42);
 }
@@ -378,24 +390,21 @@ function drawPiston(ctx,x,y,W,H,st,cy,seg,Vmin,Vmax){
 
   // readout V,P,T
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center';
-  ctx.fillText(`V=${st.V.toFixed(2)}  P=${st.P.toFixed(2)}  T=${st.T.toFixed(2)}`, cx, y+H-6);
+  const ph=phys(st,cy);
+  ctx.fillText(`V = ${Lab.fmt(ph.V*1000,0)} cm³   p = ${Lab.fmt(ph.p,2)} MPa   T = ${Lab.fmt(ph.T,0)} K`, cx, y+H-6);
 }
 function cycleTmax(cy){ let m=0; for(const p of cy.pts) m=Math.max(m,p.P*p.V); return m||1; }
 
 // ── diagramma P-V ──
 function drawPV(ctx,x,y,W,H,cy,samp,st,Vmin,Vmax,Pmin,Pmax){
-  const PAD={l:38,r:18,t:30,b:34};
-  const gx=x+PAD.l, gy=y+PAD.t, gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  const dV=(Vmax-Vmin)||1, dP=(Pmax-Pmin)||1;
-  const X=V=> gx + (V-Vmin)/dV*gW*0.94 + gW*0.03;
-  const Y=Pp=> gy+gH - (Pp-Pmin)/dP*gH*0.94 - gH*0.03;
-
-  // assi
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=1;
-  ctx.beginPath(); ctx.moveTo(gx,gy); ctx.lineTo(gx,gy+gH); ctx.lineTo(gx+gW,gy+gH); ctx.stroke();
-  ctx.fillStyle=T.sub; ctx.font='11px "Space Mono",monospace'; ctx.textAlign='center';
-  ctx.fillText('V', gx+gW/2, gy+gH+24);
-  ctx.save(); ctx.translate(x+12,gy+gH/2); ctx.rotate(-Math.PI/2); ctx.fillText('P',0,0); ctx.restore();
+  const vs=vScale(cy), pOf=q=>phys(q,cy).p;
+  let pm=0; for(const q of samp) pm=Math.max(pm,pOf(q));
+  const f=Lab.axes(ctx,{ x:x+4, y:y+52, w:W-14, h:H-62, bg:false, xr:[0,V_MAX_L*1000*1.08], yr:[0,Lab.niceMax(pm*1.08)],
+    title:'Diagramma di Clapeyron p–V (p in MPa)', xLabel:'V (cm³)', padL:42 });
+  const X=V=>f.X(V*vs*1000), Y=Pp=>f.Y(Pp);
+  // le pressioni ridotte si convertono in MPa
+  samp=samp.map(q=>({V:q.V,P:pOf(q),T:q.T}));
+  const toPh=q=>({V:q.V,P:pOf(q),T:q.T});
 
   // area racchiusa (lavoro)
   ctx.fillStyle=dk()?'rgba(255,210,90,0.08)':'rgba(210,140,0,0.10)';
@@ -404,13 +413,13 @@ function drawPV(ctx,x,y,W,H,cy,samp,st,Vmin,Vmax,Pmin,Pmax){
   ctx.closePath(); ctx.fill();
 
   // centroide (per spostare le etichette verso l'esterno)
-  let cV=0,cP=0; cy.pts.forEach(p=>{cV+=p.V;cP+=p.P;}); cV/=4; cP/=4;
+  let cV=0,cP=0; cy.pts.forEach(p=>{cV+=p.V;cP+=pOf({V:p.V,T:p.P*p.V});}); cV/=4; cP/=4;
   const cX=X(cV), cY=Y(cP);
 
   // ogni trasformazione: colore proprio + freccia di verso + etichetta
   for(let s=0;s<4;s++){
     const kind=cy.kinds[s], col=KIND[kind].c;
-    const pp=[]; for(let i=0;i<=24;i++) pp.push(segState(cy,s,i/24));
+    const pp=[]; for(let i=0;i<=24;i++) pp.push(toPh(segState(cy,s,i/24)));
     ctx.strokeStyle=col; ctx.lineWidth=2.6; ctx.beginPath();
     pp.forEach((q,i)=>{ const px=X(q.V),py=Y(q.P); i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); });
     ctx.stroke();
@@ -434,90 +443,75 @@ function drawPV(ctx,x,y,W,H,cy,samp,st,Vmin,Vmax,Pmin,Pmax){
 
   // vertici numerati
   ctx.fillStyle=T.accent; ctx.font='bold 10px "Space Mono",monospace'; ctx.textAlign='left';
-  cy.pts.forEach((p,i)=>{ const px=X(p.V),py=Y(p.P); ctx.beginPath(); ctx.arc(px,py,3.5,0,Math.PI*2); ctx.fill(); ctx.fillText(String(i+1),px+6,py-4); });
+  cy.pts.forEach((p,i)=>{ const px=X(p.V),py=Y(pOf({V:p.V,T:p.P*p.V})); ctx.beginPath(); ctx.arc(px,py,3.5,0,Math.PI*2); ctx.fill(); ctx.fillText(String(i+1),px+6,py-4); });
 
   // stato corrente
-  ctx.fillStyle=T.dot; ctx.beginPath(); ctx.arc(X(st.V),Y(st.P),5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle=T.dot; ctx.beginPath(); ctx.arc(X(st.V),Y(pOf(st)),5,0,Math.PI*2); ctx.fill();
 
-  ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='right';
-  ctx.fillText('diagramma di Clapeyron (P–V)', gx+gW, gy-8);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
-
-// 1: T-S schematico (entropia) — usa segmenti: iso-T orizzontali, adiab verticali
-function drawTS(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:24,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const cy=buildCycle(), g=gamma();
-  // T e S relativi: S = cv ln(T) + R ln(V) (nR=1, cv=1/(g-1))
-  const cvh=1/(g-1);
-  const node=cy.pts.map(p=>({T:p.P*p.V, S:cvh*Math.log(p.P*p.V)+Math.log(p.V)}));
-  let Tmin=1e9,Tmax=-1e9,Smin=1e9,Smax=-1e9;
-  node.forEach(n=>{Tmin=Math.min(Tmin,n.T);Tmax=Math.max(Tmax,n.T);Smin=Math.min(Smin,n.S);Smax=Math.max(Smax,n.S);});
-  const X=s=>PAD.l+(s-Smin)/((Smax-Smin)||1)*gW;
-  const Y=t2=>PAD.t+gH-(t2-Tmin)/((Tmax-Tmin)||1)*gH;
-  ctx.strokeStyle=T.curve; ctx.lineWidth=1.4; ctx.beginPath();
-  node.forEach((n,i)=>{ const px=X(n.S),py=Y(n.T); i===0?ctx.moveTo(px,py):ctx.lineTo(px,py); });
-  ctx.lineTo(X(node[0].S),Y(node[0].T)); ctx.stroke();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('T',PAD.l+2,PAD.t+7); ctx.fillText('S',PAD.l+gW-8,PAD.t+gH+11);
-}
-
-// 2: rendimento vs rapporto
-function drawEffR(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:14,b:16,l:26,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
+// rendimento ideale del ciclo scelto in funzione del rapporto r
+function effAt(r){
   const g=gamma();
-  const effAt=r=>{
-    if(P.cycle==='otto') return 1-1/Math.pow(r,g-1);
-    if(P.cycle==='diesel'){const al=Math.max(1.05,P.heat); return 1-(1/Math.pow(r,g-1))*((Math.pow(al,g)-1)/(g*(al-1)));}
-    if(P.cycle==='brayton') return 1-Math.pow(r,-(g-1)/g);
-    return 1-P.Tc/P.Th;
-  };
-  const rmin=2,rmax=14;
-  ctx.strokeStyle=T.accent; ctx.lineWidth=1.4; ctx.beginPath();
-  for(let i=0;i<=60;i++){ const r=rmin+(rmax-rmin)*i/60; const x=PAD.l+(r-rmin)/(rmax-rmin)*gW, y=PAD.t+gH-Math.max(0,effAt(r))*gH; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); }
-  ctx.stroke();
-  const rc=Math.max(rmin,Math.min(rmax,P.ratio));
-  const x=PAD.l+(rc-rmin)/(rmax-rmin)*gW, y=PAD.t+gH-Math.max(0,effAt(rc))*gH;
-  ctx.fillStyle=T.dot; ctx.beginPath(); ctx.arc(x,y,3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('η',PAD.l+2,PAD.t+7); ctx.fillText('rapporto',PAD.l+gW-34,PAD.t+gH+11);
+  if(P.cycle==='otto') return 1-1/Math.pow(r,g-1);
+  if(P.cycle==='diesel'){const al=Math.max(1.05,P.heat); return 1-(1/Math.pow(r,g-1))*((Math.pow(al,g)-1)/(g*(al-1)));}
+  if(P.cycle==='brayton') return 1-Math.pow(r,-(g-1)/g);
+  return 1-P.Tc/P.Th;
+}
+// rendimento di Carnot tra la temperatura minima e massima raggiunte dal ciclo con rapporto r
+function carnotAt(r){
+  const o=P.ratio; P.ratio=r; const cy=buildCycle(); P.ratio=o;
+  let lo=Infinity, hi=0; for(const p of cy.pts){ const T_=p.P*p.V; lo=Math.min(lo,T_); hi=Math.max(hi,T_); }
+  return 1-lo/hi;
+}
+function ratioLabel(){
+  if(P.cycle==='brayton'||P.cycle==='ericsson') return 'rapporto delle pressioni r_p';
+  if(P.cycle==='carnot') return 'rapporto di espansione isoterma';
+  return 'rapporto di compressione r';
 }
 
-// 3: bilancio energetico Qin/Qout/W
+// 1: diagramma T–S, con ΔS = n·(c_v·ln(T/T₁) + R·ln(V/V₁)) misurata dallo stato 1
+function drawTS(){
+  const cy=buildCycle(), cvR=1/(gamma()-1), ts=tScale(), nR=N_MOL*R_GAS;
+  const s0=cy.pts[0], T0=s0.P*s0.V;
+  const toTS=q=>[nR*(cvR*Math.log(q.T/T0)+Math.log(q.V/s0.V)), q.T*ts];
+  const all=cycleSamples(cy,40).map(toTS);
+  const Ss=all.map(p=>p[0]), sMin=Math.min(...Ss), sMax=Math.max(...Ss), pad=(sMax-sMin)*0.12||0.1;
+  const g=Lab.panel(gCanvas[0],{ title:'Diagramma T–S (area = lavoro)', xr:[sMin-pad,sMax+pad], yr:[0,Lab.niceMax(Math.max(...all.map(p=>p[1]))*1.1)], xLabel:'ΔS (J/K)' });
+  if(!g) return; const [ctx,f]=g;
+  ctx.fillStyle=dk()?'rgba(255,210,90,0.10)':'rgba(210,140,0,0.12)';
+  ctx.beginPath(); all.forEach(([s,T_],i)=>i?ctx.lineTo(f.X(s),f.Y(T_)):ctx.moveTo(f.X(s),f.Y(T_))); ctx.closePath(); ctx.fill();
+  for(let s=0;s<4;s++){ const pp=[]; for(let i=0;i<=30;i++) pp.push(toTS(segState(cy,s,i/30))); Lab.plotPts(ctx,f,pp,KIND[cy.kinds[s]].c,2); }
+  const seg=((Math.floor(u)%4)+4)%4, [sx,sy]=toTS(segState(cy,seg,u-Math.floor(u)));
+  Lab.dot(ctx,f,sx,sy,T.dot,4.5);
+  ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText('T (K)',f.L+4,f.T+8);
+}
+
+// 2: rendimento in funzione del rapporto; tratteggiato il limite di Carnot tra T min e T max del ciclo
+function drawEffR(){
+  const rmin=2, rmax=14, isoT=(P.cycle==='stirling'||P.cycle==='ericsson'||P.cycle==='carnot');
+  const g=Lab.panel(gCanvas[1],{ title:'Rendimento η (%)', xr:[rmin,rmax], xStep:2, yr:[0,100], yStep:25, xLabel:ratioLabel() });
+  if(!g) return; const [ctx,f]=g;
+  if(!isoT) Lab.plot(ctx,f,r=>carnotAt(r)*100,[rmin,rmax],T.dot,1.4,[4,3],120);
+  Lab.plot(ctx,f,r=>Math.max(0,effAt(r))*100,[rmin,rmax],T.accent,2);
+  Lab.dot(ctx,f,Math.max(rmin,Math.min(rmax,P.ratio)),Math.max(0,effAt(P.ratio))*100,T.accent,4.5);
+  Lab.legend(ctx,f.L+8,f.B-10,isoT?[[T.accent,'η = 1 − Tc/Th (come Carnot)']]:[[T.accent,`ciclo ${CYCLE_NAMES[P.cycle]}`],[T.dot,'Carnot (T min → T max)',[4,3]]]);
+}
+
+// 3: bilancio energetico per ciclo: Q assorbito = W + Q ceduto
 function drawEnergyBar(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:16,b:14,l:30,r:8};
-  const {gW,gH}=gBase(ctx,W,H,PAD);
-  const cy=buildCycle();
-  const W_net=netWork(cycleSamples(cy));
-  const eff=Math.max(0.001,cy.eff);
-  const Qin=W_net/eff, Qout=Qin-W_net;
-  const mx=Math.max(Qin,1e-6);
-  const bars=[['Q in',Qin,'rgba(255,140,60,0.9)'],['W',W_net,'rgba(120,255,180,0.9)'],['Q out',Qout,'rgba(90,160,255,0.9)']];
-  const bw=gW/3*0.6;
-  bars.forEach(([lbl,val,col],i)=>{
-    const x=PAD.l+gW*(i+0.5)/3-bw/2, h=(val/mx)*gH;
-    ctx.fillStyle=col; ctx.fillRect(x,PAD.t+gH-h,bw,h);
-    ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center';
-    ctx.fillText(lbl,x+bw/2,PAD.t+gH+10);
-  });
-  ctx.textAlign='left'; ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('bilancio',PAD.l+2,PAD.t-2);
+  const cy=buildCycle(), es=N_MOL*R_GAS*tScale();
+  const Wn=netWork(cycleSamples(cy))*es, Qin=Wn/Math.max(0.001,cy.eff), Qout=Qin-Wn;
+  const vals=[Qin,Wn,Qout], cols=['rgba(255,140,60,0.9)','rgba(80,220,150,0.9)','rgba(90,160,255,0.9)'], labs=['Q assorbito','lavoro W','Q ceduto'];
+  const g=Lab.panel(gCanvas[2],{ title:'Bilancio energetico per ciclo (J)', xr:[0,3], xStep:1e9, xFmt:()=> '', yr:[0,Lab.niceMax(Qin*1.15)] });
+  if(!g) return; const [ctx,f]=g, gap=(f.R-f.L)/3, bw=gap*0.55;
+  vals.forEach((v,k)=>{ const x=f.L+gap*k+(gap-bw)/2, y=f.Y(v);
+    ctx.fillStyle=cols[k]; ctx.fillRect(x,y,bw,f.B-y);
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font='9.5px "Space Mono",monospace'; ctx.fillStyle=f.C.title; ctx.fillText(Lab.fmt(v,0),x+bw/2,y-8);
+    ctx.font='9.5px "DM Sans",sans-serif'; ctx.fillStyle=f.C.text; ctx.fillText(labs[k],x+bw/2,f.B+10); });
 }
 
 function drawGraphs(){ drawTS(); drawEffR(); drawEnergyBar(); }
@@ -557,21 +551,8 @@ function buildControls(){
 
 // ═══ Graph panel ══════════════════════════════════════════════════════════════
 function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:145px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Diagramma T–S','Rendimento η(r)','Bilancio energetico'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -582,10 +563,10 @@ function init(){
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'eff',  label:'Rendimento η'},
-    {key:'work', label:'Lavoro netto'},
-    {key:'phase',label:'Fase'},
-    {key:'gas',  label:'Gas (γ)'},
+    {key:'eff',  label:'rendimento'},
+    {key:'work', label:'lavoro per ciclo W'},
+    {key:'phase',label:'fase del ciclo'},
+    {key:'gas',  label:'gas (γ = cp/cv)'},
   ]);
 
   document.getElementById('btnPlay').addEventListener('click',()=>{
@@ -606,12 +587,9 @@ function init(){
     const w=parent.clientWidth;
     const h=Math.max(140,(parent.clientHeight||0)-gaH-rbH);
     if(w>0){
-      simCanvas.style.width=w+'px'; simCanvas.style.height=h+'px';
-      simCanvas.width=w; simCanvas.height=h;
+      Lab.hidpi(simCanvas,w,h);
     }
-    for(const cv of gCanvas){ if(!cv)continue; const p=cv.parentElement;
-      const pw=p.clientWidth, ph=p.clientHeight;
-      if(pw>0&&ph>0){ cv.style.width=pw+'px'; cv.style.height=ph+'px'; cv.width=pw; cv.height=ph; } }
+    Lab.fitPanels(gCanvas);
     draw(simCanvas); drawGraphs();
   }
   resize();
@@ -628,10 +606,10 @@ function init(){
     draw(simCanvas);
     drawGraphs();
     const cy=buildCycle();
-    readout.set('eff', (cy.eff*100).toFixed(1)+' %');
-    readout.set('work', netWork(cycleSamples(cy)).toFixed(2)+' u');
+    readout.set('eff', Lab.fmt(cy.eff*100,1)+' %');
+    readout.set('work', Lab.fmt(netWork(cycleSamples(cy))*N_MOL*R_GAS*tScale(),0)+' J');
     readout.set('phase', cy.names[Math.floor(u)%4]);
-    readout.set('gas', P.gas==='mono'?'mono (γ=1.67)':'biat. (γ=1.40)');
+    readout.set('gas', P.gas==='mono'?'monoatomico (1,67)':'biatomico (1,40)');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

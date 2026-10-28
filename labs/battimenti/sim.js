@@ -198,7 +198,7 @@ function drawWaveStrip(ctx, x, y, w, h, cfg, dk, tWin) {
   ctx.textAlign = 'left';
   ctx.fillText(cfg.label, x + 5, y + 13);
   ctx.textAlign = 'right';
-  ctx.fillText('Δt=' + (tWin * 1000).toFixed(1) + ' ms', x + w - 5, y + 13);
+  ctx.fillText('Δt=' + Lab.fmt((tWin * 1000),1) + ' ms', x + w - 5, y + 13);
 }
 
 // ── Scene (three stacked waveform strips) ─────────────────────────────────────
@@ -247,7 +247,7 @@ function niceTicks(mn, mx, n = 4) {
 function fmtTick(v) {
   if (v === 0) return '0';
   const a = Math.abs(v);
-  const s = a >= 1000 ? v.toFixed(0) : a >= 100 ? v.toFixed(0) : a >= 10 ? v.toFixed(1) : a >= 1 ? v.toFixed(1) : v.toFixed(2);
+  const s = a >= 1000 ? Lab.fmt(v,0) : a >= 100 ? Lab.fmt(v,0) : a >= 10 ? Lab.fmt(v,1) : a >= 1 ? Lab.fmt(v,1) : Lab.fmt(v,2);
   return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
 }
 
@@ -454,20 +454,20 @@ function drawEnvelopePanel(ctx, dk, ox, oy, pw, ph) {
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const rdout = new Lab.Readout(document.getElementById('readout'), [
-  { key: 'f1',   label: 'f₁'         },
-  { key: 'f2',   label: 'f₂'         },
-  { key: 'fbat', label: 'f_bat'      },
-  { key: 'Tbat', label: 'T_bat'      },
-  { key: 'f0',   label: 'f₀ portante'},
+  { key: 'f1',   label: 'frequenza f₁' },
+  { key: 'f2',   label: 'frequenza f₂' },
+  { key: 'fbat', label: 'battimenti |f₁ − f₂|' },
+  { key: 'Tbat', label: 'periodo dei battimenti' },
+  { key: 'f0',   label: 'portante (f₁ + f₂)/2' },
 ]);
 
 function updateReadout() {
   const fb = fBeat(), Tb = TBeat();
-  rdout.set('f1',   params.f1.toFixed(1) + ' Hz');
-  rdout.set('f2',   params.f2.toFixed(1) + ' Hz');
-  rdout.set('fbat', fb.toFixed(2) + ' Hz');
-  rdout.set('Tbat', isFinite(Tb) ? Tb.toFixed(3) + ' s' : '∞');
-  rdout.set('f0',   fCarrier().toFixed(1) + ' Hz');
+  rdout.set('f1',   Lab.fmt(params.f1,1) + ' Hz');
+  rdout.set('f2',   Lab.fmt(params.f2,1) + ' Hz');
+  rdout.set('fbat', Lab.fmt(fb,2) + ' Hz');
+  rdout.set('Tbat', isFinite(Tb) ? Lab.fmt(Tb,3) + ' s' : '∞');
+  rdout.set('f0',   Lab.fmt(fCarrier(),1) + ' Hz');
 }
 
 // ── Controls ──────────────────────────────────────────────────────────────────

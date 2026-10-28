@@ -575,12 +575,12 @@ function compose() {
 
 // ── Readout ───────────────────────────────────────────────────────────────────
 const readout = new Lab.Readout(readoutEl, [
-  { key: 'center', label: 'Centro vista' },
-  { key: 'side',   label: 'Emisfero' },
-  { key: 'radius', label: 'Raggio medio' },
-  { key: 'g',      label: 'Gravità' },
-  { key: 'dist',   label: 'Distanza media' },
-  { key: 'period', label: 'Periodo siderale' },
+  { key: 'center', label: 'centro della vista' },
+  { key: 'side',   label: 'emisfero' },
+  { key: 'radius', label: 'raggio medio' },
+  { key: 'g',      label: 'gravità in superficie' },
+  { key: 'dist',   label: 'distanza media dalla Terra' },
+  { key: 'period', label: 'periodo siderale' },
 ]);
 readout.set('radius', '1737,4 km');
 readout.set('g', '1,62 m/s²');
@@ -588,7 +588,7 @@ readout.set('dist', '384 400 km');
 readout.set('period', '27,32 d');
 
 const fmtCoord = (lat, lon) =>
-  `${Math.abs(lat).toFixed(1).replace('.', ',')}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(1).replace('.', ',')}°${lon >= 0 ? 'E' : 'O'}`;
+  `${Lab.fmt(Math.abs(lat),1).replace('.', ',')}°${lat >= 0 ? 'N' : 'S'} ${Lab.fmt(Math.abs(lon),1).replace('.', ',')}°${lon >= 0 ? 'E' : 'O'}`;
 
 function updateReadout() {
   const c = [M[6], M[7], M[8]];             // punto della Luna al centro dello schermo

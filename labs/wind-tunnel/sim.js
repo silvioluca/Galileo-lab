@@ -78,8 +78,9 @@ function toGrid(normPts, cx, cy, c, angleDeg) {
   const a = angleDeg * Math.PI / 180;
   const ca = Math.cos(a), sa = Math.sin(a);
   return normPts.map(([nx, ny]) => {
+    // la griglia ha y verso il basso: il dorso del profilo (ny > 0) va verso y minori
     const lx = (nx - 0.5) * c;
-    const ly = ny * c;
+    const ly = -ny * c;
     return [cx + lx*ca - ly*sa, cy + lx*sa + ly*ca];
   });
 }
@@ -234,11 +235,10 @@ function computeForces() {
       }
     }
   }
-  // Rotate to wind-axis (lift ⊥ flow, drag ∥ flow)
-  const a = P.angle * Math.PI / 180;
-  const lift = -Fx*Math.sin(a) + Fy*Math.cos(a);
-  const drag =  Fx*Math.cos(a) + Fy*Math.sin(a);
-  return { lift, drag };
+  // Il flusso libero va lungo +x: la resistenza è la componente lungo x, la portanza quella
+  // perpendicolare (non quella perpendicolare alla corda). La y della griglia punta in basso,
+  // quindi una portanza verso l'alto è −Fy.
+  return { lift: -Fy, drag: Fx };
 }
 
 // ─── Color maps ────────────────────────────────────────────────────────────────
@@ -443,139 +443,64 @@ const GC = 'rgba(155,210,232,0.92)';  // testo/assi — leggibile su sfondo scur
 const GL = 'rgba(0,230,255,0.90)';
 const GD = 'rgba(255,145,50,0.90)';
 
-function gBg(ctx,W,H,PAD,title) {
-  ctx.fillStyle='rgb(3,9,22)';        // sfondo completamente opaco — stabile in light mode
-  ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle='rgba(100,155,210,0.28)'; ctx.lineWidth=0.6;
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.beginPath();
-  ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH);
-  ctx.stroke();
-  ctx.fillStyle='rgba(100,175,200,0.55)'; ctx.font='8px "Space Mono",monospace';
-  ctx.fillText(title,PAD.l,PAD.t-3);
-  return {gW,gH};
-}
+// Grafici: coefficienti adimensionali, che non dipendono dalle unità del reticolo.
+// CL = portanza/(½·ρ·U²·c), CD = resistenza/(½·ρ·U²·c), Cp = (p − p∞)/(½·ρ·U²) con p = ρ/3.
+function qRef() { return 0.5 * P.speed * P.speed; }
 
 function drawForceGraph() {
-  const cv=gCanvas[0]; if(!cv||!cv.width)return;
-  const ctx=gCtx[0], W=cv.width, H=cv.height;
-  const PAD={t:16,b:14,l:28,r:6};
-  const {gW,gH}=gBg(ctx,W,H,PAD,'Portanza / Resistenza');
-
-  const liftArr=[...liftHist.slice(histIdx), ...liftHist.slice(0,histIdx)];
-  const dragArr=[...dragHist.slice(histIdx), ...dragHist.slice(0,histIdx)];
-  const maxF=Math.max(0.001,...liftArr.map(Math.abs),...dragArr.map(Math.abs));
-  const zero=PAD.t+gH/2;
-
-  // Grid line at zero
-  ctx.strokeStyle='rgba(100,150,200,0.20)'; ctx.lineWidth=0.5;
-  ctx.beginPath(); ctx.moveTo(PAD.l,zero); ctx.lineTo(PAD.l+gW,zero); ctx.stroke();
-
-  // Lift (cyan)
-  ctx.save(); ctx.strokeStyle=GL; ctx.lineWidth=1.2; ctx.beginPath();
-  for(let i=0;i<HIST_LEN;i++){
-    const x=PAD.l+i*gW/HIST_LEN;
-    const y=zero - liftArr[i]/maxF*(gH*0.44);
-    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-  }
-  ctx.stroke(); ctx.restore();
-
-  // Drag (orange)
-  ctx.save(); ctx.strokeStyle=GD; ctx.lineWidth=1.2; ctx.beginPath();
-  for(let i=0;i<HIST_LEN;i++){
-    const x=PAD.l+i*gW/HIST_LEN;
-    const y=zero - dragArr[i]/maxF*(gH*0.44);
-    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-  }
-  ctx.stroke(); ctx.restore();
-
-  // Legend
-  ctx.fillStyle=GL; ctx.fillRect(W-50,4,10,5);
-  ctx.fillStyle=GC; ctx.font='7px "Space Mono",monospace'; ctx.fillText('lift',W-37,9);
-  ctx.fillStyle=GD; ctx.fillRect(W-50,12,10,5);
-  ctx.fillStyle=GC; ctx.fillText('drag',W-37,17);
+  const q = qRef() * CHORD;
+  const lift = [...liftHist.slice(histIdx), ...liftHist.slice(0, histIdx)].map(v => v / q);
+  const drag = [...dragHist.slice(histIdx), ...dragHist.slice(0, histIdx)].map(v => v / q);
+  const m = Lab.niceMax(Math.max(1, ...lift.map(Math.abs), ...drag.map(Math.abs)) * 1.05);
+  const g = Lab.panel(gCanvas[0], { title: 'Coefficienti di portanza CL e resistenza CD', xr: [0, HIST_LEN], xFmt: () => '', yr: [-m, m], xLabel: 'tempo →' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, lift.map((v, i) => [i, v]), GL, 1.8);
+  Lab.plotPts(ctx, f, drag.map((v, i) => [i, v]), GD, 1.8);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [[GL, 'CL'], [GD, 'CD']]);
 }
 
+// profilo di velocità nella scia, 20 celle dietro il bordo d'uscita
 function drawWakeGraph() {
-  const cv=gCanvas[1]; if(!cv||!cv.width)return;
-  const ctx=gCtx[1], W=cv.width, H=cv.height;
-  const PAD={t:16,b:14,l:28,r:6};
-  const {gW,gH}=gBg(ctx,W,H,PAD,'Profilo scia (u/U₀)');
-
-  // Velocity profile at x = airfoil trailing edge + 20 cells
-  const xProbe=Math.min(NX-2, afX + CHORD/2 + 20)|0;
-  ctx.save(); ctx.strokeStyle=GL; ctx.lineWidth=1.4; ctx.beginPath();
-  let first=true;
-  for(let y=1;y<NY-1;y++){
-    const i=y*NX+xProbe;
-    const u=wall[i]?0:ux[i]/P.speed;
-    const px=PAD.l + u*gW*0.7;
-    const py=PAD.t + (y-1)/(NY-2)*gH;
-    first?(ctx.moveTo(px,py),first=false):ctx.lineTo(px,py);
-  }
-  ctx.stroke(); ctx.restore();
-
-  // Reference line at u=U0
-  ctx.strokeStyle='rgba(100,150,200,0.25)'; ctx.lineWidth=0.5;
-  const rx=PAD.l+0.7*gW;
-  ctx.beginPath(); ctx.moveTo(rx,PAD.t); ctx.lineTo(rx,PAD.t+gH); ctx.stroke();
-
-  ctx.fillStyle=GC; ctx.font='8px "Space Mono",monospace';
-  ctx.fillText('0',PAD.l-4,PAD.t+gH+3);
-  ctx.fillText('U₀',PAD.l+gW*0.7-6,PAD.t+gH+3);
+  const xProbe = Math.min(NX - 2, afX + CHORD / 2 + 20) | 0;
+  const g = Lab.panel(gCanvas[1], { title: 'Velocità nella scia u/U₀ (dietro il profilo)', xr: [0, 1.6], xStep: 0.25, yr: [0, 100], yStep: 25, xLabel: 'u/U₀', yFmt: v => Lab.fmt(v, 0) + '%' });
+  if (!g) return; const [ctx, f] = g;
+  ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = f.C.text; ctx.beginPath(); ctx.moveTo(f.X(1), f.T); ctx.lineTo(f.X(1), f.B); ctx.stroke(); ctx.restore();
+  const pts = [];
+  for (let y = 1; y < NY - 1; y++) { const i = y * NX + xProbe; pts.push([wall[i] ? 0 : ux[i] / P.speed, 100 - (y - 1) / (NY - 3) * 100]); }
+  Lab.plotPts(ctx, f, pts, GL, 2);
+  ctx.fillStyle = f.C.text; ctx.font = '9.5px "DM Sans",sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('altezza nella galleria', f.L + 4, f.T + 8);
 }
 
+// coefficiente di pressione sul dorso e sul ventre (−Cp verso l'alto, come nei testi di aerodinamica)
 function drawPressureGraph() {
-  const cv=gCanvas[2]; if(!cv||!cv.width)return;
-  const ctx=gCtx[2], W=cv.width, H=cv.height;
-  const PAD={t:16,b:14,l:28,r:6};
-  const {gW,gH}=gBg(ctx,W,H,PAD,'-Cp dorso / ventre');
-
-  const q = 0.5 * P.speed * P.speed;
-  const pInf = rho[1*NX+1] || 1.0;
-
-  // Cp along upper (dorso) and lower (ventre) surface of airfoil
-  // Scan vertical columns through the airfoil's x-range
-  const xStart=(afX-CHORD/2)|0, xEnd=(afX+CHORD/2)|0;
-  const cpUpper=[], cpLower=[];
-  for(let x=Math.max(1,xStart); x<=Math.min(NX-2,xEnd); x++){
-    let yTop=-1, yBot=-1;
-    for(let y=1;y<NY-1;y++){
-      const i=y*NX+x;
-      if(wall[i]){
-        const up=wall[(y-1)*NX+x]===0;
-        const dn=wall[(y+1)*NX+x]===0;
-        if(up && yTop<0) yTop=y-1;
-        if(dn) yBot=y+1;
+  // pressione di riferimento: media su una sezione una corda a monte del profilo (all'ingresso
+  // sarebbe più alta, perché lungo la galleria la viscosità fa calare la pressione)
+  const xRef = Math.max(2, (afX - CHORD) | 0);
+  let pSum = 0, nRef = 0;
+  for (let y = 2; y < NY - 2; y++) { const i = y * NX + xRef; if (!wall[i]) { pSum += rho[i] / 3; nRef++; } }
+  const q = qRef(), pInf = nRef ? pSum / nRef : 1 / 3;
+  const xStart = (afX - CHORD / 2) | 0, xEnd = (afX + CHORD / 2) | 0;
+  const cpU = [], cpL = [];
+  for (let x = Math.max(1, xStart); x <= Math.min(NX - 2, xEnd); x++) {
+    let yTop = -1, yBot = -1;
+    for (let y = 1; y < NY - 1; y++) {
+      const i = y * NX + x;
+      if (wall[i]) {
+        if (wall[(y - 1) * NX + x] === 0 && yTop < 0) yTop = y - 1;
+        if (wall[(y + 1) * NX + x] === 0) yBot = y + 1;
       }
     }
-    if(yTop>0){ const pv=rho[yTop*NX+x]; const cp=(pv-pInf)/q; cpUpper.push([(x-xStart)/(xEnd-xStart),cp]); }
-    if(yBot>0){ const pv=rho[yBot*NX+x]; const cp=(pv-pInf)/q; cpLower.push([(x-xStart)/(xEnd-xStart),cp]); }
+    const s = (x - xStart) / (xEnd - xStart) * 100;
+    if (yTop > 0) cpU.push([s, -(rho[yTop * NX + x] / 3 - pInf) / q]);
+    if (yBot > 0) cpL.push([s, -(rho[yBot * NX + x] / 3 - pInf) / q]);
   }
-
-  const allCp=[...cpUpper.map(v=>v[1]),...cpLower.map(v=>v[1])];
-  const maxCp=Math.max(2,...allCp.map(Math.abs))*1.1;
-  const y0=PAD.t+gH/2;
-
-  ctx.strokeStyle='rgba(100,150,200,0.20)'; ctx.lineWidth=0.5;
-  ctx.beginPath(); ctx.moveTo(PAD.l,y0); ctx.lineTo(PAD.l+gW,y0); ctx.stroke();
-
-  const plotCp=(arr,col)=>{
-    if(!arr.length)return;
-    ctx.save(); ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.beginPath();
-    arr.forEach(([t,cp],i)=>{
-      const x=PAD.l+t*gW;
-      const y=y0 - cp/maxCp*(gH*0.44);
-      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-    });
-    ctx.stroke(); ctx.restore();
-  };
-  plotCp(cpUpper,'rgba(0,220,255,0.85)');
-  plotCp(cpLower,'rgba(255,100,80,0.85)');
-
-  ctx.fillStyle=GC; ctx.font='7px "Space Mono",monospace';
-  ctx.fillText('dorso',W-42,9); ctx.fillStyle='rgba(0,220,255,0.85)'; ctx.fillRect(W-50,4,7,5);
-  ctx.fillStyle=GC; ctx.fillText('ventre',W-42,17); ctx.fillStyle='rgba(255,100,80,0.85)'; ctx.fillRect(W-50,12,7,5);
+  const m = Lab.niceMax(Math.max(1, ...cpU.map(p => Math.abs(p[1])), ...cpL.map(p => Math.abs(p[1]))) * 1.05);
+  const g = Lab.panel(gCanvas[2], { title: 'Coefficiente di pressione −Cp', xr: [0, 100], yr: [-m, m], xLabel: 'posizione lungo la corda (%)' });
+  if (!g) return; const [ctx, f] = g;
+  Lab.plotPts(ctx, f, cpU, 'rgba(0,220,255,0.9)', 1.8);
+  Lab.plotPts(ctx, f, cpL, 'rgba(255,100,80,0.9)', 1.8);
+  Lab.legend(ctx, f.L + 8, f.T + 8, [['rgba(0,220,255,0.9)', 'dorso'], ['rgba(255,100,80,0.9)', 'ventre']]);
 }
 
 function drawGraphs() {
@@ -666,21 +591,7 @@ function initDrag(canvas) {
 
 // ─── Graph panel setup ─────────────────────────────────────────────────────────
 function initGraphs() {
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:145px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Portanza / Resistenza','Profilo scia','Cp: dorso / ventre'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.80);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div');
-    title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas');
-    cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv);
-    ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3, 170);
 }
 
 // ─── Readout ───────────────────────────────────────────────────────────────────
@@ -694,14 +605,13 @@ function init() {
 
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'re',    label:'Re'},
-    {key:'speed', label:'U'},
-    {key:'angle', label:'α'},
-    {key:'lift',  label:'Portanza'},
-    {key:'drag',  label:'Resistenza'},
-    {key:'hint',  label:''},
+    {key:'re',    label:'numero di Reynolds'},
+    {key:'speed', label:'velocità (unità reticolo)'},
+    {key:'angle', label:'angolo d’attacco'},
+    {key:'lift',  label:'portanza'},
+    {key:'drag',  label:'resistenza'},
+    {key:'hint',  label:'regime'},
   ]);
-  readout.set('hint','trascina il profilo nella galleria');
 
   document.getElementById('btnPlay').addEventListener('click',()=>{
     paused=!paused;
@@ -728,11 +638,7 @@ function init() {
     const gaH=ga?ga.offsetHeight:0;
     simCanvas.width =Math.floor(ar.width);
     simCanvas.height=Math.max(60,Math.floor(ar.height-rb.height-gaH-4));
-    for(const cv of gCanvas){
-      if(!cv)continue;
-      cv.width =Math.floor(cv.parentElement.clientWidth);
-      cv.height=Math.floor(cv.parentElement.clientHeight);
-    }
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -766,10 +672,13 @@ function init() {
     const {lift,drag}=computeForces();
     const q=0.5*P.speed*P.speed;
     const S=CHORD;
-    const CL=(lift/(q*S)).toFixed(3);
-    const CD=(drag/(q*S)).toFixed(3);
+    const CL=Lab.fmt(lift/(q*S),2);
+    const CD=Lab.fmt(drag/(q*S),2);
     readout.set('re',  String(Re));
-    readout.set('speed',P.speed.toFixed(2)+' U');
+    // con Re di qualche centinaio la viscosità domina: la resistenza è molto più alta di quella
+    // di un'ala vera (Re ~ 10⁶) e la portanza più bassa
+    readout.set('hint', Re<500 ? 'viscoso (Re basso)' : Re<2000 ? 'laminare' : 'verso la turbolenza');
+    readout.set('speed',Lab.fmt(P.speed,2));
     readout.set('angle',P.angle+'°');
     readout.set('lift', 'CL = '+CL);
     readout.set('drag', 'CD = '+CD);

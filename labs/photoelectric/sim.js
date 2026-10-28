@@ -156,8 +156,7 @@ function drawWavyBeam(ctx,x0,y0,x1,y1,col){
 
 // ═══ Rendering ════════════════════════════════════════════════════════════════
 function draw(canvas){
-  const ctx=canvas.getContext('2d');
-  const W=canvas.width,H=canvas.height;
+  const [ctx, W, H] = Lab.ctx2d(canvas);
   T=pal();
   ctx.fillStyle=T.bg; ctx.fillRect(0,0,W,H);
   geom(W,H);
@@ -253,7 +252,7 @@ function drawCircuit(ctx){
   ctx.beginPath(); ctx.moveTo(gX-7,yB-10); ctx.lineTo(gX-7,yB+10); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(gX+7,yB-6); ctx.lineTo(gX+7,yB+6); ctx.stroke();
   ctx.strokeStyle=rgb(T.cur); ctx.lineWidth=1; ctx.beginPath(); ctx.arc(gX,yB,18,0,Math.PI*2); ctx.stroke();
-  ctx.fillStyle=T.txt; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(`${P.V>=0?'+':''}${P.V.toFixed(2)} V`, gX, yB+34);
+  ctx.fillStyle=T.txt; ctx.font='10px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText(`${P.V>=0?'+':''}${Lab.fmt(P.V,2)} V`, gX, yB+34);
   if(I>0.01) drawFlow(ctx,yB,I,aX,gX);
   ctx.fillStyle=T.sub; ctx.font='9px "Space Mono",monospace'; ctx.fillText('amperometro',aX,yB-24); ctx.fillText('generatore variabile',gX,yB-24);
 }
@@ -281,9 +280,9 @@ function drawEnergyDiagram(ctx){
   const ey=y1-photonE()*sc, lc=wlRGB(lambdaNm());
   ctx.strokeStyle=rgb(lc); ctx.lineWidth=2.5; ctx.setLineDash([4,3]); ctx.beginPath(); ctx.moveTo(bx-8,ey); ctx.lineTo(bx+bw+8,ey); ctx.stroke(); ctx.setLineDash([]);
   ctx.font='8px "Space Mono",monospace'; ctx.textAlign='left';
-  ctx.fillStyle=rgb(lc); ctx.fillText(`hν=${photonE().toFixed(2)}`, bx+bw+10, ey+3);
-  ctx.fillStyle=rgb(T.phi); ctx.fillText(`φ=${phi().toFixed(2)}`, bx+bw+10, y1-ph+3);
-  if(k>0){ ctx.fillStyle=rgb(T.kcol); ctx.fillText(`K=${Kmax().toFixed(2)}`, bx+bw+10, y1-ph-k+3); }
+  ctx.fillStyle=rgb(lc); ctx.fillText(`hν=${Lab.fmt(photonE(),2)}`, bx+bw+10, ey+3);
+  ctx.fillStyle=rgb(T.phi); ctx.fillText(`φ=${Lab.fmt(phi(),2)}`, bx+bw+10, y1-ph+3);
+  if(k>0){ ctx.fillStyle=rgb(T.kcol); ctx.fillText(`K=${Lab.fmt(Kmax(),2)}`, bx+bw+10, y1-ph-k+3); }
   ctx.fillStyle=T.sub; ctx.textAlign='center'; ctx.fillText('hν = φ + K_max', x+w/2, y1+13);
 }
 
@@ -291,55 +290,38 @@ function drawHeader(ctx,W,H){
   ctx.textAlign='left'; ctx.fillStyle=T.accent; ctx.font='bold 14px "Space Mono",monospace';
   ctx.fillText('Effetto fotoelettrico:  K_max = hν − φ', 14, 24);
   ctx.fillStyle=T.sub; ctx.font='10px "Space Mono",monospace';
-  ctx.fillText(`ν = ${P.nu.toFixed(2)}·10¹⁴ Hz   λ = ${lambdaNm().toFixed(0)} nm   intensità ${P.intensity}%`, 14, 40);
+  ctx.fillText(`ν = ${Lab.fmt(P.nu,2)}·10¹⁴ Hz   λ = ${Lab.fmt(lambdaNm(),0)} nm   intensità ${P.intensity}%`, 14, 40);
 }
 
 // ═══ Grafici ══════════════════════════════════════════════════════════════════
-function gBase(ctx,W,H,PAD,zeroMidX){
-  ctx.fillStyle=T.gBg; ctx.fillRect(0,0,W,H);
-  const gW=W-PAD.l-PAD.r, gH=H-PAD.t-PAD.b;
-  ctx.strokeStyle=T.gAxis; ctx.lineWidth=0.6;
-  if(zeroMidX!=null){ const zx=PAD.l+gW*zeroMidX;
-    ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(zx,PAD.t); ctx.lineTo(zx,PAD.t+gH); ctx.stroke(); return {gW,gH,zx}; }
-  ctx.beginPath(); ctx.moveTo(PAD.l,PAD.t); ctx.lineTo(PAD.l,PAD.t+gH); ctx.lineTo(PAD.l+gW,PAD.t+gH); ctx.stroke();
-  return {gW,gH};
-}
+// 1: caratteristica corrente–tensione: satura per V > 0, si annulla alla tensione d'arresto −V₀
 function drawIV(){
-  const cv=gCanvas[0]; if(!cv||!cv.width)return; const ctx=gCtx[0],W=cv.width,H=cv.height;
-  const PAD={t:14,b:18,l:24,r:8}, Vmin=-3,Vmax=3, zf=(0-Vmin)/(Vmax-Vmin);
-  const {gW,gH}=gBase(ctx,W,H,PAD,zf);
-  const xOf=v=>PAD.l+(v-Vmin)/(Vmax-Vmin)*gW;
-  const Isat=Math.max(0.001,P.intensity/100), v0=V0();
-  function Iat(v){ if(!emits())return 0; if(v>=0)return Isat; if(v0<=1e-6)return 0; return Isat*clamp(1-(-v)/v0,0,1); }
-  ctx.strokeStyle=rgb(T.cur); ctx.lineWidth=1.6; ctx.beginPath(); let f=true;
-  for(let i=0;i<=80;i++){ const v=Vmin+(Vmax-Vmin)*i/80,x=xOf(v),y=PAD.t+gH-Iat(v)*gH*0.9; f?(ctx.moveTo(x,y),f=false):ctx.lineTo(x,y); } ctx.stroke();
-  if(emits()){ const xs=xOf(-v0); ctx.strokeStyle='rgba(255,110,90,0.6)'; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(xs,PAD.t); ctx.lineTo(xs,PAD.t+gH); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle='rgba(255,130,110,0.9)'; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='center'; ctx.fillText('−V₀',xs,PAD.t+8); }
-  ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(P.V),PAD.t+gH-Iat(P.V)*gH*0.9,3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I',PAD.l+2,PAD.t+7);
-  ctx.textAlign='right'; ctx.fillText('V',PAD.l+gW-2,PAD.t+gH-3);
+  const v0=V0(), Isat=P.intensity;
+  const Iat=v=>{ if(!emits())return 0; if(v>=0)return Isat; if(v0<=1e-6)return 0; return Isat*clamp(1-(-v)/v0,0,1); };
+  const g=Lab.panel(gCanvas[0],{ title:'Corrente (% del massimo) in funzione della tensione', xr:[-3,3], xStep:1, yr:[0,100], yStep:25, xLabel:'tensione V (volt)' });
+  if(!g) return; const [ctx,f]=g;
+  if(emits()){ ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle='rgba(255,110,90,0.8)'; ctx.beginPath(); ctx.moveTo(f.X(-v0),f.T); ctx.lineTo(f.X(-v0),f.B); ctx.stroke(); ctx.restore();
+    ctx.fillStyle='rgba(255,130,110,0.95)'; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle'; ctx.fillText(`−V₀ = −${Lab.fmt(v0,2)} V`,f.X(-v0)-4,f.T+8); }
+  Lab.plot(ctx,f,Iat,[-3,3],rgb(T.cur),2,[],300);
+  Lab.dot(ctx,f,P.V,Iat(P.V),T.accent,4.5);
 }
+// 2: energia cinetica massima K = hν − φ: retta di pendenza h (uguale per ogni metallo), parte dalla soglia ν₀
 function drawKnu(){
-  const cv=gCanvas[1]; if(!cv||!cv.width)return; const ctx=gCtx[1],W=cv.width,H=cv.height;
-  const PAD={t:14,b:18,l:24,r:8}; const {gW,gH}=gBase(ctx,W,H,PAD);
-  const numax=16, Kmx=Math.max(0.5,h_eV*numax*1e14-phi());
-  const xOf=n=>PAD.l+n/numax*gW, yOf=k=>PAD.t+gH-k/Kmx*gH*0.9, n0=nu0();
-  ctx.strokeStyle=rgb(T.kcol); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(n0),yOf(0)); ctx.lineTo(xOf(numax),yOf(h_eV*numax*1e14-phi())); ctx.stroke();
-  ctx.strokeStyle='rgba(120,140,170,0.5)'; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(n0),yOf(0)); ctx.stroke();
-  ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(P.nu),yOf(Kmax()),3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('K_max',PAD.l+2,PAD.t+7);
-  ctx.textAlign='right'; ctx.fillText('ν',PAD.l+gW-2,PAD.t+gH-3);
-  ctx.fillStyle='rgba(150,170,200,0.8)'; ctx.textAlign='center'; ctx.fillText('ν₀',xOf(n0),PAD.t+gH-3);
+  const numax=16, n0=nu0();
+  const g=Lab.panel(gCanvas[1],{ title:'Energia cinetica massima K (eV)', xr:[0,numax], xStep:2, yr:[0,Lab.niceMax(Math.max(0.5,h_eV*numax*1e14-phi()))], xLabel:'frequenza ν (10¹⁴ Hz)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,n=>n<n0?0:h_eV*n*1e14-phi(),[0,numax],rgb(T.kcol),2,[],300);
+  ctx.save(); ctx.setLineDash([3,3]); ctx.strokeStyle=f.C.text; ctx.beginPath(); ctx.moveTo(f.X(n0),f.T); ctx.lineTo(f.X(n0),f.B); ctx.stroke(); ctx.restore();
+  ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText(`soglia ν₀ = ${Lab.fmt(n0,2)}·10¹⁴ Hz`,f.X(n0)+4,f.T+8);
+  Lab.dot(ctx,f,P.nu,Kmax(),T.accent,4.5);
 }
+// 3: la corrente di saturazione è proporzionale all'intensità (numero di fotoni), ma solo sopra soglia
 function drawIint(){
-  const cv=gCanvas[2]; if(!cv||!cv.width)return; const ctx=gCtx[2],W=cv.width,H=cv.height;
-  const PAD={t:14,b:18,l:24,r:8}; const {gW,gH}=gBase(ctx,W,H,PAD);
-  const xOf=i=>PAD.l+i/100*gW, yOf=v=>PAD.t+gH-v*gH*0.9;
-  ctx.strokeStyle=emits()?rgb(T.cur):'rgba(120,140,170,0.5)'; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(xOf(0),yOf(0)); ctx.lineTo(xOf(100),yOf(emits()?1:0)); ctx.stroke();
-  ctx.fillStyle=T.accent; ctx.beginPath(); ctx.arc(xOf(P.intensity),yOf(emits()?P.intensity/100:0),3.5,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle=T.gText; ctx.font='7px "Space Mono",monospace'; ctx.textAlign='left'; ctx.fillText('I_sat',PAD.l+2,PAD.t+7);
-  ctx.textAlign='right'; ctx.fillText('intensità',PAD.l+gW-2,PAD.t+gH-3);
+  const g=Lab.panel(gCanvas[2],{ title:'Corrente di saturazione (% del massimo)', xr:[0,100], xStep:25, yr:[0,100], yStep:25, xLabel:'intensità della luce (%)' });
+  if(!g) return; const [ctx,f]=g;
+  Lab.plot(ctx,f,i=>emits()?i:0,[0,100],emits()?rgb(T.cur):f.C.text,2);
+  Lab.dot(ctx,f,P.intensity,emits()?P.intensity:0,T.accent,4.5);
+  if(!emits()){ ctx.fillStyle=f.C.text; ctx.font='9.5px "DM Sans",sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('sotto soglia: nessun elettrone, a qualunque intensità',(f.L+f.R)/2,f.T+14); }
 }
 function drawGraphs(){ drawIV(); drawKnu(); drawIint(); }
 
@@ -357,26 +339,17 @@ function buildControls(){
   const secM=Lab.Section('Catodo');
   cont.appendChild(secM.el);
   secM.add(Lab.RadioGroup({ label:'Materiale (lavoro di estrazione φ)',
-    options:Object.keys(MAT).map(k=>({value:k, label:MAT[k].name, hint:MAT[k].phi.toFixed(2)+' eV'})),
+    options:Object.keys(MAT).map(k=>({value:k, label:MAT[k].name, hint:Lab.fmt(MAT[k].phi,2)+' eV'})),
     value:P.mat, onChange(v){ P.mat=v; } }));
   const secV=Lab.Section('Tensione (tubo)');
   cont.appendChild(secV.el);
   secV.add(Lab.Slider({ label:'Tensione anodo V', min:-3, max:3, step:0.05, value:P.V, unit:' V', onChange(v){P.V=v;} }));
 }
 
-function initGraphs(){
-  const ga=document.getElementById('graphArea');
-  ga.style.cssText='display:flex;flex-direction:row;gap:5px;padding:5px 0 3px;height:150px;box-sizing:border-box;border-top:1px solid rgba(100,150,200,0.14);';
-  const TITLES=['Corrente – Tensione','K_max in funzione di ν','Corrente – Intensità'];
-  for(let i=0;i<3;i++){
-    const panel=document.createElement('div');
-    panel.style.cssText='flex:1;min-width:0;position:relative;background:rgba(2,7,18,0.8);border:1px solid rgba(100,150,200,0.11);border-radius:4px;overflow:hidden;';
-    const title=document.createElement('div'); title.textContent=TITLES[i];
-    title.style.cssText='position:absolute;top:3px;left:6px;font-size:8px;color:rgba(100,175,200,0.65);font-family:"Space Mono",monospace;text-transform:uppercase;letter-spacing:0.4px;z-index:1;pointer-events:none;';
-    const cv=document.createElement('canvas'); cv.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;';
-    panel.appendChild(title); panel.appendChild(cv); ga.appendChild(panel);
-    gCanvas[i]=cv; gCtx[i]=cv.getContext('2d');
-  }
+function initGraphs() {
+  // riga di grafici standard; i titoli sono disegnati dentro i grafici
+  gCanvas = Lab.graphPanels(document.getElementById('graphArea'), 3);
+  gCtx = gCanvas.map(c => c.getContext('2d'));
 }
 
 // ═══ Init ═════════════════════════════════════════════════════════════════════
@@ -386,12 +359,12 @@ function init(){
   initGraphs();
   const simCanvas=document.getElementById('simCanvas');
   readout=new Lab.Readout(document.getElementById('readout'),[
-    {key:'E',  label:'Energia fotone hν'},
-    {key:'phi',label:'Lavoro estraz. φ'},
-    {key:'k',  label:'K_max'},
-    {key:'nu0',label:'Freq. soglia ν₀'},
-    {key:'v0', label:'Tensione arresto V₀'},
-    {key:'I',  label:'Corrente'},
+    {key:'E',  label:'energia del fotone hν'},
+    {key:'phi',label:'lavoro di estrazione φ'},
+    {key:'k',  label:'energia cinetica massima'},
+    {key:'nu0',label:'frequenza di soglia ν₀'},
+    {key:'v0', label:'tensione d’arresto V₀'},
+    {key:'I',  label:'corrente'},
   ]);
   const btnStop=document.getElementById('btnStop');
   btnStop.addEventListener('click',()=>{ P.V = emits()? -V0() : 0; buildControls(); });
@@ -405,9 +378,8 @@ function init(){
     const rb=document.getElementById('readout').getBoundingClientRect();
     const ga=document.getElementById('graphArea'); const gaH=ga?ga.offsetHeight:0;
     const h=Math.max(240,Math.floor(ar.height-rb.height-gaH-4));
-    simCanvas.style.width=Math.floor(ar.width)+'px'; simCanvas.style.height=h+'px';
-    simCanvas.width=Math.floor(ar.width); simCanvas.height=h;
-    for(const cv of gCanvas){ if(!cv)continue; cv.width=Math.floor(cv.parentElement.clientWidth); cv.height=Math.floor(cv.parentElement.clientHeight); }
+    Lab.hidpi(simCanvas, Math.floor(ar.width), h);
+    Lab.fitPanels(gCanvas);
   }
   resize();
   new ResizeObserver(resize).observe(document.querySelector('.lab-canvas-area'));
@@ -422,12 +394,12 @@ function init(){
     step(dt);
     draw(simCanvas);
     drawGraphs();
-    readout.set('E', photonE().toFixed(2)+' eV');
-    readout.set('phi', phi().toFixed(2)+' eV');
-    readout.set('k', emits()? Kmax().toFixed(2)+' eV' : '0 (no emiss.)');
-    readout.set('nu0', nu0().toFixed(2)+'·10¹⁴ Hz');
-    readout.set('v0', emits()? V0().toFixed(2)+' V' : '—');
-    readout.set('I', emits()? (current()*100).toFixed(0)+' % I_sat' : '0');
+    readout.set('E', Lab.fmt(photonE(),2)+' eV');
+    readout.set('phi', Lab.fmt(phi(),2)+' eV');
+    readout.set('k', emits()? Lab.fmt(Kmax(),2)+' eV' : '0 (no emiss.)');
+    readout.set('nu0', Lab.fmt(nu0(),2)+'·10¹⁴ Hz');
+    readout.set('v0', emits()? Lab.fmt(V0(),2)+' V' : '—');
+    readout.set('I', emits()? Lab.fmt((current()*100),0)+' % I_sat' : '0');
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
